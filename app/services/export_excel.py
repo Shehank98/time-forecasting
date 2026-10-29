@@ -47,6 +47,14 @@ def _autowidth(ws, max_width: int = 60) -> None:
         ws.column_dimensions[get_column_letter(col)].width = w
 
 
+def _put(ws, row: int, col: int, value: Any):
+    """Write a cell. Text from uploaded files that looks like a formula is stored as plain text, never executed."""
+    cell = ws.cell(row=row, column=col, value=_clean(value))
+    if cell.data_type == "f":
+        cell.data_type = "s"
+    return cell
+
+
 def _clean(v: Any) -> Any:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
@@ -59,12 +67,12 @@ def _write_df(ws, df: pd.DataFrame, header_row: int, fmt: dict[str, str], as_tab
     """Write the frame and return the last row. Creates a native Excel table when asked."""
     cols = [str(c) for c in df.columns]
     for j, c in enumerate(cols, 1):
-        cell = ws.cell(row=header_row, column=j, value=c)
+        cell = _put(ws, header_row, j, c)
         cell.fill, cell.font = HEADER_FILL, HEADER_FONT
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for i, row in enumerate(df.itertuples(index=False), header_row + 1):
         for j, v in enumerate(row, 1):
-            cell = ws.cell(row=i, column=j, value=_clean(v))
+            cell = _put(ws, i, j, v)
             f = fmt.get(cols[j - 1]) or default_fmt
             if f and isinstance(cell.value, (int, float)):
                 cell.number_format = NUMFMT[f]
@@ -153,16 +161,16 @@ def build_workbook(rep: Report) -> Workbook:
     ws["A1"] = rep.title; ws["A1"].font = Font(bold=True, size=20, color="4F46E5")
     info = [("Card", rep.card), ("Date range", rep.date_range or "n/a"), ("Generated", rep.generated), ("Data source file(s)", ", ".join(rep.source_files))]
     for i, (k, v) in enumerate(info, 3):
-        ws.cell(row=i, column=1, value=k).font = Font(bold=True); ws.cell(row=i, column=2, value=v)
+        ws.cell(row=i, column=1, value=k).font = Font(bold=True); _put(ws, i, 2, v)
     r = 3 + len(info) + 1
     ws.cell(row=r, column=1, value="Filters applied").font = Font(bold=True)
     for j, f in enumerate(rep.filters):
-        ws.cell(row=r + j, column=2, value=f)
+        _put(ws, r + j, 2, f)
     n_notes = 0
     if rep.notes:
         ws.cell(row=r + len(rep.filters) + 1, column=1, value="Notes").font = Font(bold=True, color="C27A06")
         for j, n in enumerate(rep.notes):
-            ws.cell(row=r + len(rep.filters) + 1 + j, column=2, value=n)
+            _put(ws, r + len(rep.filters) + 1 + j, 2, n)
         n_notes = len(rep.notes) + 1
     ws.cell(row=r + len(rep.filters) + 1 + n_notes, column=1, value="Contents").font = Font(bold=True)
     ws.column_dimensions["A"].width = 24; ws.column_dimensions["B"].width = 90
@@ -171,8 +179,8 @@ def build_workbook(rep: Report) -> Workbook:
     for j, h in enumerate(["Metric", "Value"], 1):
         c = k.cell(row=3, column=j, value=h); c.fill, c.font = HEADER_FILL, HEADER_FONT
     for i, (label, val, f) in enumerate(rep.kpis, 4):
-        k.cell(row=i, column=1, value=label)
-        c = k.cell(row=i, column=2, value=_clean(val))
+        _put(k, i, 1, label)
+        c = _put(k, i, 2, val)
         if isinstance(c.value, (int, float)):
             c.number_format = NUMFMT[f]
         c.alignment = Alignment(horizontal="right")

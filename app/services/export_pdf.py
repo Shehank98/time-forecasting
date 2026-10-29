@@ -30,7 +30,7 @@ REL_COLORS = {"High": "#12a06a", "Medium": "#c27a06", "Low": "#d6364f"}
 
 def safe(s: Any) -> str:
     """Helvetica is Latin-1 only. Replace anything else so text never renders as boxes."""
-    t = str(s).replace("—", "-").replace("–", "-").replace("’", "'")
+    t = str(s).replace("\u2014", "-").replace("\u2013", "-").replace("\u2019", "'")
     t = t.encode("latin-1", "replace").decode("latin-1")
     return re.sub(r"[<>&]", lambda m: {"<": "&lt;", ">": "&gt;", "&": "&amp;"}[m.group()], t)
 

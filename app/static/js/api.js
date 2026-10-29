@@ -44,7 +44,11 @@ window.App = window.App || {};
   const api = {
     async get(url) { return (await request(url)).json(); },
     async post(url, body) { return (await request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })).json(); },
-    async put(url, body) { return (await request(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json(); },
+    async put(url, body) {
+      const hdr = () => ({ 'Content-Type': 'application/json', 'X-Admin-Token': store.get('admin-token', '') });
+      try { return await (await request(url, { method: 'PUT', headers: hdr(), body: JSON.stringify(body) })).json(); }
+      catch (e) { if (e.status !== 403) throw e; const t = window.prompt('Admin token required to change settings:'); if (!t) throw e; store.set('admin-token', t); return (await request(url, { method: 'PUT', headers: hdr(), body: JSON.stringify(body) })).json(); }
+    },
     async del(url) { return (await request(url, { method: 'DELETE' })).json(); },
     async blob(url, body) {
       const res = await request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });

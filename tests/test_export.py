@@ -75,7 +75,7 @@ def test_tv_reports_build(tv, lm):
 
 def test_no_em_dashes_in_generated_text(lm_report):
     for t in lm_report.tables:
-        assert "—" not in t.note and "—" not in " ".join(map(str, t.df.astype(str).values.ravel()))
+        assert "\u2014" not in t.note and "\u2014" not in " ".join(map(str, t.df.astype(str).values.ravel()))
 
 
 def test_export_endpoint_streams_and_cleans_up(monkeypatch):

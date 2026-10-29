@@ -14,6 +14,7 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 TTL_SECONDS = int(os.environ.get("SESSION_TTL_MIN", "120")) * 60
+MAX_SESSIONS = int(os.environ.get("MAX_SESSIONS", "200"))
 
 
 @dataclass
@@ -57,6 +58,10 @@ class SessionStore:
             elif create:
                 s = Session(sid=uuid.uuid4().hex)
                 self._s[s.sid] = s
+                while len(self._s) > MAX_SESSIONS:      # bound memory: drop the least recently used session
+                    oldest = min(self._s.values(), key=lambda x: x.touched)
+                    del self._s[oldest.sid]
+                    log.info("Evicted session %s (cap reached)", oldest.sid)
             else:
                 return None
             s.touched = time.time()

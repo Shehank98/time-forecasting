@@ -46,7 +46,8 @@ store = SessionStore()
 def current_session(request: Request, response: Response) -> Session:
     """Resolve the session from the cookie, creating one when missing or expired."""
     sess = store.get(request.cookies.get("sid"))
-    response.set_cookie("sid", sess.sid, httponly=True, samesite="lax", max_age=60 * 60 * 24)
+    secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    response.set_cookie("sid", sess.sid, httponly=True, samesite="lax", secure=secure, max_age=60 * 60 * 24)
     return sess
 
 
@@ -200,12 +201,21 @@ def rows(kind: str, req: TableReq, sess: Session = Depends(current_session)) -> 
     return jsonable({"columns": TABLE_COLS[kind], "rows": chunk.values.tolist(), "total": int(len(df)), "page": page, "page_size": size})
 
 
+def csv_safe(df: pd.DataFrame) -> pd.DataFrame:
+    """Neutralise spreadsheet formula injection: text cells starting with = + - @ get a leading apostrophe."""
+    out = df.copy()
+    for c in out.columns:
+        if out[c].dtype == object or str(out[c].dtype).startswith("str"):
+            out[c] = out[c].map(lambda v: "'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r") else v)
+    return out
+
+
 @app.post("/api/{kind}/rows/csv")
 def rows_csv(kind: str, req: DashReq, sess: Session = Depends(current_session)) -> Response:
     """Download the filtered rows as CSV (capped to keep memory bounded)."""
     ds = dataset(sess, kind)
     df = flt.apply_filters(ds.df, kind, req.filters)[TABLE_COLS[kind]].head(250_000)
-    return Response(df.to_csv(index=False), media_type="text/csv",
+    return Response(csv_safe(df).to_csv(index=False), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{kind}_filtered_rows.csv"'})
 
 
@@ -414,15 +424,44 @@ def get_config(name: str) -> dict:
     return normalise.load_config(EDITABLE[name])
 
 
+def validate_config(name: str, body: dict) -> None:
+    """Reject malformed config so one bad edit cannot break uploads for everyone."""
+    def num(v: Any) -> bool:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+    if not isinstance(body, dict):
+        raise ValueError("Config must be a JSON object.")
+    if name == "channel_aliases":
+        for k, v in body.items():
+            if not k.startswith("_") and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+                raise ValueError(f"'{k}' must map to a list of alias strings.")
+    elif name == "holidays":
+        for e in body.get("events", []):
+            if not isinstance(e, dict) or pd.isna(pd.to_datetime(e.get("date"), errors="coerce")) or not isinstance(e.get("name", ""), str):
+                raise ValueError(f"Bad event: {e}")
+        for sh in body.get("school_holidays", []):
+            if not isinstance(sh, dict) or pd.isna(pd.to_datetime(sh.get("start"), errors="coerce")) or pd.isna(pd.to_datetime(sh.get("end"), errors="coerce")):
+                raise ValueError(f"Bad school holiday: {sh}")
+    elif name == "dayparts":
+        dps = body.get("dayparts")
+        if not isinstance(dps, list) or not dps or not all(isinstance(d, dict) and isinstance(d.get("name"), str) and num(d.get("start")) and num(d.get("end")) and 0 <= d["start"] <= 24 and 0 <= d["end"] <= 24 for d in dps):
+            raise ValueError("dayparts must be a non-empty list of {name, start, end} with hours 0 to 24.")
+        if not isinstance(body.get("duration_bands", []), list) or not all(isinstance(m, int) and m >= 1 for m in body.get("min_points", {}).values()):
+            raise ValueError("duration_bands must be a list and min_points must be positive integers.")
+
+
 @app.put("/api/config/{name}")
-def put_config(name: str, body: dict) -> dict:
-    """Replace a config file. Changes apply to the next upload and forecast."""
+def put_config(name: str, body: dict, request: Request) -> dict:
+    """Replace a config file. Changes apply to the next upload and forecast. Set ADMIN_TOKEN to require a token."""
+    token = os.environ.get("ADMIN_TOKEN")
+    if token and request.headers.get("x-admin-token") != token:
+        raise HTTPException(403, "An admin token is required to change settings.")
     if name not in EDITABLE:
         raise HTTPException(404, "Unknown config")
     try:
+        validate_config(name, body)
         text = json.dumps(body, indent=2, ensure_ascii=False)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(422, f"Invalid JSON: {exc}") from exc
+        raise HTTPException(422, f"Invalid config: {exc}") from exc
     (normalise.CONFIG_DIR / EDITABLE[name]).write_text(text, encoding="utf-8")
     normalise._cache.clear()
     fc.cache.clear()

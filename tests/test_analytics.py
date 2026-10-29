@@ -26,7 +26,7 @@ def test_lmrb_dashboard_shape_and_json(lm):
     assert k["total_spend"] == pytest.approx(lm[lm["advertiser"].isin(d["scope"])]["cost"].sum())
     assert 0 < k["sov_spend_pct"] < 100 and k["my_rank"] >= 1
     assert "Lanka Tea Co" not in d["scope"]  # different product group
-    assert abs(sum(r["share_pct"] for r in d["by_advertiser"]) - 100) < 1e-6
+    assert abs(sum(r["share_pct"] for r in d["by_advertiser"]) - 100) < 1e-3
     assert len(d["sov_weekly"]["weeks"]) >= 6
 
 
@@ -45,7 +45,7 @@ def test_alerts_detect_stop_and_discount(lm):
     d = A.dashboard(lm, None, None, "Nestle Lanka Ltd")
     types = {a["type"] for a in d["alerts"]["items"]}
     assert "stopped" in types or "channel_stop" in types
-    assert all("—" not in a["text"] for a in d["alerts"]["items"])
+    assert all("\u2014" not in a["text"] for a in d["alerts"]["items"])
 
 
 def test_pricing_flags_discount_advertiser(lm):

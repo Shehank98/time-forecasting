@@ -2,7 +2,7 @@
 (function (App) {
   const { esc } = App;
   let uid = 0;
-  const csvCell = (v) => { if (v == null) return ''; if (Array.isArray(v)) v = v.join('; '); v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const csvCell = (v) => { if (v == null) return ''; if (Array.isArray(v)) v = v.join('; '); v = String(v); if (/^[=+\-@\t\r]/.test(v) && Number.isNaN(Number(v))) v = "'" + v; return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
   function toCsv(cols, rows) {
     return '﻿' + [cols.map((c) => csvCell(c.label)).join(',')].concat(rows.map((r) => cols.map((c) => csvCell(r[c.key])).join(','))).join('\n');
   }
