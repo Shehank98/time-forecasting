@@ -11,13 +11,15 @@ from typing import Any
 
 import pandas as pd
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .services import analytics_lmrb, analytics_tv, ingest, normalise, series as series_mod, filters as flt
 from .services import forecast as fc
 from .services import gemini_client as gem
+from .services import export_excel, export_pdf, report_data
 from .services.store import Dataset, Session, SessionStore, content_hash
 from .services.util import jsonable
 
@@ -339,6 +341,66 @@ def chat(req: AiReq, sess: Session = Depends(current_session)) -> dict:
 @app.get("/api/ai-status")
 def ai_status() -> dict:
     return {"configured": gem.service.configured(), "model": gem.service.model_name}
+
+
+# ------------------------------------------------------------------ export
+class ExportReq(DashReq):
+    kind: str
+    format: str = "xlsx"
+    include_ai: bool = False
+    forecast: dict[str, Any] | None = None      # forecast params to include (served from cache when already run)
+    ai: dict[str, Any] | None = None            # insights already generated in the browser session
+
+
+@app.post("/api/export")
+def export(req: ExportReq, sess: Session = Depends(current_session)) -> FileResponse:
+    """Build an Excel or PDF report for the current filters, stream it and delete the temp file afterwards."""
+    import datetime as dt
+    import tempfile
+    if req.format not in ("xlsx", "pdf"):
+        raise HTTPException(422, "Format must be xlsx or pdf.")
+    ds = dataset(sess, req.kind)
+    built = build_dashboard(sess, req.kind, req.filters, req.options)
+    if built["data"].get("empty"):
+        raise HTTPException(422, "No rows match the current filters, so there is nothing to export.")
+    notes: list[str] = []
+    fcres = None
+    if req.forecast:
+        try:
+            fcres = forecast_result(sess, ForecastReq(kind=req.kind, filters=req.filters, options=req.options, params=req.forecast))
+            if not fcres.get("ok"):
+                notes.append("Forecast not included: " + str(fcres.get("message", "no result")))
+                fcres = None
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Forecast for export failed")
+            notes.append(f"Forecast not included: {exc}")
+    ai = None
+    if req.include_ai:
+        ai = req.ai
+        if ai is None:
+            try:
+                facts = gem.build_facts(req.kind, built["data"], fcres, built["meta"])
+                ai = jsonable(gem.service.insights(facts, req.kind, gem.standing_caveats(fcres, built["data"], built["meta"])))
+            except gem.GeminiError as exc:
+                notes.append(f"AI summary not included: {exc}")
+    chips = [f"{c['label']}: {c['value']}" for c in built["meta"]["chips"]]
+    rep = report_data.build(req.kind, built["data"], built["meta"], ds.files, fcres, ai, chips)
+    rep.notes += notes
+    stamp = dt.datetime.now().strftime("%Y%m%d_%H%M")
+    fname = f"{req.kind}_report_{stamp}.{req.format}"
+    fd, path = tempfile.mkstemp(suffix="." + req.format)
+    os.close(fd)
+    try:
+        if req.format == "xlsx":
+            export_excel.build_workbook(rep).save(path)
+        else:
+            Path(path).write_bytes(export_pdf.build_pdf(rep))
+    except Exception:
+        os.remove(path)
+        log.exception("Export failed")
+        raise HTTPException(500, "The report could not be built. Please try again with fewer filters.")
+    media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if req.format == "xlsx" else "application/pdf"
+    return FileResponse(path, media_type=media, filename=fname, background=BackgroundTask(os.remove, path))
 
 
 # ------------------------------------------------------------------ config (editable JSON)

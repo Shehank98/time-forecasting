@@ -70,6 +70,7 @@ window.App = window.App || {};
   };
   function download(blob, name) {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    a.addEventListener('click', (e) => e.stopPropagation());   // a synthetic click must not trigger click-outside handlers
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
   const debounce = (fn, ms = 300) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
