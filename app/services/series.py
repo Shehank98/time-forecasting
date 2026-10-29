@@ -139,7 +139,7 @@ def period_column(df: pd.DataFrame, gran: str) -> pd.Series:
     if gran == "daily":
         return df["date"]
     if gran == "weekly":
-        return df["date"] - pd.to_timedelta(df["date"].dt.dayofweek, unit="D")
+        return df["date"] - pd.to_timedelta(df["date"].dt.day_of_week, unit="D")
     return df["date"].dt.to_period("M").dt.to_timestamp()
 
 
@@ -227,8 +227,8 @@ def build_series(df: pd.DataFrame, kind: str, entity_type: str, metric: str, gra
     pv = _pivot(d, "_per", m, idx)
     if m.additive and gran in ("weekly", "monthly") and len(idx) >= 4:
         dmin, dmax = df["date"].min(), df["date"].max()
-        first_partial = dmin.dayofweek != 0 if gran == "weekly" else dmin.day != 1
-        last_partial = dmax.dayofweek != 6 if gran == "weekly" else dmax != dmax + pd.offsets.MonthEnd(0)
+        first_partial = dmin.day_of_week != 0 if gran == "weekly" else dmin.day != 1
+        last_partial = dmax.day_of_week != 6 if gran == "weekly" else dmax != dmax + pd.offsets.MonthEnd(0)
         if first_partial:
             pv = pv.iloc[1:]; notes.append(f"Dropped the first partial {gran[:-2] if gran != 'daily' else 'day'} so totals are comparable.")
         if last_partial:

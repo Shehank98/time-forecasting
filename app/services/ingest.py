@@ -299,9 +299,9 @@ def _common_time_fields(df: pd.DataFrame, secs: pd.Series) -> pd.DataFrame:
 
 
 def _calendar_fields(df: pd.DataFrame) -> pd.DataFrame:
-    df["week_start"] = df["date"] - pd.to_timedelta(df["date"].dt.dayofweek, unit="D")
+    df["week_start"] = df["date"] - pd.to_timedelta(df["date"].dt.day_of_week, unit="D")
     df["month"] = df["date"].dt.strftime("%Y-%m")
-    df["dow"] = df["date"].dt.dayofweek
+    df["dow"] = df["date"].dt.day_of_week
     df["day"] = df["date"].dt.strftime("%a")
     return df
 

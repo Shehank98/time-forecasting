@@ -144,8 +144,13 @@ def workspace_points(kind: str, dash: dict) -> tuple[list[str], list[str]]:
             o = dash["opportunity"]["rows"][0]
             acts.append(f"Test {o['channel']} {o['day']} {o['daypart'].lower()}: strong TVR ({o['avg_tvr']:.2f}) with light competitor ad load.")
     else:
-        for k in dash["kpis"][:4]:
-            finds.append(f"{k['label']}: {fmt_value(k['value'], 'currency' if k['agg'] == 'ratio' else k['unit'])}" + (f" ({_pct(k['change_pct'])} vs previous period)." if k.get("change_pct") is not None else "."))
+        moved = [k for k in dash["kpis"] if k.get("change_pct") is not None and abs(k["change_pct"]) >= 5]
+        for k in sorted(moved, key=lambda k: -abs(k["change_pct"]))[:3]:
+            finds.append(f"{k['label']} {'rose' if k['change_pct'] > 0 else 'fell'} {abs(k['change_pct']):.0f}% against the previous period, to "
+                         f"{fmt_value(k['value'], 'currency' if k['agg'] == 'ratio' else k['unit'])}.")
+        segs, first = dash.get("segments") or [], next((m for m in dash.get("metrics", []) if m["agg"] == "sum"), None)
+        if segs and first and segs[0].get("share_pct") is not None:
+            finds.append(f"{segs[0]['segment']} carries {segs[0]['share_pct']:.0f}% of {first['label']}.")
         for e in dash.get("driver_effects", [])[:1]:
             finds.append(e["text"])
     return finds, acts

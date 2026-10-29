@@ -177,7 +177,7 @@ def apply(token: str, mapping: dict) -> tuple[pd.DataFrame, dict, dict]:
     dropped["duplicates"] = before - len(df)
     if df.empty:
         raise IngestError("No usable rows after cleaning. Check the date column and metric columns.")
-    df["week_start"] = df["date"] - pd.to_timedelta(df["date"].dt.dayofweek, unit="D")
+    df["week_start"] = df["date"] - pd.to_timedelta(df["date"].dt.day_of_week, unit="D")
     df["month"] = df["date"].dt.strftime("%Y-%m")
     gran = detect_granularity(df["date"])
     ratios = [r for r in mapping.get("ratios", []) if r.get("num") in keys and r.get("den") in keys]

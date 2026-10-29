@@ -1,156 +1,162 @@
-# Media Radar: TV competitor analysis and forecasting
+# Media Radar: competitor analysis and TimesFM forecasting for media agencies
 
-One FastAPI service that serves a plain HTML/CSS/vanilla JS frontend and a JSON API.
+One FastAPI service (API plus a plain HTML/CSS/vanilla JS frontend) that an agency runs for many clients.
+Planners sign in, pick a client, upload data, and get competitor analysis, probabilistic forecasts,
+budget scenarios, pacing checks and branded client reports.
 
-- **TV Programme Analysis** (TVR sheet): top programmes, channel by category, daypart and day heatmaps, category trend, efficiency, consistency, and time slot opportunities (when LMRB data is also loaded).
-- **LMRB Ad Monitoring** (competitor ad spots and spend): share of voice, spend breakdowns, channel and programme mix, flighting patterns, creative tracker (NEW and DROPPED), pricing intelligence, position strategy, movement alerts and head to head.
-- **Forecasting** with Google TimesFM 2.0 (P10, P50 and P90 bands, backtest against a seasonal naive baseline, reliability badge, anomaly and change point markers, competitor outlook).
-- **AI insights and chat** with Gemini, server side only, every statement backed by an Evidence list of the numbers it used.
-- **Excel and PDF reports** that respect the current filters.
-- Light and dark mode, collapsible sidebar, keyboard accessible.
+| Workspace | Data | What planners get |
+| --- | --- | --- |
+| **TV Programme Analysis** | TVR sheet | Top programmes, channel by category, daypart, day and time-belt heatmaps, efficiency, consistency, slot opportunities, TVR forecasts and emerging or declining time-belts |
+| **LMRB Ad Monitoring** | Competitor spots and spend | Share of voice, spend breakdowns, GRPs and CPRP (when the TVR sheet is loaded for the same client), flighting, creatives, pricing, alerts, head to head, competitor forecasts, budget scenarios, pacing |
+| **Client KPI Forecast** | Any dated client sheet (leads, sales, website traffic, search demand, GRPs) | Column mapping, CPL, CPA, CPC, CPM and CPRP, segment mix, spend effects, seasonality, forecasts, spend scenarios, pacing and demand peaks with launch timing |
 
-Everything derives from the uploaded file. Nothing is hardcoded and nothing is stored on disk: uploads live in memory per session and are dropped after `SESSION_TTL_MIN` idle minutes.
+## The agency use cases it covers
 
-## Quick start (local)
+1. **Predictive media planning and ROI.** *Spend scenarios* forecast a result (leads, GRPs) under several budgets (for example -20%, current pace, +20%, +50%) and derive cost per result (CPL, CPA, CPRP) with a P10 to P90 range. Planned spend enters TimesFM as a covariate. A suggested plan picks the largest budget whose extra results stay within 1.5 times the historical cost per result. The Excel report has a blue input cell where a planner can type any budget and see interpolated results.
+2. **TVR and time-belt forecasting.** Forecast TVR by channel, category, daypart, recurring programme or 30-minute time-belt. The outlook ranks emerging and declining belts so buyers can secure inventory weeks ahead.
+3. **Campaign anomaly and pacing detection.** Every forecast backtests the most recent periods and flags actuals outside the expected P10 to P90 band (spikes, drops, zero days that look like tracking breaks). *Pacing* adds delivery to date to the forecast for the rest of the flight and says whether the target will be hit.
+4. **Search demand and category trends.** Upload search volume or category data as a Client KPI dataset. Forecasts mark expected demand peaks and the date to be live by (default two weeks ahead).
+5. **Narrative for clients.** Gemini (or a rule-based writer when Gemini is unavailable) turns the numbers into an executive summary, findings, recommended actions and watch-outs. Every statement in the app links to the numbers it used.
 
-Python 3.11 is recommended (TimesFM 2.0 needs `timesfm==1.3.0`, which supports Python 3.10 and 3.11).
+## Forecasting engine
+
+- **Google TimesFM 2.5** (`google/timesfm-2.5-200m-pytorch`, Apache 2.0), zero-shot, on CPU, loaded once and kept in memory.
+- **Batched**: all selected entities plus their backtest contexts go through the model in one call.
+- **Probabilistic**: TimesFM returns `[mean, q0.1 ... q0.9]`. P10, P50 and P90 come from the continuous quantile head, with quantile crossing fixed.
+- **Covariates** through `forecast_with_covariates` (XReg): weekday, weekend and the editable Sri Lankan event calendar (Poya, Sinhala and Tamil New Year, Vesak, Christmas, school holidays). Scenarios add planned spend.
+- **Granularity**: daily, weekly or monthly. TimesFM 2.5 has no frequency flag; the series spacing is enough.
+- **Zero fill**: spend, spots, leads and share of voice treat "no activity" as 0. TVR, reach and ratios treat gaps as missing and interpolate. Partial first and last weeks or months are dropped for totals.
+- **Backtest and reliability**: the last periods are held out and scored with sMAPE, MAE, MASE and band coverage against a seasonal naive baseline. The badge is High, Medium or Low. Thin history still runs and is marked Low.
+- **Change points and anomalies** on history, plus band breaches on recent periods.
+- **Fallback**: if TimesFM cannot load, seasonal naive plus exponential smoothing takes over (scenarios use a linear driver model) and the UI shows a red banner. Nothing breaks.
+- **Cache** per data version, filters and parameters. Long runs execute as background jobs with progress.
+
+## Client workspaces
+
+- **Users and roles**: admins manage clients, users, branding and settings. Planners see only the clients assigned to them.
+- **Clients** have a name, industry, brand colour and logo. Everything is scoped by client: datasets, saved forecasts and reports.
+- **History grows**: *Append file* merges new months into the stored dataset (duplicates dropped; restated KPI rows replaced). Only parsed data is stored (as Parquet in the database), never the uploaded file.
+- **Saved forecasts**: *Save to client* keeps a forecast, scenario plan or pacing check with its settings. Open it again from Client overview.
+- **Reports** are kept per client and can be downloaded again.
+
+## Reports
+
+From any workspace, **Client report** builds one of three formats with the current filters, and optionally the last forecast, scenario plan, pacing check and executive summary:
+
+- **Branded PDF**: cover with agency and client logos, executive summary with KPI tiles, forecast outlook with P10 to P90 charts, peaks and alerts, budget scenarios, pacing, workspace insights, and a methodology and reliability appendix with backtest results and the disclaimer.
+- **PowerPoint deck**: one message per slide, with native editable charts (forecast bands, scenarios, pacing, share of voice, GRPs, top programmes, KPI trends).
+- **Excel workbook**: branded cover with the summary, KPI sheet, a *Scenarios* sheet with live formulas and a custom budget input, a day-by-day *Pacing tracker* where planners type actuals and see cumulative and variance formulas update, every analysis table as a native Excel table with native charts, and a *Methodology* sheet.
+
+Agency name, logo, colour, footer and disclaimer are set under **Admin > Report branding**.
+
+## Run locally
+
+Python 3.11 is recommended.
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # then set GEMINI_API_KEY if you want AI features
-FORCE_FALLBACK=1 uvicorn app.main:app --reload --port 8000
 ```
 
-Open http://localhost:8000. `FORCE_FALLBACK=1` skips the 2 GB model and uses the statistical fallback, which is the quickest way to try the app.
+```bash
+cp .env.example .env
+```
 
-To use real TimesFM locally, install CPU torch first and then TimesFM without its CUDA dependency:
+Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` (and `GEMINI_API_KEY` for AI features), then:
+
+```bash
+set -a; source .env; set +a; FORCE_FALLBACK=1 uvicorn app.main:app --reload --port 8000
+```
+
+Open http://localhost:8000 and sign in. `FORCE_FALLBACK=1` skips the model for a quick start, and without `DATABASE_URL` a SQLite file at `data/app.db` is used.
+
+To run TimesFM 2.5 locally, install CPU torch first and then TimesFM without its dependencies:
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install --no-deps "timesfm==1.3.0"
-pip install absl-py einshape "huggingface_hub>=0.23" scikit-learn utilsforecast tqdm jax jaxlib
 ```
 
-Run the tests (they never download the model):
+```bash
+pip install --no-deps "timesfm==2.0.2" && pip install "huggingface_hub>=0.23" "safetensors>=0.5.3" scikit-learn jax jaxlib
+```
+
+Tests (they never download the model):
 
 ```bash
 python -m pytest -q
 ```
 
-## How to use
+Against a real PostgreSQL:
 
-1. Pick a card on the home screen and drop an `.xlsx`, `.xls` or `.csv` file (max 25 MB).
-2. Read the parsing summary: rows read and kept, date range, missing columns, bad rows dropped, unparsed values and channels missing from the alias table. Then open the dashboard.
-3. Use the filters (multi-select, persistent while you stay on the page, Reset button, active filter chips and a filtered row counter). Every KPI, chart, table, forecast and export respects them.
-4. LMRB: choose "My brand" and optionally override the competitor set. The default competitors are the advertisers in the same product group.
-5. Upload a second file with **Append file** to grow history month by month. Rows are merged and duplicates are dropped.
-6. **Export** gives an Excel or PDF report with the current filters, KPIs, tables, forecast and the optional Gemini summary.
-
-### Expected columns
-
-TV: `Rank, Data Set, Channel, Date, Day, Start, End, Program, Duration, Category, TVR, Total TVR, TVR Share %, Reach, Reach %, Avg Time`.
-LMRB: `Product_Group, Advertiser, Product, Advt_Theme, Ads, Channel, Program, Dd, Mn, Yr, Day, Prog_time, Advt_time, AdPos, TotAds, BrkNo, PosinBrk, AdsinBrk, Lng, Dur, Cost`.
-
-Headers are matched case-insensitively and trimmed. Title rows above the header, blank rows, numbers with commas, mixed date formats and Excel time cells are handled. Anything unparseable is counted in the summary instead of crashing.
-
-## Configuration files (editable)
-
-| File | Purpose |
-| --- | --- |
-| `app/config/channel_aliases.json` | Canonical channel names and aliases. "Tv - Derana", "DERANA" and "Derana TV" all become `DERANA`, on both sheets, so they can be joined. |
-| `app/config/dayparts.json` | Daypart hours (default Early Morning 05-09, Morning 09-12, Afternoon 12-17, Early Prime 17-20, Prime 20-23, Late Night 23-05), prime dayparts, duration bands and minimum history (14 daily or 8 weekly points). |
-| `app/config/holidays_lk.json` | Event calendar used as forecast covariates: Poya days, Sinhala and Tamil New Year, Vesak, Christmas, school holidays. **The dates shipped are a starting point and must be verified against the official calendar.** |
-
-You can edit them in the app under **Settings**. Alias and daypart changes apply to the next upload, so re-upload to re-apply them. Set `CONFIG_DIR` to use a different folder.
-
-## Forecasting notes
-
-- The model is loaded once (in a background thread at startup, or on first use) and a warm-up call is made.
-- All selected entities are forecast in one batched call, together with their backtest contexts.
-- Frequency flag: daily is 0, weekly is 1 (monthly would also be 1).
-- TimesFM returns `[mean, q0.1 ... q0.9]`. The app shows P10 (index 1), P50 (index 5) and P90 (index 9).
-- Covariates (weekday, weekend and the event calendar) go through `forecast_with_covariates` (XReg) when there is enough history (28 daily or 12 weekly points). XReg only returns a point forecast, so the band is shifted by the covariate adjustment. If JAX or XReg is unavailable the plain forecast is used and the UI says so.
-- Zero fill: spend, spots and share of voice treat "no ad" as 0. Cost per second, TVR and reach treat gaps as missing and interpolate.
-- Weekly series drop a partial first or last week so totals stay comparable.
-- Backtest: the last N points are held out (N is 7 daily or 2 weekly by default), scored with sMAPE, MAE and MASE and compared with a seasonal naive baseline.
-- Reliability: High needs enough history, MASE below 0.8, sMAPE below 30% and a win over the baseline. Thin history (below the minimum), no backtest or large errors give Low. Thin history never fails, it runs and is flagged.
-- If TimesFM cannot load, a statistical fallback (seasonal naive blended with exponential smoothing) is used and a red banner says **Fallback model in use**.
-- Results are cached per data version, filters and parameters.
-
-## Gemini
-
-- `GEMINI_API_KEY` stays on the server. The browser never sees it.
-- The model gets a numbered list of aggregated facts (never the raw sheet) and must cite fact ids. The Evidence section in the UI resolves those ids to labels and values. Unknown citations are flagged.
-- Default model `gemini-2.5-flash`, override with `GEMINI_MODEL`.
-- Rate limits and transient errors are retried with exponential backoff, then shown as a friendly message.
-- The `/api/insights` endpoint builds the compact aggregate on the server from the session data and current filters, so the browser cannot send inflated numbers.
+```bash
+TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/mr_test python -m pytest -q
+```
 
 ## Deploy on Railway
 
-1. Push this repo to GitHub and create a Railway service from it. `railway.json` selects the Dockerfile.
-2. Set variables: `GEMINI_API_KEY`, optionally `GEMINI_MODEL`, `MAX_UPLOAD_MB`.
-3. **Memory: give the service at least 4 GB** (6 to 8 GB if you use covariates, which load JAX as well). Run **one worker only**, because the model lives in memory.
-4. The image installs CPU-only torch and pre-downloads the TimesFM checkpoint (about 2 GB) at build time, so cold starts do not download it again. The build therefore needs access to huggingface.co.
-5. Alternative: mount a Railway volume at `/data`, set `HF_HOME=/data/hf` and build with `--build-arg PREFETCH_MODEL=0`. The first start downloads the model once into the volume.
-6. Health checks: `GET /health` (always fast) and `GET /api/model-status` (reports whether TimesFM is loaded, or whether the fallback is in use).
-
-Start command (already in `railway.json` and the Dockerfile):
-
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
-```
+1. Push this repository to GitHub and create a Railway service from it. `railway.json` selects the Dockerfile.
+2. Add the **PostgreSQL** plugin and set `DATABASE_URL=${{Postgres.DATABASE_URL}}` on the app service.
+3. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (the first admin is created on first start), `GEMINI_API_KEY`, and optionally `GEMINI_MODEL`.
+4. Memory: **3 GB minimum, 4 GB comfortable**, with **one worker** (the model lives in memory once). TimesFM 2.5 is 200M parameters, much lighter than 2.0.
+5. The image installs CPU-only torch and pre-downloads the TimesFM 2.5 checkpoint (about 0.9 GB) at build time, so the build needs access to huggingface.co. Alternative: mount a volume at `/data`, set `HF_HOME=/data/hf` and build with `--build-arg PREFETCH_MODEL=0`.
+6. Health: `GET /health` is always fast. `GET /api/model-status` says whether TimesFM is loaded or the fallback is in use.
+7. Sign in, open **Admin**, set report branding, create clients and add planners.
 
 ## Environment variables
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | none | Enables insights and chat |
+| `DATABASE_URL` | SQLite at `data/app.db` | PostgreSQL URL (Railway's `postgres://` form is accepted) |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | none | First admin, created only when no user exists |
+| `GEMINI_API_KEY` | none | Enables insights, chat and Gemini report summaries |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model |
 | `HF_HOME` | `/opt/hf` in Docker | Hugging Face cache for the checkpoint |
-| `MAX_UPLOAD_MB` | `25` | Upload limit |
-| `SESSION_TTL_MIN` | `120` | Idle minutes before session data is dropped |
+| `TIMESFM_REPO` | `google/timesfm-2.5-200m-pytorch` | Checkpoint repo or local folder |
+| `TIMESFM_MAX_CONTEXT` | `1024` | Longest history fed to the model, in periods |
 | `PRELOAD_MODEL` | `1` | Load TimesFM in the background at startup |
 | `FORCE_FALLBACK` | `0` | Never load TimesFM |
-| `TIMESFM_REPO` | `google/timesfm-2.0-500m-pytorch` | Checkpoint repo |
-| `CONFIG_DIR` | `app/config` | Folder with the editable JSON files |
-| `ADMIN_TOKEN` | none | When set, editing Settings requires this token. Settings are global to the service, so set it on a public URL |
-| `MAX_SESSIONS` | `200` | Sessions kept in memory, least recently used dropped first |
+| `MAX_UPLOAD_MB` | `25` | Upload limit |
+| `LOGIN_DAYS` | `7` | Sign-in session length |
+| `CONFIG_DIR` | `app/config` | Folder with the editable JSON settings |
+
+## Editable settings (Admin > Settings)
+
+| File | Purpose |
+| --- | --- |
+| `channel_aliases.json` | Canonical channel names. "Tv - Derana", "DERANA" and "Derana TV" all become `DERANA` on both sheets so they can be joined. |
+| `dayparts.json` | Dayparts (Early Morning 05-09, Morning 09-12, Afternoon 12-17, Early Prime 17-20, Prime 20-23, Late Night 23-05), time-belt size (15, 30 or 60 minutes), duration bands and minimum history (14 daily, 8 weekly, 12 monthly points). |
+| `holidays_lk.json` | Event calendar used as covariates. **The shipped Poya and holiday dates are a starting point; verify them against the official calendar each year.** |
+
+## Security
+
+- Passwords are hashed with scrypt; sign-in cookies are HttpOnly, SameSite=Lax and Secure behind HTTPS; session tokens are stored hashed. Sign-in is throttled.
+- Every data request is checked against the user's client access. State-changing requests need a header that cross-site forms cannot send (CSRF guard).
+- Uploaded text is escaped in the UI, never executed as an Excel formula, and prefixed in CSV downloads. Logos are type and size checked.
+- The Gemini key never leaves the server; Gemini only ever sees aggregated numbers.
 
 ## Project layout
 
 ```
 app/
-  main.py                 FastAPI routes and static mount
+  main.py                 app, middleware, routers, static files
+  core.py                 shared request models, auth and workspace dependencies, computations
+  routers/                account (auth, clients, users, branding, settings), data, forecasting, ai, reports
   services/
-    ingest.py             read, validate, parse, derive fields, merge
-    normalise.py          channel aliases, dayparts, duration bands
-    filters.py            server side filters and filter options
-    store.py              in-memory sessions with TTL
-    analytics_tv.py       TV workspace aggregates
-    analytics_lmrb.py     competitor analysis aggregates
-    series.py             zero-filled series, calendar covariates
-    forecast.py           TimesFM wrapper, fallback, backtests, outlook, jobs, cache
-    gemini_client.py      facts, structured insights, chat, retries
-    report_data.py        shared report sections
-    export_excel.py       openpyxl tables and native charts
-    export_pdf.py         reportlab and matplotlib
+    db.py, auth.py, repo.py, store.py    database, users and sessions, data access, per-client datasets
+    ingest.py, ingest_kpi.py, normalise.py, filters.py
+    analytics_tv.py, analytics_lmrb.py, analytics_kpi.py, joins.py (GRP and CPRP)
+    series.py, forecast.py                metric registry, TimesFM 2.5, scenarios, pacing, peaks, monitoring
+    gemini_client.py, narrative.py        AI insights and the report narrative
+    report_data.py, export_pdf.py, export_pptx.py, export_excel.py
   config/                 channel_aliases.json, holidays_lk.json, dayparts.json
-  static/                 index.html, tv.html, lmrb.html, css/, js/
-tests/                    parsing, normalisation, analytics, forecast, gemini, export, api
-Dockerfile  railway.json  requirements.txt  .env.example
+  static/                 login, client overview, three workspaces, admin; css and js
+tests/                    parsing, analytics, forecasting, KPI, reports, Gemini, API, security
 ```
-
-## Security notes
-
-- Uploaded text is untrusted. The UI escapes it, Excel cells that look like formulas are stored as plain text, and CSV downloads prefix such cells with an apostrophe.
-- The Gemini key and the model name are read from the environment on the server and never returned by any endpoint.
-- Settings (aliases, dayparts, holidays) are validated before saving and are shared by every session, so set `ADMIN_TOKEN` when the app is public.
-- Session cookies are `HttpOnly`, `SameSite=Lax` and `Secure` behind HTTPS.
 
 ## Limits to know about
 
-- Total reach is a sum across airings, not unique people. It is labelled that way in the UI.
-- PDF text uses a Latin-1 font, so Sinhala or Tamil characters in programme names print as `?`. The Excel report keeps full Unicode.
-- Holiday and Poya dates in `holidays_lk.json` are approximate and need checking each year.
-- Sessions are in memory. Restarting the service clears uploaded data, by design.
+- GRPs are estimated from the programme's average TVR at the spot time, not minute-by-minute ratings. The match rate is shown.
+- Spend scenarios learn from how results moved with spend in the client's own history. If spend barely varied, the app says so and the scenarios look similar.
+- Total reach in the TV workspace is a sum across airings, not unique people.
+- The PDF uses a Latin-1 font, so Sinhala or Tamil text prints as `?`. PowerPoint and Excel keep full Unicode.
+- Real TimesFM inference needs the checkpoint, which the build downloads from Hugging Face. The test suite exercises the TimesFM 2.5 code path with a stand-in model that mimics its outputs.

@@ -31,7 +31,7 @@ def make_lmrb(days: int = 42, start: str = "2026-08-03", seed: int = 7) -> pd.Da
                 continue
             if adv == "Lanka Tea Co" and i > days - 10:  # stops late
                 continue
-            n = rng.poisson(3 * w * (1.3 if d.dayofweek >= 5 else 1.0) * (1 + i / days * (0.8 if adv == "Unilever Sri Lanka" else 0)))
+            n = rng.poisson(3 * w * (1.3 if d.day_of_week >= 5 else 1.0) * (1 + i / days * (0.8 if adv == "Unilever Sri Lanka" else 0)))
             for _ in range(n):
                 ch = rng.choice(list(chans), p=np.array(list(chans.values())) / sum(chans.values()))
                 dp = rng.choice(list(progs))
@@ -61,7 +61,7 @@ def make_tv(days: int = 42, start: str = "2026-08-03", seed: int = 11) -> pd.Dat
         for ch, prog, st, dur, cat, base in slots:
             h, m = map(int, st.split(":"))
             end = pd.Timestamp(2000, 1, 1, h, m) + pd.Timedelta(minutes=dur)
-            tvr = max(0.05, base * rng.uniform(0.8, 1.2) * (1.15 if d.dayofweek >= 5 else 1.0))
+            tvr = max(0.05, base * rng.uniform(0.8, 1.2) * (1.15 if d.day_of_week >= 5 else 1.0))
             tot = tvr * rng.uniform(2.5, 4)
             rows.append([rank, "Custom Target", ch, d.strftime("%Y/%m/%d"), d.strftime("%A"), st, end.strftime("%H:%M"), prog, dur, cat,
                          round(tvr, 2), round(tot, 2), round(tvr / tot * 100, 2), int(tvr * 30000), round(tvr * 1.3, 2), 0])
@@ -84,8 +84,8 @@ def make_kpi(days: int = 420, start: str = "2025-08-01", seed: int = 5) -> pd.Da
     rng = np.random.default_rng(seed)
     rows = []
     for i, d in enumerate(pd.date_range(start, periods=days)):
-        season = 1 + 0.35 * np.sin(2 * np.pi * (d.dayofyear - 60) / 365)
-        weekday = 0.8 if d.dayofweek >= 5 else 1.05
+        season = 1 + 0.35 * np.sin(2 * np.pi * (d.day_of_year - 60) / 365)
+        weekday = 0.8 if d.day_of_week >= 5 else 1.05
         for camp, share in (("Always-on search", 0.6), ("TV burst", 0.4)):
             spend = max(0.0, 150000 * share * (1.6 if camp == "TV burst" and (i // 30) % 3 == 0 else 1.0) * rng.uniform(0.8, 1.2))
             leads = max(0, int(spend / 1500 * season * weekday * rng.uniform(0.85, 1.15)))

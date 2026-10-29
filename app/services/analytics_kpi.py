@@ -59,7 +59,7 @@ def seasonality(df: pd.DataFrame, metric, gran: str) -> dict:
         return out
     daily = df.groupby("date")[metric.col].sum() if metric.agg == "sum" else df.groupby("date")[metric.col].mean()
     if gran == "daily" and daily.index.nunique() >= 14:
-        dow = daily.groupby(daily.index.dayofweek).mean()
+        dow = daily.groupby(daily.index.day_of_week).mean()
         if dow.mean():
             out["day_of_week"] = {"labels": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "index": [float(dow.get(i, np.nan) / dow.mean() * 100) for i in range(7)]}
     span = (daily.index.max() - daily.index.min()).days

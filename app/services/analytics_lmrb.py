@@ -164,7 +164,7 @@ def flight_stats(sub: pd.DataFrame, win_start: pd.Timestamp, win_end: pd.Timesta
     inside = active[(days >= first) & (days <= last)]
     gap_runs = [r for r in _runs(~inside) if r[1] - r[0] + 1 >= 2]
     longest_gap = max([r[1] - r[0] + 1 for r in gap_runs], default=0)
-    wk = spend.groupby(days - pd.to_timedelta(days.dayofweek, unit="D")).sum()
+    wk = spend.groupby(days - pd.to_timedelta(days.day_of_week, unit="D")).sum()
     active_weeks = int((wk > 0).sum())
     cv = safe_div(float(wk.std(ddof=0)), float(wk.mean())) if wk.mean() > 0 else None
     thr = spend.mean() + spend.std(ddof=0)

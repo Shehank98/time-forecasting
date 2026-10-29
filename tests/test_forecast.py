@@ -35,7 +35,7 @@ def test_zero_fill_and_alignment(lm):
 def test_weekly_drops_partial_weeks(lm):
     mid = lm[(lm["date"] >= "2026-08-05") & (lm["date"] <= "2026-09-10")]
     specs, notes = S.build_series(mid, "lmrb", "total", "spend", "weekly")
-    assert len(notes) >= 2 and all(d.dayofweek == 0 for d in specs[0].dates) and any("partial" in n for n in notes)
+    assert len(notes) >= 2 and all(d.day_of_week == 0 for d in specs[0].dates) and any("partial" in n for n in notes)
 
 
 def test_cps_is_interpolated_not_zero(lm):

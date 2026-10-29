@@ -383,8 +383,8 @@ def _cov_arrays(dates: pd.DatetimeIndex, n_hist: int, gran: str) -> tuple[dict, 
     num = {k: v for k, v in feats.items() if np.ptp(v) > 0 and np.ptp(v[:n_hist]) > 0}
     cat = {}
     if gran == "daily":
-        cat["day_of_week"] = np.array([d.dayofweek for d in dates])
-        cat["is_weekend"] = np.array([int(d.dayofweek >= 5) for d in dates])
+        cat["day_of_week"] = np.array([d.day_of_week for d in dates])
+        cat["is_weekend"] = np.array([int(d.day_of_week >= 5) for d in dates])
     if gran == "weekly" and n_hist >= 104:
         cat["week_of_year"] = np.array([int(d.isocalendar().week) for d in dates])
     if gran == "monthly" and n_hist >= 24:
@@ -506,13 +506,13 @@ def _driver_future(driver: np.ndarray, H: int, gran: str, multiplier: float, tot
 def _fallback_scenarios(y: np.ndarray, x: np.ndarray, dates: pd.DatetimeIndex, futures: list[np.ndarray], H: int, gran: str) -> tuple[np.ndarray, dict]:
     """Linear driver effect plus a seasonal residual forecast, used when TimesFM is not available."""
     n = len(y)
-    dow = np.array([d.dayofweek for d in dates]) if gran == "daily" else np.zeros(n, dtype=int)
+    dow = np.array([d.day_of_week for d in dates]) if gran == "daily" else np.zeros(n, dtype=int)
     X = np.column_stack([np.ones(n), x] + ([np.eye(7)[dow][:, 1:]] if gran == "daily" else []))
     beta, *_ = np.linalg.lstsq(X, y, rcond=None)
     resid = y - X @ beta
     rq = fallback_one(resid, H, S.season_length(gran, n))
     fdates = S.future_dates(dates[-1], H, gran)
-    fdow = np.array([d.dayofweek for d in fdates]) if gran == "daily" else np.zeros(H, dtype=int)
+    fdow = np.array([d.day_of_week for d in fdates]) if gran == "daily" else np.zeros(H, dtype=int)
     out = []
     for xf in futures:
         Xf = np.column_stack([np.ones(H), xf] + ([np.eye(7)[fdow][:, 1:]] if gran == "daily" else []))
