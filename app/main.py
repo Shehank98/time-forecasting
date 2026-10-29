@@ -13,7 +13,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .services import analytics_lmrb, analytics_tv, ingest, normalise, filters as flt
+from .services import analytics_lmrb, analytics_tv, ingest, normalise, series as series_mod, filters as flt
+from .services import forecast as fc
 from .services.store import Dataset, Session, SessionStore, content_hash
 from .services.util import jsonable
 
@@ -197,7 +198,73 @@ def rows_csv(kind: str, req: DashReq, sess: Session = Depends(current_session)) 
 
 @app.get("/api/model-status")
 def model_status() -> dict:
-    return {"backend": "pending", "loaded": False, "note": "Forecast model is added in step 4."}
+    return fc.model.status()
+
+
+@app.on_event("startup")
+def preload_model() -> None:
+    """Warm TimesFM in the background so the first forecast is fast (set PRELOAD_MODEL=0 to stay lazy)."""
+    if os.environ.get("PRELOAD_MODEL", "1") == "1" and os.environ.get("FORCE_FALLBACK") != "1":
+        import threading
+        threading.Thread(target=fc.model.load, daemon=True, name="timesfm-preload").start()
+
+
+# ------------------------------------------------------------------ forecasting
+class ForecastReq(DashReq):
+    kind: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+def forecast_frame(sess: Session, kind: str, filters: dict, options: dict) -> pd.DataFrame:
+    """Filtered frame used for forecasting. LMRB respects the selected competitor set."""
+    ds = dataset(sess, kind)
+    df = flt.apply_filters(ds.df, kind, filters)
+    if kind == "lmrb" and options.get("my_brand"):
+        base = flt.apply_filters(ds.df, kind, filters, skip_date=True)
+        df = df[df["advertiser"].isin(analytics_lmrb.competitor_set(base, options["my_brand"], options.get("competitors") or None))]
+    return df
+
+
+def forecast_result(sess: Session, req: ForecastReq, progress=None) -> dict:
+    """Compute (or fetch from cache) a forecast. Shared by the API and the exports."""
+    ds = dataset(sess, req.kind)
+    key = fc.cache.key(ds.version, req.kind, req.filters, req.options, req.params)
+    hit = fc.cache.get(key)
+    if hit is not None:
+        return {**hit, "cached": True}
+    res = fc.run(forecast_frame(sess, req.kind, req.filters, req.options), req.kind, req.params, progress)
+    res["cached"] = False
+    if res.get("ok"):
+        fc.cache.put(key, res)
+    return res
+
+
+@app.post("/api/forecast/entities")
+def forecast_entities(req: ForecastReq, sess: Session = Depends(current_session)) -> dict:
+    try:
+        df = forecast_frame(sess, req.kind, req.filters, req.options)
+        et = req.params.get("entity_type", "advertiser" if req.kind == "lmrb" else "channel")
+        return jsonable({"entities": series_mod.rank_entities(df, req.kind, et), "catalog": series_mod.metric_catalog(req.kind),
+                         "min_points": normalise.min_points(), "model": fc.model.status()})
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/forecast/start")
+def forecast_start(req: ForecastReq, sess: Session = Depends(current_session)) -> dict:
+    if not req.params.get("metric"):
+        raise HTTPException(422, "Choose a metric to forecast.")
+    dataset(sess, req.kind)
+    jid = fc.jobs.start(lambda progress: forecast_result(sess, req, progress))
+    return {"job_id": jid}
+
+
+@app.get("/api/forecast/job/{jid}")
+def forecast_job(jid: str) -> dict:
+    j = fc.jobs.get(jid)
+    if j is None:
+        raise HTTPException(404, "Forecast job not found. It may have expired.")
+    return jsonable({k: j[k] for k in ("status", "progress", "message", "result", "error")})
 
 
 # ------------------------------------------------------------------ config (editable JSON)
@@ -222,6 +289,7 @@ def put_config(name: str, body: dict) -> dict:
         raise HTTPException(422, f"Invalid JSON: {exc}") from exc
     (normalise.CONFIG_DIR / EDITABLE[name]).write_text(text, encoding="utf-8")
     normalise._cache.clear()
+    fc.cache.clear()
     return {"saved": True}
 
 
