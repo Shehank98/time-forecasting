@@ -49,8 +49,11 @@ def test_sov_sums_to_100(lm):
     assert np.allclose(total[total > 0], 100)
 
 
-def test_frequency_flags():
-    assert S.FREQ_FLAG == {"daily": 0, "weekly": 1, "monthly": 1}
+def test_monthly_and_timebelt_series(tv, lm):
+    specs, _ = S.build_series(lm, "lmrb", "total", "spend", "monthly")
+    assert all(d.day == 1 for d in specs[0].dates)
+    tb, _ = S.build_series(tv, "tv", "timebelt", "tvr", "daily", max_entities=3)
+    assert tb and all("-" in s.entity and ":" in s.entity for s in tb)
 
 
 def test_run_returns_bands_backtest_and_reliability(lm):
@@ -96,9 +99,9 @@ def test_batched_single_call(lm, monkeypatch):
     calls = []
     orig = F.model.predict
 
-    def spy(ctxs, freqs, h):
+    def spy(ctxs, h, gran="daily"):
         calls.append(len(ctxs))
-        return orig(ctxs, freqs, h)
+        return orig(ctxs, h, gran)
     monkeypatch.setattr(F.model, "predict", spy)
     r = F.run(lm, "lmrb", params(max_entities=4))
     assert len(calls) == 1 and calls[0] == len(r["results"]) * 2     # forecasts and backtest contexts together
@@ -126,22 +129,29 @@ def test_cache_key_changes_with_params():
 
 
 class FakeTfm:
-    """Mimics timesfm.TimesFm v1 outputs: mean plus [q0.1..q0.9] and forecast_with_covariates."""
+    """Mimics timesfm 2.x TimesFM_2p5_200M_torch with return_backcast=True: outputs have the backcast prepended."""
+    BACKCAST = 32
+
     def __init__(self):
         self.forecast_calls, self.cov_kwargs = 0, None
 
-    def forecast(self, inputs, freq=None):
+    def _q(self, x, H):
+        q = np.zeros((self.BACKCAST + H, 10))
+        q[: self.BACKCAST] = -999.0                       # backcast rows must never leak into the forecast
+        for k in range(10):
+            q[self.BACKCAST:, k] = x[-1] + (k - 5)        # distinct per quantile index so the mapping is testable
+        return q
+
+    def forecast(self, horizon, inputs):
         self.forecast_calls += 1
-        n, H = len(inputs), 128
-        q = np.zeros((n, H, 10))
-        for i, x in enumerate(inputs):
-            for k in range(10):
-                q[i, :, k] = x[-1] + (k - 5)     # distinct per index so the mapping is testable
+        q = np.stack([self._q(np.asarray(x), horizon) for x in inputs])
         return q[:, :, 5], q
 
     def forecast_with_covariates(self, inputs, **kw):
         self.cov_kwargs = kw
-        return [np.full(128, 1000.0) for _ in inputs], [np.zeros(128) for _ in inputs]
+        H = len(next(iter((kw.get("dynamic_numerical_covariates") or kw["dynamic_categorical_covariates"]).values()))[0]) - len(inputs[0])
+        quants = [np.full((H, 10), 1000.0) + np.arange(10) for _ in inputs]
+        return [q[:, 5] for q in quants], quants
 
 
 def test_timesfm_path_uses_correct_quantiles_and_covariates(lm, monkeypatch):
@@ -150,22 +160,67 @@ def test_timesfm_path_uses_correct_quantiles_and_covariates(lm, monkeypatch):
     monkeypatch.setattr(F.model, "_failed", False)
     r = F.run(lm, "lmrb", params(entity_type="total", horizon_days=7, granularity="daily"))
     x = r["results"][0]
-    assert r["backend"] == "timesfm" and fake.forecast_calls == 1 and fake.cov_kwargs["freq"] == [0]
-    assert "day_of_week" in r["covariates_used"] and any(c.startswith("is_") for c in r["covariates_used"])
+    assert r["backend"] == "timesfm" and fake.forecast_calls == 1
+    assert "day_of_week" in r["covariates_used"] and fake.cov_kwargs["xreg_mode"] == "xreg + timesfm"
+    assert np.allclose(x["forecast"]["p50"], 1005.0) and np.allclose(x["forecast"]["p10"], 1001.0) and np.allclose(x["forecast"]["p90"], 1009.0)
+    assert min(x["backtest"]["pred"]) > -999      # backcast sliced off
+
+
+def test_plain_timesfm_forecast_slices_backcast(lm, monkeypatch):
+    fake = FakeTfm()
+    monkeypatch.setattr(F.model, "_tfm", fake)
+    monkeypatch.setattr(F.model, "_failed", False)
+    r = F.run(lm, "lmrb", params(entity_type="total", horizon_days=7, covariates=False))
+    x = r["results"][0]
     last = x["history"]["values"][-1]
-    assert np.allclose(x["forecast"]["p50"], 1000.0)                        # covariate adjusted point forecast
-    assert np.allclose(np.array(x["forecast"]["p90"]) - np.array(x["forecast"]["p10"]), 8)   # idx 9 minus idx 1
-    assert r["frequency_flag"] == 0
+    assert np.allclose(np.array(x["forecast"]["p90"]) - np.array(x["forecast"]["p10"]), 8) and np.allclose(x["forecast"]["p50"], last)
 
 
 def test_timesfm_failure_falls_back(lm, monkeypatch):
     class Boom(FakeTfm):
-        def forecast(self, inputs, freq=None):
+        def forecast(self, horizon, inputs):
             raise RuntimeError("oom")
     monkeypatch.setattr(F.model, "_tfm", Boom())
     monkeypatch.setattr(F.model, "_failed", False)
     r = F.run(lm, "lmrb", params(entity_type="total"))
     assert r["ok"] and r["backend"] == "fallback" and F.model.status()["backend"] == "fallback"
+
+
+def test_band_breaches_flag_tracking_breaks():
+    b = F.band_breaches(["d1", "d2", "d3"], np.array([5.0, 0.0, 30.0]), np.array([4.0, 3.0, 4.0]), np.array([8.0, 9.0, 8.0]))
+    assert [x["direction"] for x in b] == ["below", "above"] and "tracking break" in b[0]["text"]
+
+
+def test_scenarios_fallback_learn_driver_effect():
+    d = pd.date_range("2025-01-06", periods=60, freq="W-MON")
+    rng = np.random.default_rng(3)
+    spend = rng.uniform(50, 150, 60) * 1000
+    leads = spend / 1000 * 2 + rng.normal(0, 5, 60) + 20
+    df = pd.DataFrame({"date": d, "segment": "All", "spend": spend, "leads": leads})
+    meta = {"metrics": [{"key": "spend", "label": "Spend", "agg": "sum", "unit": "currency"}, {"key": "leads", "label": "Leads", "agg": "sum"}],
+            "ratios": [{"key": "cpl", "label": "CPL", "num": "spend", "den": "leads"}]}
+    r = F.run_scenarios(df, "kpi", {"target": "leads", "driver": "spend", "granularity": "weekly", "horizon_days": 28, "multipliers": [0.8, 1.0, 1.2]}, meta)
+    assert r["ok"] and [s["scenario"] for s in r["scenarios"]][1] == "Current pace"
+    lo, mid, hi = (s["kpi_p50"] for s in r["scenarios"])
+    assert lo < mid < hi and r["driver_effect"]["slope"] > 0 and r["scenarios"][2]["marginal_ratio"] > 0
+    assert r["scenarios"][1]["ratio_p50"] == pytest.approx(r["scenarios"][1]["driver_total"] / mid)
+
+
+def test_pacing_projects_against_target(lm):
+    total = lm["cost"].sum()
+    start, end = lm["date"].min(), lm["date"].max() + pd.Timedelta(days=14)
+    p = F.pacing(lm, "lmrb", {"metric": "spend", "entity_type": "total", "start": str(start.date()), "end": str(end.date()), "target": total * 3})
+    assert p["ok"] and p["status"] == "Under pacing" and p["remaining_days"] == 14 and p["projected_p10"] <= p["projected_p50"] <= p["projected_p90"]
+    p2 = F.pacing(lm, "lmrb", {"metric": "cps", "entity_type": "total", "start": str(start.date()), "end": str(end.date()), "target": 1})
+    assert p2["ok"] is False
+
+
+def test_peaks_recommend_launch_dates():
+    d = pd.date_range("2025-01-06", periods=40, freq="W-MON")
+    sp = S.SeriesSpec("x", d, np.full(40, 10.0), "m", "weekly", 40, 40)
+    fd = S.future_dates(d[-1], 8, "weekly")
+    p = F.find_peaks(sp, fd, np.array([10, 11, 25, 12, 10, 9, 10, 10.0]), lead_days=14)
+    assert p["peaks"][0]["date"] == str(fd[2].date()) and p["peaks"][0]["launch_by"] == str((fd[2] - pd.Timedelta(days=14)).date())
 
 
 def test_calendar_features_cover_event_types():

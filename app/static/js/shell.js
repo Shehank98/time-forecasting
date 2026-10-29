@@ -27,7 +27,7 @@
     try {
       const s = await App.api.get('/api/model-status');
       const ok = s.backend === 'timesfm' && s.loaded;
-      pill.innerHTML = `<span class="dot ${ok ? 'ok' : 'warn'}"></span><span class="txt">${ok ? 'TimesFM 2.0 ready' : s.backend === 'fallback' ? 'Fallback model in use' : 'TimesFM loads on first forecast'}</span>`;
+      pill.innerHTML = `<span class="dot ${ok ? 'ok' : 'warn'}"></span><span class="txt">${ok ? 'TimesFM 2.5 ready' : s.backend === 'fallback' ? 'Fallback model in use' : 'TimesFM loads on first forecast'}</span>`;
       pill.title = s.error || s.note || '';
     } catch (e) { pill.innerHTML = '<span class="dot"></span><span class="txt">Model status unavailable</span>'; }
   }

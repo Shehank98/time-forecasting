@@ -53,7 +53,7 @@
     const m = r.backtest ? r.backtest.model : null, b = r.backtest ? r.backtest.baseline : null;
     box.innerHTML = `
       <div class="row" style="margin-bottom:12px"><h3>${esc(r.entity)}</h3><span class="badge ${relCls[rel.level]}" title="${esc(rel.reasons.join(' '))}">Forecast reliability: ${rel.level}</span>
-        <span class="badge info">${r.n_points} ${r.granularity} points</span><span class="badge ${res.backend === 'timesfm' ? 'good' : 'warn'}">${res.backend === 'timesfm' ? 'TimesFM 2.0' : 'Fallback model'}</span></div>
+        <span class="badge info">${r.n_points} ${r.granularity} points</span><span class="badge ${res.backend === 'timesfm' ? 'good' : 'warn'}">${res.backend === 'timesfm' ? 'TimesFM 2.5' : 'Fallback model'}</span></div>
       <ul class="muted small" style="margin:0 0 12px;padding-left:18px">${rel.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}${r.warnings.map((x) => `<li><b>Warning:</b> ${esc(x)}</li>`).join('')}</ul>
       ${C.box('c-fc', `${esc(r.entity)}: history and forecast`, 'Shaded band is P10 to P90. Triangles are anomalies, dashed red lines are change points.', { tall: true })}
       <div class="grid g3" style="margin-top:16px">
@@ -101,7 +101,7 @@
     const metrics = lm ? { spend: 'Spend (LKR)', spots: 'Spot count', sov: 'Share of voice, spend (%)', cps: 'Cost per second (LKR)' } : { tvr: 'Average TVR', reach: 'Average reach per airing' };
     const ents = lm ? ['advertiser', 'product_group', 'channel', 'total'] : ['channel', 'category', 'daypart', 'program', 'total'];
     const st = { metric: s0.metric && metrics[s0.metric] ? s0.metric : Object.keys(metrics)[0], entity_type: ents.includes(s0.entity_type) ? s0.entity_type : ents[0], granularity: s0.granularity || 'weekly', horizon_days: s0.horizon_days || 28, history_days: s0.history_days || 0, covariates: s0.covariates !== false, entities: [] };
-    p.innerHTML = `<div class="card"><div class="card-head"><div><h3>Forecast with TimesFM 2.0</h3><div class="sub">All selected entities are forecast in a single batched call. Filters apply.</div></div></div>
+    p.innerHTML = `<div class="card"><div class="card-head"><div><h3>Forecast with TimesFM 2.5</h3><div class="sub">All selected entities are forecast in a single batched call. Filters apply.</div></div></div>
       <div class="filter-grid">
         <div class="field"><label for="f-metric">Target metric</label><select id="f-metric">${Object.entries(metrics).map(([k, l]) => `<option value="${k}" ${k === st.metric ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         <div class="field"><label for="f-ent">Entity</label><select id="f-ent">${ents.map((e) => `<option ${e === st.entity_type ? 'selected' : ''} value="${e}">${fmt.title(e.replace('_', ' '))}</option>`).join('')}</select></div>

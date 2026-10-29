@@ -1,8 +1,16 @@
-"""Forecasting service: TimesFM 2.0 (batched, quantiles, covariates) with a statistical fallback.
+"""Forecasting service built on Google TimesFM 2.5 (200M, PyTorch, CPU) with a statistical fallback.
 
-The model is loaded once and cached. If it cannot be loaded, a seasonal naive plus
-exponential smoothing model takes over and the UI shows a banner. The service
-never raises on model problems.
+What it does for a media agency:
+- Batched probabilistic forecasts (P10, P50, P90) for many entities in one call.
+- Calendar covariates (weekday, Poya, New Year, school holidays) through TimesFM XReg.
+- Backtests against a seasonal naive baseline and a reliability badge.
+- Band monitoring: recent actuals outside the expected P10 to P90 band (pacing breaks, tracking breaks, spikes).
+- Competitor outlook, demand peak detection and launch timing.
+- Driver scenarios (for example spend -20%, 0, +20%) to forecast a KPI and its cost per result (CPL, CPA, CPRP).
+- Pacing: projected end of campaign total against a target.
+
+The model loads once and is cached. If it cannot load, seasonal naive plus exponential
+smoothing takes over and the UI shows a banner. Nothing here raises on model problems.
 """
 from __future__ import annotations
 
@@ -25,21 +33,21 @@ from .util import jsonable
 
 log = logging.getLogger(__name__)
 
-CHECKPOINT = os.environ.get("TIMESFM_REPO", "google/timesfm-2.0-500m-pytorch")
-CONTEXT_LEN = 2048
-HORIZON_LEN = 128
-Q_IDX = {"p10": 1, "p50": 5, "p90": 9}   # TimesFM output is [mean, q0.1 ... q0.9]
+CHECKPOINT = os.environ.get("TIMESFM_REPO", "google/timesfm-2.5-200m-pytorch")
+MAX_CONTEXT = int(os.environ.get("TIMESFM_MAX_CONTEXT", "1024"))
+MAX_HORIZON = 256                 # multiple of the 128 output patch, covers 36 weeks daily
+Q = {"p10": 1, "p50": 5, "p90": 9}  # TimesFM output is [mean, q0.1 ... q0.9]
 Progress = Callable[[float, str], None]
 
 
 # =============================================================== model wrapper
 class ModelService:
-    """Lazy, thread-safe holder for the TimesFM model."""
+    """Lazy, thread-safe holder for TimesFM 2.5."""
 
     def __init__(self) -> None:
         self._tfm: Any = None
         self._lock = threading.Lock()
-        self._loaded = False
+        self._infer_lock = threading.Lock()
         self._failed = False
         self.error: str | None = None
         self.load_seconds: float | None = None
@@ -47,8 +55,8 @@ class ModelService:
 
     def status(self) -> dict:
         backend = "timesfm" if self._tfm is not None else ("fallback" if self._failed else "pending")
-        return {"backend": backend, "loaded": self._tfm is not None, "error": self.error, "checkpoint": CHECKPOINT,
-                "load_seconds": self.load_seconds, "covariates_supported": self.xreg_ok,
+        return {"backend": backend, "loaded": self._tfm is not None, "error": self.error, "checkpoint": CHECKPOINT, "model": "TimesFM 2.5 (200M)",
+                "max_context": MAX_CONTEXT, "load_seconds": self.load_seconds, "covariates_supported": self.xreg_ok,
                 "note": "Fallback statistical model in use." if self._failed else ("TimesFM loads on first forecast." if self._tfm is None else "")}
 
     def load(self) -> bool:
@@ -64,51 +72,56 @@ class ModelService:
             t0 = time.time()
             try:
                 import timesfm  # type: ignore
+                import torch  # type: ignore
 
-                cls = timesfm.TimesFm
-                if "Torch" not in cls.__name__:   # timesfm prefers the JAX class when jax is installed; we want PyTorch on CPU
-                    from timesfm.timesfm_torch import TimesFmTorch as cls  # type: ignore
-                tfm = cls(
-                    hparams=timesfm.TimesFmHparams(backend="cpu", per_core_batch_size=32, horizon_len=HORIZON_LEN, num_layers=50,
-                                                   use_positional_embedding=False, context_len=CONTEXT_LEN),
-                    checkpoint=timesfm.TimesFmCheckpoint(huggingface_repo_id=CHECKPOINT))
-                tfm.forecast([np.sin(np.arange(64) / 4.0).astype(np.float32)], freq=[0])   # warm-up
+                torch.set_float32_matmul_precision("high")
+                # torch_compile=False: torch.compile needs a C compiler that the slim image does not ship.
+                tfm = timesfm.TimesFM_2p5_200M_torch.from_pretrained(CHECKPOINT, torch_compile=False)
+                tfm.compile(timesfm.ForecastConfig(
+                    max_context=MAX_CONTEXT, max_horizon=MAX_HORIZON, normalize_inputs=True, use_continuous_quantile_head=True,
+                    force_flip_invariance=True, infer_is_positive=True, fix_quantile_crossing=True, return_backcast=True, per_core_batch_size=32))
+                tfm.forecast(horizon=8, inputs=[np.sin(np.arange(64) / 4.0)])   # warm-up
                 self._tfm = tfm
                 self.load_seconds = round(time.time() - t0, 1)
                 cache.clear()
-                log.info("TimesFM loaded in %.1fs", self.load_seconds)
+                log.info("TimesFM 2.5 loaded in %.1fs", self.load_seconds)
                 return True
             except Exception as exc:  # noqa: BLE001 - any failure must degrade gracefully
                 self._failed, self.error = True, f"{type(exc).__name__}: {exc}"[:300]
                 log.error("TimesFM unavailable, using fallback: %s", self.error)
                 return False
 
-    # ---- batched inference
-    def predict(self, contexts: list[np.ndarray], freqs: list[int], horizon: int) -> tuple[np.ndarray, np.ndarray, str]:
-        """Return (mean[N,H], quantiles[N,H,3 for p10,p50,p90], backend). One batched call for all series."""
+    @staticmethod
+    def _bands(full: np.ndarray, horizon: int) -> np.ndarray:
+        """Last `horizon` steps (backcast is prepended when return_backcast is on) as [p10, p50, p90]."""
+        full = np.asarray(full)[:, -horizon:, :]
+        return np.stack([full[:, :, Q["p10"]], full[:, :, Q["p50"]], full[:, :, Q["p90"]]], axis=-1)
+
+    def predict(self, contexts: list[np.ndarray], horizon: int, gran: str = "daily") -> tuple[np.ndarray, str]:
+        """Quantiles [N, H, 3] for p10, p50, p90 from one batched call."""
         if self.load():
             try:
-                mean, full = self._tfm.forecast([c.astype(np.float32) for c in contexts], freq=freqs)
-                mean, full = np.asarray(mean)[:, :horizon], np.asarray(full)[:, :horizon, :]
-                q = np.stack([full[:, :, Q_IDX["p10"]], full[:, :, Q_IDX["p50"]], full[:, :, Q_IDX["p90"]]], axis=-1)
-                return mean, q, "timesfm"
+                with self._infer_lock:
+                    _, full = self._tfm.forecast(horizon=horizon, inputs=[np.asarray(c, dtype=float) for c in contexts])
+                return self._bands(full, horizon), "timesfm"
             except Exception as exc:  # noqa: BLE001
                 self._tfm, self._failed, self.error = None, True, f"Inference failed: {exc}"[:300]
                 log.exception("TimesFM inference failed, switching to fallback")
-        return (*fallback_batch(contexts, freqs, horizon), "fallback")
+        return fallback_batch(contexts, horizon, gran), "fallback"
 
-    def predict_covariates(self, contexts: list[np.ndarray], freqs: list[int], horizon: int, dyn_num: dict[str, list[np.ndarray]],
-                           dyn_cat: dict[str, list[np.ndarray]]) -> np.ndarray | None:
-        """Covariate adjusted point forecasts via XReg, or None when unsupported."""
+    def predict_covariates(self, contexts: list[np.ndarray], horizon: int, dyn_num: dict[str, list[np.ndarray]],
+                           dyn_cat: dict[str, list[np.ndarray]] | None = None) -> np.ndarray | None:
+        """Covariate-aware quantiles [N, H, 3] via XReg, or None when unsupported."""
         if self._tfm is None:
             return None
         try:
-            new, _ = self._tfm.forecast_with_covariates(
-                [c.astype(np.float32) for c in contexts], dynamic_numerical_covariates=dyn_num or None,
-                dynamic_categorical_covariates=dyn_cat or None, freq=freqs, xreg_mode="xreg + timesfm", ridge=1.0, normalize_xreg_target_per_input=True)
+            with self._infer_lock:
+                _, quants = self._tfm.forecast_with_covariates(
+                    [np.asarray(c, dtype=float) for c in contexts], dynamic_numerical_covariates=dyn_num or None,
+                    dynamic_categorical_covariates=dyn_cat or None, xreg_mode="xreg + timesfm", ridge=1.0, normalize_xreg_target_per_input=True)
             self.xreg_ok = True
-            return np.stack([np.asarray(x)[:horizon] for x in new])
-        except Exception as exc:  # noqa: BLE001 - jax missing, shape mismatch, etc.
+            return self._bands(np.stack([np.asarray(x)[-horizon:] for x in quants]), horizon)
+        except Exception as exc:  # noqa: BLE001 - jax missing, shapes, singular design
             self.xreg_ok = False
             log.warning("Covariates unavailable (%s); using plain forecast", exc)
             return None
@@ -120,59 +133,52 @@ model = ModelService()
 # =============================================================== statistical fallback
 def _ses(y: np.ndarray) -> tuple[float, float]:
     """Simple exponential smoothing with alpha chosen by grid search. Returns (level, residual std)."""
-    best = (np.inf, 0.3, y[0], 0.0)
+    best = (np.inf, y[0], 0.0)
     for a in (0.1, 0.2, 0.3, 0.5, 0.7, 0.9):
         lvl, sse, res = y[0], 0.0, []
         for v in y[1:]:
             e = v - lvl
             res.append(e); sse += e * e; lvl = lvl + a * e
         if sse < best[0]:
-            best = (sse, a, lvl, float(np.std(res)) if res else 0.0)
-    return best[2], best[3]
+            best = (sse, lvl, float(np.std(res)) if res else 0.0)
+    return best[1], best[2]
 
 
-def fallback_one(y: np.ndarray, horizon: int, season: int) -> tuple[np.ndarray, np.ndarray]:
-    """Seasonal naive blended with exponential smoothing. Returns (mean[H], q[H,3])."""
+def fallback_one(y: np.ndarray, horizon: int, season: int) -> np.ndarray:
+    """Seasonal naive blended with exponential smoothing. Returns q[H, 3]."""
     y = np.asarray(y, dtype=float)
     n = len(y)
     if n == 0:
-        return np.zeros(horizon), np.zeros((horizon, 3))
-    if n < 3 or not np.isfinite(y).all():
-        m = float(np.nanmean(y)) if n else 0.0
-        mean = np.full(horizon, m); sd = float(np.nanstd(y)) if n > 1 else abs(m) * 0.3
-        h = np.arange(1, horizon + 1)
-        return mean, np.stack([mean - 1.28 * sd, mean, mean + 1.28 * sd], axis=-1)
+        return np.zeros((horizon, 3))
+    if n < 3:
+        m = float(np.mean(y)); sd = float(np.std(y)) if n > 1 else abs(m) * 0.3
+        mean = np.full(horizon, m)
+        return np.stack([mean - 1.28 * sd, mean, mean + 1.28 * sd], axis=-1)
     use_season = season > 1 and n >= 2 * season
-    if use_season:
-        idx = np.arange(n) % season
-        seas = np.array([y[idx == k].mean() for k in range(season)]) - y.mean()
-        deseason = y - seas[idx]
-    else:
-        seas, deseason = np.zeros(1), y
-    level, sd = _ses(deseason)
+    idx = np.arange(n) % season if use_season else np.zeros(n, dtype=int)
+    seas = np.array([y[idx == k].mean() for k in range(season)]) - y.mean() if use_season else np.zeros(1)
+    level, sd = _ses(y - seas[idx] if use_season else y)
     h = np.arange(1, horizon + 1)
     mean = np.full(horizon, level)
     if use_season:
         mean = mean + seas[(n + h - 1) % season]
-        naive = np.array([y[n - season + ((k) % season)] for k in range(horizon)])
+        naive = np.array([y[n - season + (k % season)] for k in range(horizon)])
         mean = 0.7 * mean + 0.3 * naive
     sd = max(sd, 1e-9) * np.sqrt(1 + 0.15 * (h - 1))
-    return mean, np.stack([mean - 1.28 * sd, mean, mean + 1.28 * sd], axis=-1)
+    return np.stack([mean - 1.28 * sd, mean, mean + 1.28 * sd], axis=-1)
 
 
-def fallback_batch(contexts: list[np.ndarray], freqs: list[int], horizon: int) -> tuple[np.ndarray, np.ndarray]:
-    means, qs = [], []
-    for c, f in zip(contexts, freqs):
-        m, q = fallback_one(c, horizon, 7 if f == 0 else 1)
-        means.append(m); qs.append(q)
-    return np.stack(means), np.stack(qs)
+def fallback_batch(contexts: list[np.ndarray], horizon: int, gran: str) -> np.ndarray:
+    return np.stack([fallback_one(c, horizon, S.season_length(gran, len(c))) for c in contexts])
 
 
 # =============================================================== metrics
 def smape(a: np.ndarray, f: np.ndarray) -> float | None:
+    if not len(a):
+        return None
     den = np.abs(a) + np.abs(f)
     ok = den > 0
-    return float(np.mean(2 * np.abs(a - f)[ok] / den[ok]) * 100) if ok.any() else 0.0 if len(a) else None
+    return float(np.mean(2 * np.abs(a - f)[ok] / den[ok]) * 100) if ok.any() else 0.0
 
 
 def mae(a: np.ndarray, f: np.ndarray) -> float:
@@ -186,6 +192,11 @@ def mase(a: np.ndarray, f: np.ndarray, train: np.ndarray, m: int) -> float | Non
     return mae(a, f) / scale if scale > 0 else None
 
 
+def coverage(a: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> float | None:
+    """Share of actuals inside the P10 to P90 band (ideal is about 80%)."""
+    return float(np.mean((a >= lo) & (a <= hi)) * 100) if len(a) else None
+
+
 def seasonal_naive(train: np.ndarray, horizon: int, m: int) -> np.ndarray:
     m = m if len(train) >= m else 1
     return np.array([train[len(train) - m + (k % m)] for k in range(horizon)])
@@ -194,7 +205,7 @@ def seasonal_naive(train: np.ndarray, horizon: int, m: int) -> np.ndarray:
 # =============================================================== anomaly / change point
 def detect_anomalies(dates: pd.DatetimeIndex, y: np.ndarray, gran: str, z_thr: float = 3.0) -> list[dict]:
     """Robust rolling z-score against the median and MAD of the previous window."""
-    w = 7 if gran == "daily" else 4
+    w = {"daily": 7, "weekly": 4, "monthly": 3}[gran]
     out = []
     for i in range(w, len(y)):
         win = y[i - w:i]
@@ -212,7 +223,9 @@ def detect_anomalies(dates: pd.DatetimeIndex, y: np.ndarray, gran: str, z_thr: f
 def detect_change_points(dates: pd.DatetimeIndex, y: np.ndarray, min_seg: int = 5, t_thr: float = 4.0, max_cp: int = 3) -> list[dict]:
     """Binary segmentation on mean shifts with a Welch t statistic and a 25% effect size floor."""
     found: list[dict] = []
-    y = np.clip(y, np.percentile(y, 5), np.percentile(y, 95))   # winsorize so one spike cannot masquerade as a level shift
+    if len(y) < 2 * min_seg:
+        return found
+    y = np.clip(y, np.percentile(y, 5), np.percentile(y, 95))   # one spike must not look like a level shift
 
     def split(lo: int, hi: int, depth: int) -> None:
         if depth >= max_cp or hi - lo < 2 * min_seg:
@@ -227,30 +240,52 @@ def detect_change_points(dates: pd.DatetimeIndex, y: np.ndarray, min_seg: int = 
         if bi < 0 or best < t_thr:
             return
         before, after = y[lo:bi].mean(), y[bi:hi].mean()
-        base = max(abs(before), abs(after), 1e-9)
-        if abs(after - before) / base < 0.25:
+        if abs(after - before) / max(abs(before), abs(after), 1e-9) < 0.25:
             return
-        found.append({"date": str(dates[bi].date()), "before": float(before), "after": float(after), "change_pct": float((after - before) / abs(before) * 100) if before else None, "t": float(best)})
+        found.append({"date": str(dates[bi].date()), "before": float(before), "after": float(after),
+                      "change_pct": float((after - before) / abs(before) * 100) if before else None, "t": float(best)})
         split(lo, bi, depth + 1); split(bi, hi, depth + 1)
 
     split(0, len(y), 0)
     return sorted(found, key=lambda d: d["date"])
 
 
-# =============================================================== outlook
+def band_breaches(dates: list[str], actual: np.ndarray, p10: np.ndarray, p90: np.ndarray) -> list[dict]:
+    """Recent periods where the actual left the expected band: the pacing and tracking alarm."""
+    out = []
+    for d, a, lo, hi in zip(dates, actual, p10, p90):
+        if a > hi or a < lo:
+            ref = hi if a > hi else lo
+            gap = (a - ref) / abs(ref) * 100 if ref else None
+            sev = "high" if gap is None or abs(gap) >= 50 or (a == 0 and lo > 0) else "medium"
+            what = "above the expected range" if a > hi else ("zero where activity was expected (possible tracking break or pause)" if a == 0 and lo > 0 else "below the expected range")
+            out.append({"date": d, "actual": float(a), "p10": float(lo), "p90": float(hi), "gap_pct": gap, "direction": "above" if a > hi else "below", "severity": sev, "text": f"{d}: {what}"})
+    return out
+
+
+# =============================================================== outlook and peaks
+def _blocks(gran: str) -> tuple[int, int, str]:
+    """(points per block, blocks in the outlook, block name)."""
+    return {"daily": (7, 4, "week"), "weekly": (1, 4, "week"), "monthly": (1, 3, "month")}[gran]
+
+
 def outlook(spec: S.SeriesSpec, fdates: pd.DatetimeIndex, p10: np.ndarray, p50: np.ndarray, p90: np.ndarray) -> dict:
-    """Competitor outlook: next 4 weeks, trend, active weeks and expected burst windows."""
-    additive = spec.metric in S.ADDITIVE
-    y, per_week = spec.values, 7 if spec.gran == "daily" else 1
-    hist_w = pd.Series(y, index=spec.dates).resample("W-SUN").sum() if spec.gran == "daily" else pd.Series(y, index=spec.dates)
-    if spec.gran == "daily" and len(hist_w) > 2:
-        hist_w = hist_w.iloc[1:-1] if len(hist_w) > 4 else hist_w
-    n_weeks = min(4, len(p50) // per_week)
-    k = n_weeks * per_week
-    out: dict[str, Any] = {"weeks": [], "n_weeks": n_weeks}
-    recent = y[-max(k, per_week):] if len(y) else y
+    """Next 4 weeks (or 3 months): expected total, trend, active blocks and burst windows."""
+    m = spec.mdef
+    additive = bool(m and m.additive)
+    per, nblk, name = _blocks(spec.gran)
+    y = spec.values
+    if spec.gran == "daily":
+        hist_b = pd.Series(y, index=spec.dates).resample("W-SUN").sum() if additive else pd.Series(y, index=spec.dates).resample("W-SUN").mean()
+        hist_b = hist_b.iloc[1:-1] if len(hist_b) > 4 else hist_b
+    else:
+        hist_b = pd.Series(y, index=spec.dates)
+    n_blocks = min(nblk, len(p50) // per)
+    k = n_blocks * per
+    out: dict[str, Any] = {"weeks": [], "n_weeks": n_blocks, "block": name, "additive": additive}
+    recent = y[-max(k, per):] if len(y) else y
     base = float(np.mean(recent)) if len(recent) else 0.0
-    fut = float(np.mean(p50[:max(k, per_week)])) if len(p50) else 0.0
+    fut = float(np.mean(p50[:max(k, per)])) if len(p50) else 0.0
     change = (fut - base) / abs(base) * 100 if base else None
     out["trend"] = "stable" if change is None or abs(change) < 10 else ("rising" if change > 0 else "falling")
     out["trend_change_pct"] = change
@@ -258,18 +293,19 @@ def outlook(spec: S.SeriesSpec, fdates: pd.DatetimeIndex, p10: np.ndarray, p50: 
     out["expected_next_4w_p10"] = float(np.sum(p10[:k])) if additive and k else None
     out["expected_next_4w_p90"] = float(np.sum(p90[:k])) if additive and k else None
     out["avg_next_4w"] = float(np.mean(p50[:k])) if not additive and k else None
-    out["range_note"] = "Sums of daily P10 and P90 are indicative bounds, not exact quantiles of the total."
-    hv = hist_w.to_numpy(dtype=float)
+    out["range_note"] = "Summed P10 and P90 are indicative bounds, not exact quantiles of the total."
+    hv = hist_b.to_numpy(dtype=float)
     act = hv[hv > 0]
     med_act = float(np.median(act)) if len(act) else 0.0
-    mean_w, std_w = (float(hv.mean()), float(hv.std())) if len(hv) else (0.0, 0.0)
-    for i in range(n_weeks):
-        sl = slice(i * per_week, (i + 1) * per_week)
-        v = float(np.sum(p50[sl])) if additive else float(np.mean(p50[sl]))
-        w = {"week_start": str(fdates[sl][0].date()), "expected": v, "p10": float(np.sum(p10[sl]) if additive else np.mean(p10[sl])), "p90": float(np.sum(p90[sl]) if additive else np.mean(p90[sl]))}
+    mean_b, std_b = (float(hv.mean()), float(hv.std())) if len(hv) else (0.0, 0.0)
+    agg = np.sum if additive else np.mean
+    for i in range(n_blocks):
+        sl = slice(i * per, (i + 1) * per)
+        v = float(agg(p50[sl]))
+        w = {"week_start": str(fdates[sl][0].date()), "expected": v, "p10": float(agg(p10[sl])), "p90": float(agg(p90[sl]))}
         if additive:
             w["status"] = "active" if med_act > 0 and v >= 0.15 * med_act else "inactive"
-            w["burst"] = bool(w["status"] == "active" and v >= mean_w + std_w and v >= 1.25 * (float(np.mean(act)) if len(act) else v))
+            w["burst"] = bool(w["status"] == "active" and v >= mean_b + std_b and v >= 1.25 * (float(np.mean(act)) if len(act) else v))
         out["weeks"].append(w)
     out["active_weeks"] = sum(1 for w in out["weeks"] if w.get("status") == "active")
     out["inactive_weeks"] = sum(1 for w in out["weeks"] if w.get("status") == "inactive")
@@ -278,28 +314,60 @@ def outlook(spec: S.SeriesSpec, fdates: pd.DatetimeIndex, p10: np.ndarray, p50: 
     return out
 
 
+def find_peaks(spec: S.SeriesSpec, fdates: pd.DatetimeIndex, p50: np.ndarray, lead_days: int = 14) -> dict:
+    """Demand peaks in the forecast and the launch window that gets ahead of them."""
+    y = spec.values
+    if not len(p50) or not len(y):
+        return {"peaks": [], "season_peak": None}
+    ref_mean, ref_std = float(np.mean(y)), float(np.std(y))
+    thr = ref_mean + 0.5 * ref_std
+    peaks = []
+    for i, v in enumerate(p50):
+        left = p50[i - 1] if i > 0 else -np.inf
+        right = p50[i + 1] if i < len(p50) - 1 else -np.inf
+        if v >= left and v >= right and v >= thr and v > 0:
+            d = fdates[i]
+            launch = d - pd.Timedelta(days=lead_days)
+            peaks.append({"date": str(d.date()), "expected": float(v), "vs_history_pct": (v - ref_mean) / ref_mean * 100 if ref_mean else None,
+                          "launch_by": str(max(launch, fdates[0] - pd.Timedelta(days=lead_days)).date())})
+    peaks = sorted(peaks, key=lambda p: -p["expected"])[:3]
+    season_peak = None
+    if spec.gran in ("weekly", "monthly", "daily") and len(spec.dates) >= 365 // S.DAYS_PER[spec.gran]:
+        s = pd.Series(y, index=spec.dates)
+        by = s.groupby(s.index.month).mean()
+        if len(by) >= 6 and by.mean() > 0:
+            season_peak = {"month": int(by.idxmax()), "index_vs_avg": float(by.max() / by.mean() * 100)}
+    return {"peaks": peaks, "season_peak": season_peak, "lead_days": lead_days}
+
+
 # =============================================================== reliability
+def min_points(gran: str) -> int:
+    cfg = nz.min_points()
+    return int(cfg.get(gran, {"daily": 14, "weekly": 8, "monthly": 12}[gran]))
+
+
 def reliability(n_points: int, n_observed: int, gran: str, bt: dict | None, all_zero: bool) -> dict:
-    min_pts = nz.min_points()[gran]
+    mp = min_points(gran)
     reasons: list[str] = []
     if all_zero:
         return {"level": "Low", "reasons": ["The series is all zeros, so there is nothing to learn from."]}
     level = "High"
     n = min(n_points, n_observed) if n_observed else n_points
-    if n < min_pts:
-        level = "Low"; reasons.append(f"Only {n} {gran} points of history (minimum {min_pts}).")
+    if n < mp:
+        level = "Low"; reasons.append(f"Only {n} {gran} points of history (minimum {mp}).")
     if bt is None:
         level = "Low"; reasons.append("History is too short for a backtest, so accuracy is unknown.")
     else:
-        m, s, base = bt["model"], bt["model"].get("smape"), bt["baseline"]
+        m, base = bt["model"], bt["baseline"]
+        s, ms = m.get("smape"), m.get("mase")
         beats = m["mae"] <= base["mae"]
-        if m.get("mase") is not None and m["mase"] >= 1.2 or (s is not None and s > 60):
-            level = "Low"; reasons.append(f"Backtest error is high (sMAPE {s:.0f}%, MASE {m['mase'] if m['mase'] is None else round(m['mase'], 2)}).")
-        elif not (m.get("mase") is not None and m["mase"] < 0.8 and (s is None or s < 30) and beats and n >= 2 * min_pts):
+        if (ms is not None and ms >= 1.2) or (s is not None and s > 60):
+            level = "Low"; reasons.append(f"Backtest error is high (sMAPE {s:.0f}%" + (f", MASE {ms:.2f})." if ms is not None else ")."))
+        elif not (ms is not None and ms < 0.8 and (s is None or s < 30) and beats and n >= 2 * mp):
             if level == "High":
                 level = "Medium"
             reasons.append("Backtest is acceptable but not strong enough for High." if beats else "The model did not beat the seasonal naive baseline.")
-        if not beats and level != "Low":
+        if not beats and level == "High":
             level = "Medium"
     if not reasons:
         reasons.append("Long enough history and a backtest that beats the seasonal naive baseline.")
@@ -307,119 +375,285 @@ def reliability(n_points: int, n_observed: int, gran: str, bt: dict | None, all_
 
 
 # =============================================================== orchestration
-def _cov_arrays(spec: S.SeriesSpec, fdates: pd.DatetimeIndex, gran: str) -> tuple[dict, dict, list[str]]:
-    """Per-series covariate arrays covering context plus horizon."""
-    alld = spec.dates.append(fdates)
-    feats = S.calendar_features(alld, gran)
-    num, cat, used = {}, {}, []
-    for k, v in feats.items():
-        if np.ptp(v) > 0 and np.ptp(v[:len(spec.dates)]) > 0:
-            num[k] = v; used.append(k)
+def _cov_arrays(dates: pd.DatetimeIndex, n_hist: int, gran: str) -> tuple[dict, dict]:
+    """Calendar covariates covering context plus horizon (dates already include the horizon)."""
+    feats = S.calendar_features(dates, gran)
+    num = {k: v for k, v in feats.items() if np.ptp(v) > 0 and np.ptp(v[:n_hist]) > 0}
+    cat = {}
     if gran == "daily":
-        cat["day_of_week"] = np.array([d.dayofweek for d in alld]); used.append("day_of_week")
-        cat["is_weekend"] = np.array([int(d.dayofweek >= 5) for d in alld]); used.append("is_weekend")
-    return num, cat, used
+        cat["day_of_week"] = np.array([d.dayofweek for d in dates])
+        cat["is_weekend"] = np.array([int(d.dayofweek >= 5) for d in dates])
+    if gran == "weekly" and n_hist >= 104:
+        cat["week_of_year"] = np.array([int(d.isocalendar().week) for d in dates])
+    if gran == "monthly" and n_hist >= 24:
+        cat["month"] = np.array([d.month for d in dates])
+    return num, cat
 
 
-def run(df: pd.DataFrame, kind: str, params: dict, progress: Progress | None = None) -> dict:
-    """Run a batched forecast for all selected entities and return a JSON-safe result."""
+def _apply_covariates(specs: list[S.SeriesSpec], contexts: list[np.ndarray], H: int, gran: str, q: np.ndarray) -> tuple[list[str], str | None]:
+    min_cov = {"daily": 28, "weekly": 12, "monthly": 12}[gran]
+    elig = [i for i, sp in enumerate(specs) if len(contexts[i]) >= min_cov]
+    if not elig:
+        return [], f"Covariates need at least {min_cov} {gran} points; skipped for thin history."
+    arrs = {}
+    for i in elig:
+        alld = specs[i].dates[-len(contexts[i]):].append(S.future_dates(specs[i].dates[-1], H, gran))
+        arrs[i] = _cov_arrays(alld, len(contexts[i]), gran)
+    names_num = sorted(set.intersection(*[set(arrs[i][0]) for i in elig]))
+    names_cat = sorted(set.intersection(*[set(arrs[i][1]) for i in elig]))
+    if not (names_num or names_cat):
+        return [], "No calendar event varies across the history, so covariates were skipped."
+    adj = model.predict_covariates([contexts[i] for i in elig], H, {n: [arrs[i][0][n] for i in elig] for n in names_num},
+                                   {n: [arrs[i][1][n] for i in elig] for n in names_cat})
+    if adj is None:
+        return [], "Covariates could not be applied in this environment, so the plain forecast is shown."
+    for j, i in enumerate(elig):
+        q[i, :H, :] = adj[j]
+    return names_num + names_cat, None
+
+
+def run(df: pd.DataFrame, kind: str, params: dict, progress: Progress | None = None, meta: dict | None = None) -> dict:
+    """Batched forecast for all selected entities. Returns a JSON-safe result."""
     prog = progress or (lambda p, m: None)
     gran = params.get("granularity", "weekly")
     metric = params["metric"]
-    horizon_days = int(params.get("horizon_days", 28))
     prog(0.05, "Preparing series")
     specs, notes = S.build_series(df, kind, params.get("entity_type", "total"), metric, gran, params.get("entities") or None,
-                                  params.get("history_days") or None, int(params.get("max_entities", 8)))
-    gran = specs[0].gran if specs else gran
+                                  params.get("history_days") or None, int(params.get("max_entities", 8)), meta)
     if not specs:
         return {"ok": False, "message": notes[0] if notes else "No series could be built.", "notes": notes}
-    H = S.horizon_points(horizon_days, gran)
-    if H > HORIZON_LEN:
-        H = HORIZON_LEN; notes.append(f"Horizon limited to {HORIZON_LEN} points.")
-    freq = S.FREQ_FLAG[gran]
-    min_pts = nz.min_points()[gran]
-    default_hold = 7 if gran == "daily" else 2
-    contexts, ctx_info = [], []
+    gran = specs[0].gran
+    H = S.horizon_points(int(params.get("horizon_days", 28)), gran)
+    if H > MAX_HORIZON:
+        H = MAX_HORIZON; notes.append(f"Horizon limited to {MAX_HORIZON} {gran} points.")
+    mp = min_points(gran)
+    default_hold = {"daily": 7, "weekly": 2, "monthly": 2}[gran]
+    contexts, holds = [], []
     for sp in specs:
-        y = sp.values[-CONTEXT_LEN:]
-        n_hold = int(params.get("holdout") or default_hold)
-        n_hold = min(n_hold, len(y) // 3)
+        y = sp.values[-MAX_CONTEXT:]
+        h = min(int(params.get("holdout") or default_hold), len(y) // 3)
         contexts.append(y)
-        ctx_info.append(n_hold if n_hold >= 2 and len(y) - n_hold >= 4 else 0)
-    # one batched call: full contexts first, then truncated contexts for backtests
-    bt_idx = [i for i, h in enumerate(ctx_info) if h]
-    batch = contexts + [contexts[i][:-ctx_info[i]] for i in bt_idx]
-    freqs = [freq] * len(batch)
-    horizon_all = max([H] + [ctx_info[i] for i in bt_idx])
-    prog(0.2, f"Loading model" if model._tfm is None and not model._failed else "Running forecast")
-    mean, q, backend = model.predict(batch, freqs, horizon_all)
-    prog(0.7, "Post-processing")
-    cov_used: list[str] = []
-    cov_msg = None
-    final_mean = mean[:len(specs), :H]
-    use_cov = bool(params.get("covariates", True))
-    if use_cov and backend == "timesfm":
-        min_cov = 28 if gran == "daily" else 12
-        elig = [i for i, sp in enumerate(specs) if len(sp.values) >= min_cov]
-        if elig:
-            fds = {i: S.future_dates(specs[i].dates[-1], H, gran) for i in elig}
-            arrs = {i: _cov_arrays(specs[i], fds[i], gran) for i in elig}
-            names_num = sorted(set.intersection(*[set(arrs[i][0]) for i in elig])) if elig else []
-            names_cat = sorted(set.intersection(*[set(arrs[i][1]) for i in elig])) if elig else []
-            if names_num or names_cat:
-                adj = model.predict_covariates([contexts[i] for i in elig], [freq] * len(elig), H,
-                                               {n: [arrs[i][0][n] for i in elig] for n in names_num}, {n: [arrs[i][1][n] for i in elig] for n in names_cat})
-                if adj is not None:
-                    cov_used = names_num + names_cat
-                    for j, i in enumerate(elig):
-                        shift = adj[j] - final_mean[i]
-                        q[i, :H, :] = q[i, :H, :] + shift[:, None]
-                        final_mean[i] = adj[j]
-                else:
-                    cov_msg = "Covariates could not be applied by this environment, so the plain forecast is shown."
-            else:
-                cov_msg = "No calendar event or weekday varies across the history, so covariates were skipped."
-        else:
-            cov_msg = f"Covariates need at least {min_cov} {gran} points; skipped for thin history."
+        holds.append(h if h >= 2 and len(y) - h >= 4 else 0)
+    # one batched call: full contexts first, then the truncated contexts used for backtests and band monitoring
+    bt_idx = [i for i, h in enumerate(holds) if h]
+    batch = contexts + [contexts[i][:-holds[i]] for i in bt_idx]
+    horizon_all = max([H] + [holds[i] for i in bt_idx])
+    prog(0.2, "Loading TimesFM" if model._tfm is None and not model._failed else "Running TimesFM")
+    q, backend = model.predict(batch, horizon_all, gran)
+    prog(0.65, "Applying calendar covariates")
+    cov_used, cov_msg = ([], None)
+    if params.get("covariates", True) and backend == "timesfm":
+        cov_used, cov_msg = _apply_covariates(specs, contexts, H, gran, q)
     results = []
     bt_pos = {i: len(specs) + k for k, i in enumerate(bt_idx)}
     for i, sp in enumerate(specs):
         prog(0.7 + 0.25 * (i + 1) / len(specs), f"Analysing {sp.entity}")
-        y = sp.values
-        nonneg = sp.metric in S.NONNEG
+        y, nonneg = sp.values, bool(sp.mdef and sp.mdef.nonneg)
         fd = S.future_dates(sp.dates[-1], H, gran)
         qq = np.sort(q[i, :H, :], axis=-1)
         if nonneg:
             qq = np.clip(qq, 0, None)
-        p10, p50, p90 = qq[:, 0], np.clip(final_mean[i], 0, None) if nonneg else final_mean[i], qq[:, 2]
-        p50 = np.clip(p50, p10, p90) if len(p50) else p50
-        bt = None
-        warnings = list(sp.notes)
+        p10, p50, p90 = qq[:, 0], qq[:, 1], qq[:, 2]
+        bt, breaches = None, []
         if i in bt_pos:
-            h = ctx_info[i]; k = bt_pos[i]; train, actual = contexts[i][:-h], contexts[i][-h:]
-            pred = mean[k, :h]; bq = np.sort(q[k, :h, :], axis=-1)
+            h, k = holds[i], bt_pos[i]
+            train, actual = contexts[i][:-h], contexts[i][-h:]
+            bq = np.sort(q[k, :h, :], axis=-1)
             if nonneg:
-                pred, bq = np.clip(pred, 0, None), np.clip(bq, 0, None)
-            m = 7 if gran == "daily" and len(train) >= 14 else 1
-            base = seasonal_naive(train, h, 7 if gran == "daily" else 1)
-            bt = {"dates": [str(d.date()) for d in sp.dates[-h:]], "actual": actual, "pred": pred, "p10": bq[:, 0], "p90": bq[:, 2], "holdout": h,
-                  "model": {"smape": smape(actual, pred), "mae": mae(actual, pred), "mase": mase(actual, pred, train, m)},
+                bq = np.clip(bq, 0, None)
+            m = S.season_length(gran, len(train))
+            base = seasonal_naive(train, h, m)
+            bdates = [str(d.date()) for d in sp.dates[-h:]]
+            bt = {"dates": bdates, "actual": actual, "pred": bq[:, 1], "p10": bq[:, 0], "p90": bq[:, 2], "holdout": h,
+                  "model": {"smape": smape(actual, bq[:, 1]), "mae": mae(actual, bq[:, 1]), "mase": mase(actual, bq[:, 1], train, m), "coverage": coverage(actual, bq[:, 0], bq[:, 2])},
                   "baseline": {"smape": smape(actual, base), "mae": mae(actual, base), "mase": mase(actual, base, train, m), "name": "Seasonal naive"}}
+            breaches = band_breaches(bdates, actual, bq[:, 0], bq[:, 2])
         all_zero = not np.any(y)
-        rel = reliability(len(y), sp.n_observed, gran, bt, all_zero)
-        if len(y) < min_pts:
-            warnings.append(f"Thin history: {len(y)} {gran} points, below the minimum of {min_pts}. The forecast still ran but is marked Low reliability.")
+        warnings = list(sp.notes)
+        if len(y) < mp:
+            warnings.append(f"Thin history: {len(y)} {gran} points, below the minimum of {mp}. The forecast still ran but is marked Low reliability.")
         if all_zero:
             warnings.append("All values are zero. The forecast is flat zero.")
-        hist_dates = [str(d.date()) for d in sp.dates]
         results.append({
-            "entity": sp.entity, "metric": sp.metric, "granularity": gran, "n_points": int(len(y)), "n_active": sp.n_active,
-            "history": {"dates": hist_dates, "values": y}, "forecast": {"dates": [str(d.date()) for d in fd], "p10": p10, "p50": p50, "p90": p90},
-            "backtest": bt, "reliability": rel, "anomalies": detect_anomalies(sp.dates, y, gran), "change_points": detect_change_points(sp.dates, y) if len(y) >= 12 else [],
-            "outlook": outlook(sp, fd, p10, p50, p90), "warnings": warnings})
+            "entity": sp.entity, "metric": sp.metric, "metric_label": sp.mdef.label if sp.mdef else sp.metric, "unit": sp.mdef.unit if sp.mdef else "number",
+            "granularity": gran, "n_points": int(len(y)), "n_active": sp.n_active,
+            "history": {"dates": [str(d.date()) for d in sp.dates], "values": y},
+            "forecast": {"dates": [str(d.date()) for d in fd], "p10": p10, "p50": p50, "p90": p90},
+            "backtest": bt, "band_breaches": breaches, "reliability": reliability(len(y), sp.n_observed, gran, bt, all_zero),
+            "anomalies": detect_anomalies(sp.dates, y, gran), "change_points": detect_change_points(sp.dates, y) if len(y) >= 12 else [],
+            "outlook": outlook(sp, fd, p10, p50, p90), "peaks": find_peaks(sp, fd, p50, int(params.get("lead_days", 14))), "warnings": warnings})
     prog(1.0, "Done")
     return jsonable({"ok": True, "kind": kind, "params": {**params, "granularity": gran, "horizon_points": H}, "backend": backend,
-                     "model": model.status(), "frequency_flag": freq, "covariates_used": cov_used, "covariate_note": cov_msg, "notes": notes, "results": results})
+                     "model": model.status(), "covariates_used": cov_used, "covariate_note": cov_msg, "notes": notes, "results": results})
+
+
+# =============================================================== driver scenarios (media planning / ROI)
+def _driver_future(driver: np.ndarray, H: int, gran: str, multiplier: float, total: float | None) -> np.ndarray:
+    """Future driver plan. Daily keeps the last week's weekday shape, scaled."""
+    recent = driver[-(7 if gran == "daily" else 4):] if len(driver) else np.zeros(1)
+    if gran == "daily" and len(driver) >= 7:
+        base = np.array([recent[k % 7] for k in range(H)])
+    else:
+        base = np.full(H, float(np.mean(recent)))
+    if total is not None:
+        s = base.sum()
+        return base / s * total if s > 0 else np.full(H, total / H)
+    return base * multiplier
+
+
+def _fallback_scenarios(y: np.ndarray, x: np.ndarray, dates: pd.DatetimeIndex, futures: list[np.ndarray], H: int, gran: str) -> tuple[np.ndarray, dict]:
+    """Linear driver effect plus a seasonal residual forecast, used when TimesFM is not available."""
+    n = len(y)
+    dow = np.array([d.dayofweek for d in dates]) if gran == "daily" else np.zeros(n, dtype=int)
+    X = np.column_stack([np.ones(n), x] + ([np.eye(7)[dow][:, 1:]] if gran == "daily" else []))
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    resid = y - X @ beta
+    rq = fallback_one(resid, H, S.season_length(gran, n))
+    fdates = S.future_dates(dates[-1], H, gran)
+    fdow = np.array([d.dayofweek for d in fdates]) if gran == "daily" else np.zeros(H, dtype=int)
+    out = []
+    for xf in futures:
+        Xf = np.column_stack([np.ones(H), xf] + ([np.eye(7)[fdow][:, 1:]] if gran == "daily" else []))
+        out.append((Xf @ beta)[:, None] + rq)
+    ss_tot = float(np.sum((y - y.mean()) ** 2)) or 1.0
+    return np.stack(out), {"slope": float(beta[1]), "r2": float(1 - np.sum(resid ** 2) / ss_tot)}
+
+
+def run_scenarios(df: pd.DataFrame, kind: str, params: dict, meta: dict | None = None, progress: Progress | None = None) -> dict:
+    """Forecast a KPI under several driver plans (for example spend -20%, 0, +20%) and derive cost per result.
+
+    params: target (KPI metric), driver (spend-like metric), granularity, horizon_days, entity_type, entity,
+            multipliers (list of floats) and/or budgets (list of totals for the horizon), ratio_label.
+    """
+    prog = progress or (lambda p, m: None)
+    gran = params.get("granularity", "weekly")
+    et, ent = params.get("entity_type", "total"), params.get("entity")
+    prog(0.1, "Preparing target and driver series")
+    ys, notes = S.build_series(df, kind, et, params["target"], gran, [ent] if ent else None, params.get("history_days"), 1, meta)
+    xs, _ = S.build_series(df, kind, et, params["driver"], gran, [ent] if ent else None, params.get("history_days"), 1, meta)
+    if not ys or not xs:
+        return {"ok": False, "message": (notes or ["Target or driver series could not be built."])[0]}
+    ysp, xsp = ys[0], xs[0]
+    common = ysp.dates.intersection(xsp.dates)
+    y = pd.Series(ysp.values, index=ysp.dates).reindex(common).to_numpy(dtype=float)[-MAX_CONTEXT:]
+    x = pd.Series(xsp.values, index=xsp.dates).reindex(common).to_numpy(dtype=float)[-MAX_CONTEXT:]
+    dates = common[-len(y):]
+    H = min(S.horizon_points(int(params.get("horizon_days", 28)), gran), MAX_HORIZON)
+    warnings: list[str] = list(notes)
+    if len(y) < min_points(gran):
+        warnings.append(f"Only {len(y)} {gran} points of history. Scenario results are indicative only.")
+    cv = float(np.std(x) / np.mean(x)) if np.mean(x) > 0 else 0.0
+    if cv < 0.1:
+        warnings.append("The driver barely varied in the history, so its effect on the KPI cannot be learned well. Expect scenarios to look similar.")
+    plans: list[tuple[str, np.ndarray]] = []
+    for mlt in params.get("multipliers") or ([0.8, 1.0, 1.2] if not params.get("budgets") else []):
+        label = "Current pace" if abs(mlt - 1) < 1e-9 else f"{'+' if mlt > 1 else ''}{(mlt - 1) * 100:.0f}% {params.get('driver_label', 'driver')}"
+        plans.append((label, _driver_future(x, H, gran, float(mlt), None)))
+    for b in params.get("budgets") or []:
+        plans.append((f"Budget {b:,.0f}", _driver_future(x, H, gran, 1.0, float(b))))
+    prog(0.4, "Running scenarios")
+    fdates = S.future_dates(dates[-1], H, gran)
+    alld = dates.append(fdates)
+    cal_num, cal_cat = _cov_arrays(alld, len(y), gran)
+    method = "fallback"
+    qs = None
+    if model.load() and len(y) >= 8:
+        dyn_num = {"driver": [np.concatenate([x, xf]) for _, xf in plans]}
+        dyn_num.update({k: [v] * len(plans) for k, v in cal_num.items()})
+        dyn_cat = {k: [v] * len(plans) for k, v in cal_cat.items()}
+        qs = model.predict_covariates([y] * len(plans), H, dyn_num, dyn_cat)
+        if qs is not None:
+            method = "timesfm_xreg"
+    slope_info = None
+    if qs is None:
+        qs, slope_info = _fallback_scenarios(y, x, dates, [xf for _, xf in plans], H, gran)
+        warnings.append("Scenarios used a linear driver model plus seasonal smoothing because TimesFM covariates were not available.")
+    qs = np.clip(np.sort(qs, axis=-1), 0, None)
+    # elasticity from history for the evidence trail
+    if slope_info is None and len(y) >= 6 and np.std(x) > 0:
+        b = np.polyfit(x, y, 1)
+        pred = np.polyval(b, x)
+        ss = float(np.sum((y - y.mean()) ** 2)) or 1.0
+        slope_info = {"slope": float(b[0]), "r2": float(1 - np.sum((y - pred) ** 2) / ss)}
+    rows, base_row = [], None
+    scale = float(params.get("ratio_scale", 1.0))
+    for (label, xf), qq in zip(plans, qs):
+        k10, k50, k90 = float(qq[:, 0].sum()), float(qq[:, 1].sum()), float(qq[:, 2].sum())
+        spend = float(xf.sum())
+        row = {"scenario": label, "driver_total": spend, "kpi_p10": k10, "kpi_p50": k50, "kpi_p90": k90,
+               "ratio_p50": spend / k50 * scale if k50 > 0 else None, "ratio_best": spend / k90 * scale if k90 > 0 else None, "ratio_worst": spend / k10 * scale if k10 > 0 else None,
+               "series": {"dates": [str(d.date()) for d in fdates], "driver": xf, "p10": qq[:, 0], "p50": qq[:, 1], "p90": qq[:, 2]}}
+        if label == "Current pace":
+            base_row = row
+        rows.append(row)
+    if base_row:
+        for r in rows:
+            dk, ds = r["kpi_p50"] - base_row["kpi_p50"], r["driver_total"] - base_row["driver_total"]
+            r["incremental_kpi"] = dk
+            r["marginal_ratio"] = ds / dk * scale if dk > 0 and ds > 0 else None
+    hist_ratio = float(x.sum() / y.sum() * scale) if y.sum() > 0 else None
+    prog(1.0, "Done")
+    return jsonable({"ok": True, "method": method, "model": model.status(), "params": {**params, "granularity": gran, "horizon_points": H},
+                     "history": {"dates": [str(d.date()) for d in dates], "target": y, "driver": x}, "scenarios": rows,
+                     "historical_ratio": hist_ratio, "driver_effect": slope_info, "calendar_covariates": list(cal_num) + list(cal_cat), "warnings": warnings})
+
+
+# =============================================================== pacing
+def pacing(df: pd.DataFrame, kind: str, params: dict, meta: dict | None = None) -> dict:
+    """Projected end-of-flight total for a metric against a target (budget, leads, GRPs).
+
+    params: metric, entity_type, entity, start, end, target, tolerance_pct (default 5).
+    """
+    et, ent = params.get("entity_type", "total"), params.get("entity")
+    start, end = pd.Timestamp(params["start"]), pd.Timestamp(params["end"])
+    target = float(params["target"])
+    tol = float(params.get("tolerance_pct", 5))
+    specs, notes = S.build_series(df, kind, et, params["metric"], "daily", [ent] if ent else None, None, 1, meta)
+    if not specs:
+        return {"ok": False, "message": (notes or ["No data for pacing."])[0]}
+    sp = specs[0]
+    if sp.mdef and not sp.mdef.additive:
+        return {"ok": False, "message": f"Pacing needs a total-able metric such as spend, spots, leads or GRPs, not {sp.mdef.label}."}
+    s = pd.Series(sp.values, index=sp.dates)
+    last = s.index.max()
+    to_date = float(s[(s.index >= start) & (s.index <= min(end, last))].sum())
+    remaining_days = max(0, (end - max(last, start - pd.Timedelta(days=1))).days)
+    elapsed = max(0, (min(last, end) - start).days + 1)
+    total_days = (end - start).days + 1
+    if remaining_days > 0:
+        H = min(remaining_days, MAX_HORIZON)
+        q, backend = model.predict([sp.values[-MAX_CONTEXT:]], H, "daily")
+        qq = np.clip(np.sort(q[0, :H, :], axis=-1), 0, None)
+        if H < remaining_days:   # extend flat beyond the model horizon
+            qq = np.vstack([qq, np.repeat(qq[-1:], remaining_days - H, axis=0)])
+            notes.append(f"The forecast covers {H} days; the rest of the flight assumes the last forecast day repeats.")
+        rem = qq.sum(axis=0)
+        fdates = S.future_dates(last, remaining_days, "daily")
+    else:
+        rem, backend, qq, fdates = np.zeros(3), "none", np.zeros((0, 3)), pd.DatetimeIndex([])
+    proj = to_date + rem
+    status = "On track"
+    if proj[1] < target * (1 - tol / 100):
+        status = "Under pacing"
+    elif proj[1] > target * (1 + tol / 100):
+        status = "Over pacing"
+    expected_share = elapsed / total_days if total_days > 0 else 1
+    need_per_day = (target - to_date) / remaining_days if remaining_days > 0 else None
+    run_rate = float(s.iloc[-7:].mean()) if len(s) else 0.0
+    cum = s[(s.index >= start) & (s.index <= end)].cumsum()
+    return jsonable({
+        "ok": True, "metric": sp.metric, "metric_label": sp.mdef.label if sp.mdef else sp.metric, "entity": sp.entity, "backend": backend,
+        "start": str(start.date()), "end": str(end.date()), "last_actual": str(last.date()), "target": target,
+        "actual_to_date": to_date, "pct_of_target": to_date / target * 100 if target else None, "time_elapsed_pct": expected_share * 100,
+        "projected_p10": float(proj[0]), "projected_p50": float(proj[1]), "projected_p90": float(proj[2]),
+        "projected_vs_target_pct": (proj[1] - target) / target * 100 if target else None, "status": status,
+        "probability_note": "On track means the P50 projection is within the tolerance of the target.",
+        "target_reached_in_band": bool(proj[0] <= target <= proj[2]),
+        "required_per_day": need_per_day, "recent_run_rate": run_rate, "remaining_days": remaining_days,
+        "cumulative": {"dates": [str(d.date()) for d in cum.index], "values": cum.to_numpy()},
+        "projection": {"dates": [str(d.date()) for d in fdates], "p10": to_date + np.cumsum(qq[:, 0]) if len(qq) else [], "p50": to_date + np.cumsum(qq[:, 1]) if len(qq) else [],
+                       "p90": to_date + np.cumsum(qq[:, 2]) if len(qq) else []},
+        "notes": notes})
 
 
 # =============================================================== cache and jobs
@@ -458,13 +692,13 @@ class Jobs:
     def __init__(self) -> None:
         self._j: dict[str, dict] = {}; self._lock = threading.Lock()
 
-    def start(self, fn: Callable[[Progress], dict]) -> str:
-        jid = uuid.uuid4().hex[:12]
+    def start(self, fn: Callable[[Progress], dict], owner: str = "") -> str:
+        jid = uuid.uuid4().hex[:16]
         with self._lock:
             now = time.time()
             for k in [k for k, v in self._j.items() if now - v["t"] > 1800]:
                 del self._j[k]
-            self._j[jid] = {"status": "running", "progress": 0.0, "message": "Queued", "result": None, "error": None, "t": now}
+            self._j[jid] = {"status": "running", "progress": 0.0, "message": "Queued", "result": None, "error": None, "t": now, "owner": owner}
 
         def upd(p: float, m: str) -> None:
             self._j[jid].update(progress=p, message=m)
@@ -478,8 +712,9 @@ class Jobs:
         threading.Thread(target=work, daemon=True).start()
         return jid
 
-    def get(self, jid: str) -> dict | None:
-        return self._j.get(jid)
+    def get(self, jid: str, owner: str = "") -> dict | None:
+        j = self._j.get(jid)
+        return j if j and (not j["owner"] or j["owner"] == owner) else None
 
 
 jobs = Jobs()

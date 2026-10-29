@@ -230,7 +230,7 @@ def build_pdf(rep: Report) -> bytes:
         block += [Spacer(1, 3), tbl]
         if t.name == "Forecast summary" and rep.forecast:
             el.append(PageBreak())
-            block.insert(1, Paragraph(f"Reliability badge per entity is based on history length and a backtest against a seasonal naive baseline. Model: {'TimesFM 2.0' if rep.forecast['backend'] == 'timesfm' else 'statistical fallback'}.", small))
+            block.insert(1, Paragraph(f"Reliability badge per entity is based on history length and a backtest against a seasonal naive baseline. Model: {'TimesFM 2.5' if rep.forecast['backend'] == 'timesfm' else 'statistical fallback'}.", small))
         el.append(KeepTogether(block))
         if t.name == "Forecast summary" and rep.forecast:
             for r in rep.forecast["results"][:3]:

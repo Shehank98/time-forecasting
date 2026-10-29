@@ -1,21 +1,70 @@
 {
   "_note": "Hours are 24h. A daypart whose end is smaller than its start wraps past midnight.",
   "dayparts": [
-    {"name": "Early Morning", "start": 5, "end": 9},
-    {"name": "Morning", "start": 9, "end": 12},
-    {"name": "Afternoon", "start": 12, "end": 17},
-    {"name": "Early Prime", "start": 17, "end": 20},
-    {"name": "Prime", "start": 20, "end": 23},
-    {"name": "Late Night", "start": 23, "end": 5}
+    {
+      "name": "Early Morning",
+      "start": 5,
+      "end": 9
+    },
+    {
+      "name": "Morning",
+      "start": 9,
+      "end": 12
+    },
+    {
+      "name": "Afternoon",
+      "start": 12,
+      "end": 17
+    },
+    {
+      "name": "Early Prime",
+      "start": 17,
+      "end": 20
+    },
+    {
+      "name": "Prime",
+      "start": 20,
+      "end": 23
+    },
+    {
+      "name": "Late Night",
+      "start": 23,
+      "end": 5
+    }
   ],
-  "prime": ["Prime"],
+  "prime": [
+    "Prime"
+  ],
   "duration_bands": [
-    {"label": "<=10s", "max": 10},
-    {"label": "11-20s", "max": 20},
-    {"label": "21-30s", "max": 30},
-    {"label": "31-45s", "max": 45},
-    {"label": "46-60s", "max": 60},
-    {"label": ">60s", "max": null}
+    {
+      "label": "<=10s",
+      "max": 10
+    },
+    {
+      "label": "11-20s",
+      "max": 20
+    },
+    {
+      "label": "21-30s",
+      "max": 30
+    },
+    {
+      "label": "31-45s",
+      "max": 45
+    },
+    {
+      "label": "46-60s",
+      "max": 60
+    },
+    {
+      "label": ">60s",
+      "max": null
+    }
   ],
-  "min_points": {"daily": 14, "weekly": 8}
+  "min_points": {
+    "daily": 14,
+    "weekly": 8,
+    "monthly": 12
+  },
+  "timebelt_minutes": 30
 }

@@ -167,7 +167,7 @@ def forecast_tables(fc: dict) -> list[Table]:
                      "sMAPE": (bt["model"]["smape"] / 100) if bt and bt["model"]["smape"] is not None else None, "MAE": bt["model"]["mae"] if bt else None,
                      "MASE": bt["model"]["mase"] if bt else None, "Baseline sMAPE": (bt["baseline"]["smape"] / 100) if bt and bt["baseline"]["smape"] is not None else None, "Why": "; ".join(r["reliability"]["reasons"])})
     out.append(Table("Forecast summary", pd.DataFrame(summ), {"History points": "int", "Change vs recent": "pct", "Expected next weeks": "lkr" if rs[0]["metric"] == "spend" else "dec2", "Active weeks": "int", "Inactive weeks": "int", "sMAPE": "pct", "MAE": "dec2", "MASE": "dec2", "Baseline sMAPE": "pct"},
-                     f"Model: {'TimesFM 2.0' if fc['backend'] == 'timesfm' else 'statistical fallback (TimesFM unavailable)'}. Metric: {rs[0]['metric']}, granularity {rs[0]['granularity']}. Reliability uses history length and a backtest against a seasonal naive baseline."))
+                     f"Model: {'TimesFM 2.5' if fc['backend'] == 'timesfm' else 'statistical fallback (TimesFM unavailable)'}. Metric: {rs[0]['metric']}, granularity {rs[0]['granularity']}. Reliability uses history length and a backtest against a seasonal naive baseline."))
     vals = []
     for r in rs:
         for i, d in enumerate(r["forecast"]["dates"]):
