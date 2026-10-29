@@ -1,0 +1,35 @@
+{
+  "_note": "Editable event calendar used as forecast covariates. Poya and religious dates move every year and some are set by the lunar calendar, so VERIFY against the official Sri Lanka calendar before relying on them. Add or delete rows as needed. type is one of: poya, new_year, vesak, christmas, public, school_holiday.",
+  "events": [
+    {"date": "2026-01-03", "name": "Duruthu Poya", "type": "poya"},
+    {"date": "2026-02-01", "name": "Navam Poya", "type": "poya"},
+    {"date": "2026-02-04", "name": "Independence Day", "type": "public"},
+    {"date": "2026-03-03", "name": "Madin Poya", "type": "poya"},
+    {"date": "2026-04-02", "name": "Bak Poya", "type": "poya"},
+    {"date": "2026-04-13", "name": "Sinhala and Tamil New Year Eve", "type": "new_year"},
+    {"date": "2026-04-14", "name": "Sinhala and Tamil New Year", "type": "new_year"},
+    {"date": "2026-05-01", "name": "Vesak Poya", "type": "vesak"},
+    {"date": "2026-05-02", "name": "Day after Vesak", "type": "vesak"},
+    {"date": "2026-05-31", "name": "Adhi Poson Poya", "type": "poya"},
+    {"date": "2026-06-29", "name": "Poson Poya", "type": "poya"},
+    {"date": "2026-07-29", "name": "Esala Poya", "type": "poya"},
+    {"date": "2026-08-28", "name": "Nikini Poya", "type": "poya"},
+    {"date": "2026-09-26", "name": "Binara Poya", "type": "poya"},
+    {"date": "2026-10-26", "name": "Vap Poya", "type": "poya"},
+    {"date": "2026-11-24", "name": "Il Poya", "type": "poya"},
+    {"date": "2026-12-24", "name": "Unduvap Poya", "type": "poya"},
+    {"date": "2026-12-25", "name": "Christmas Day", "type": "christmas"},
+    {"date": "2026-05-01", "name": "May Day", "type": "public"},
+    {"date": "2025-12-25", "name": "Christmas Day", "type": "christmas"},
+    {"date": "2025-04-13", "name": "Sinhala and Tamil New Year Eve", "type": "new_year"},
+    {"date": "2025-04-14", "name": "Sinhala and Tamil New Year", "type": "new_year"},
+    {"date": "2027-04-13", "name": "Sinhala and Tamil New Year Eve", "type": "new_year"},
+    {"date": "2027-04-14", "name": "Sinhala and Tamil New Year", "type": "new_year"},
+    {"date": "2027-12-25", "name": "Christmas Day", "type": "christmas"}
+  ],
+  "school_holidays": [
+    {"start": "2026-04-06", "end": "2026-04-24", "name": "April vacation (approx)"},
+    {"start": "2026-08-10", "end": "2026-08-31", "name": "August vacation (approx)"},
+    {"start": "2026-12-14", "end": "2027-01-04", "name": "December vacation (approx)"}
+  ]
+}

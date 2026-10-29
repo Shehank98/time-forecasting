@@ -1,0 +1,16 @@
+{
+  "_note": "Canonical channel name -> list of aliases (matched after uppercasing, trimming and removing a leading 'TV -'). Edit freely; changes are picked up automatically.",
+  "DERANA": ["DERANA", "DERANA TV", "TV DERANA", "DERANA 24X7"],
+  "HIRU": ["HIRU", "HIRU TV", "TV HIRU"],
+  "SIRASA": ["SIRASA", "SIRASA TV", "TV SIRASA"],
+  "SIYATHA": ["SIYATHA", "SIYATHA TV", "TV SIYATHA"],
+  "SHAKTHI": ["SHAKTHI", "SHAKTHI TV", "TV SHAKTHI", "SHAKTI", "SHAKTI TV"],
+  "ITN": ["ITN", "ITN TV", "INDEPENDENT TELEVISION NETWORK"],
+  "RUPAVAHINI": ["RUPAVAHINI", "RUPAVAHINI TV", "SLRC"],
+  "TV 1": ["TV 1", "TV1", "TV ONE"],
+  "SWARNAVAHINI": ["SWARNAVAHINI", "SWARNAVAHINI TV"],
+  "CHANNEL EYE": ["CHANNEL EYE", "EYE", "EYE CHANNEL"],
+  "SUPREME": ["SUPREME", "SUPREME TV"],
+  "VASANTHAM": ["VASANTHAM", "VASANTHAM TV"],
+  "NETHRA": ["NETHRA", "NETHRA TV"]
+}
