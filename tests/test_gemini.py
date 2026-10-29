@@ -3,6 +3,8 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from helpers import api, login, new_client, up as up_helper
+
 import synth
 from app.main import app
 from app.services import analytics_lmrb as A
@@ -124,7 +126,7 @@ def test_endpoints_never_leak_key_or_raw_rows(monkeypatch):
         seen["prompt"] = prompt
         return GOOD if schema is G.Insights else json.dumps({"answer": "ok", "confidence": "low", "evidence": []})
     monkeypatch.setattr(G.GeminiService, "_call", fake_call)
-    c = TestClient(app)
+    c = api()
     c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb()))})
     r = c.post("/api/insights", json={"kind": "lmrb", "options": {"my_brand": "Nestle Lanka Ltd"}, "forecast": {"metric": "spend", "entity_type": "advertiser", "granularity": "weekly", "horizon_days": 28}})
     assert r.status_code == 200, r.text
@@ -140,7 +142,7 @@ def test_endpoints_never_leak_key_or_raw_rows(monkeypatch):
 
 def test_endpoint_maps_gemini_errors(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    c = TestClient(app)
+    c = api()
     c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb(days=10)))})
     r = c.post("/api/insights", json={"kind": "lmrb", "refresh": True})
     assert r.status_code == 503 and "GEMINI_API_KEY" in r.json()["detail"]

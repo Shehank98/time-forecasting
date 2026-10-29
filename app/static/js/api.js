@@ -30,10 +30,16 @@ window.App = window.App || {};
     t.className = 'toast ' + type; t.textContent = msg; box.appendChild(t);
     setTimeout(() => t.remove(), ms);
   }
+  const clientId = () => { try { return localStorage.getItem('client') || ''; } catch (e) { return ''; } };
+  const baseHeaders = () => { const h = { 'X-Requested-With': 'fetch' }; const c = clientId(); if (c) h['X-Client-Id'] = c; return h; };
+  function toLogin() {
+    if (!/login\.html$/.test(location.pathname)) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+  }
   async function request(url, opts = {}) {
     let res;
-    try { res = await fetch(url, { credentials: 'same-origin', ...opts }); }
+    try { res = await fetch(url, { credentials: 'same-origin', ...opts, headers: { ...baseHeaders(), ...(opts.headers || {}) } }); }
     catch (e) { throw Object.assign(new Error('Network problem. Check your connection and try again.'), { status: 0 }); }
+    if (res.status === 401 && !url.startsWith('/api/auth/login')) { toLogin(); }
     if (!res.ok) {
       let detail = res.statusText;
       try { const j = await res.json(); detail = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail); } catch (e) { /* keep status text */ }
@@ -44,11 +50,7 @@ window.App = window.App || {};
   const api = {
     async get(url) { return (await request(url)).json(); },
     async post(url, body) { return (await request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })).json(); },
-    async put(url, body) {
-      const hdr = () => ({ 'Content-Type': 'application/json', 'X-Admin-Token': store.get('admin-token', '') });
-      try { return await (await request(url, { method: 'PUT', headers: hdr(), body: JSON.stringify(body) })).json(); }
-      catch (e) { if (e.status !== 403) throw e; const t = window.prompt('Admin token required to change settings:'); if (!t) throw e; store.set('admin-token', t); return (await request(url, { method: 'PUT', headers: hdr(), body: JSON.stringify(body) })).json(); }
-    },
+    async put(url, body) { return (await request(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json(); },
     async del(url) { return (await request(url, { method: 'DELETE' })).json(); },
     async blob(url, body) {
       const res = await request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
@@ -60,10 +62,12 @@ window.App = window.App || {};
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', url);
+        Object.entries(baseHeaders()).forEach(([k, v]) => xhr.setRequestHeader(k, v));
         xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
         xhr.onload = () => {
           let j = {};
           try { j = JSON.parse(xhr.responseText); } catch (e) { /* ignore */ }
+          if (xhr.status === 401) toLogin();
           if (xhr.status >= 200 && xhr.status < 300) resolve(j);
           else reject(Object.assign(new Error(typeof j.detail === 'string' ? j.detail : 'Upload failed'), { status: xhr.status }));
         };
@@ -86,5 +90,5 @@ window.App = window.App || {};
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const skeleton = (n = 3) => '<div class="stack">' + Array.from({ length: n }, () => '<div class="skeleton" style="height:120px"></div>').join('') + '</div>';
   const emptyState = (title, text) => `<div class="empty"><strong>${esc(title)}</strong>${esc(text || '')}</div>`;
-  Object.assign(App, { esc, fmt, toast, api, download, debounce, store, $, $$, skeleton, emptyState });
+  Object.assign(App, { esc, fmt, toast, api, download, debounce, store, $, $$, skeleton, emptyState, clientId });
 })(window.App);

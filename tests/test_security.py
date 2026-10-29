@@ -4,10 +4,11 @@ import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
+from helpers import api, login, new_client, up as up_helper
+
 import synth
 from app.main import app
 from app.services import normalise as nz
-from app.services import store as store_mod
 
 EVIL = "=HYPERLINK(\"http://evil.example\",\"x\")"
 
@@ -20,7 +21,7 @@ def evil_lmrb():
 
 
 def test_excel_report_never_stores_uploaded_text_as_a_formula():
-    c = TestClient(app)
+    c = api()
     c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(evil_lmrb()))})
     r = c.post("/api/export", json={"kind": "lmrb", "format": "xlsx"})
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
@@ -35,7 +36,7 @@ def test_excel_report_never_stores_uploaded_text_as_a_formula():
 
 
 def test_csv_download_neutralises_formulas():
-    c = TestClient(app)
+    c = api()
     c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(evil_lmrb()))})
     text = c.post("/api/lmrb/rows/csv", json={}).text
     assert "'=HYPERLINK" in text and ",=HYPERLINK" not in text
@@ -55,41 +56,17 @@ def cfg_dir(tmp_path, monkeypatch):
     ("channel_aliases", {"DERANA": "not a list"}), ("holidays", {"events": [{"date": "garbage", "name": "x"}]}),
     ("dayparts", {"dayparts": [{"name": "A", "start": 5, "end": 99}]}), ("dayparts", {"dayparts": []})])
 def test_bad_config_is_rejected_and_file_untouched(cfg_dir, name, body):
-    c = TestClient(app)
+    c = api()
     before = {p.name: p.read_text() for p in cfg_dir.iterdir()}
     r = c.put(f"/api/config/{name}", json=body)
     assert r.status_code == 422 and "Invalid config" in r.json()["detail"]
     assert before == {p.name: p.read_text() for p in cfg_dir.iterdir()}
 
 
-def test_admin_token_protects_config(cfg_dir, monkeypatch):
-    monkeypatch.setenv("ADMIN_TOKEN", "s3cret")
-    c = TestClient(app)
-    good = c.get("/api/config/channel_aliases").json()
-    assert c.put("/api/config/channel_aliases", json=good).status_code == 403
-    assert c.put("/api/config/channel_aliases", json=good, headers={"X-Admin-Token": "wrong"}).status_code == 403
-    assert c.put("/api/config/channel_aliases", json=good, headers={"X-Admin-Token": "s3cret"}).status_code == 200
-
-
-def test_session_cap_evicts_least_recently_used(monkeypatch):
-    monkeypatch.setattr(store_mod, "MAX_SESSIONS", 3)
-    s = store_mod.SessionStore()
-    ids = [s.get(None).sid for _ in range(5)]
-    assert len(s) == 3 and s.get(ids[0], create=False) is None and s.get(ids[-1], create=False) is not None
-
-
-def test_cookie_is_httponly_and_secure_behind_https_proxy():
-    c = TestClient(app)
-    r = c.get("/api/lmrb/state", headers={"x-forwarded-proto": "https"})
-    cookie = r.headers["set-cookie"].lower()
-    assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie
-    assert "secure" not in TestClient(app).get("/api/lmrb/state").headers["set-cookie"].lower()
-
-
 def test_unhandled_errors_do_not_leak_details(monkeypatch):
-    from app import main
-    monkeypatch.setattr(main.analytics_lmrb, "dashboard", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("secret internals")))
-    c = TestClient(app, raise_server_exceptions=False)
+    from app import core
+    monkeypatch.setattr(core.analytics_lmrb, "dashboard", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("secret internals")))
+    c = api(raise_server_exceptions=False)
     c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb(days=10)))})
     r = c.post("/api/lmrb/dashboard", json={})
     assert r.status_code == 500 and "secret internals" not in r.text

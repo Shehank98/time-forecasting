@@ -30,6 +30,16 @@ def _group(df: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     return g
 
 
+def _timebelt_heat(df: pd.DataFrame) -> dict:
+    from .series import timebelt_labels
+    d = df.assign(timebelt=timebelt_labels(df["start_sec"])).dropna(subset=["timebelt"])
+    if d.empty:
+        return {"rows": [], "cols": [], "values": []}
+    belts = sorted(d["timebelt"].unique())
+    pv = d.pivot_table(index="timebelt", columns="day", values="tvr", aggfunc="mean").reindex(index=belts, columns=[x for x in DAY_ORDER if x in set(d["day"])])
+    return {"rows": belts, "cols": list(pv.columns), "values": pv.values.tolist()}
+
+
 def consistency(df: pd.DataFrame, min_airings: int = 2) -> list[dict]:
     """Mean, std dev and coefficient of variation of TVR per recurring programme slot."""
     g = df.groupby("program_key")["tvr"].agg(["count", "mean", "std", "min", "max"])
@@ -98,6 +108,7 @@ def dashboard(df: pd.DataFrame, lmrb: pd.DataFrame | None = None) -> dict:
         "heat_category": _heat(df, "channel", "category"),
         "heat_daypart": _heat(df, "channel", "daypart", dpo),
         "heat_day": _heat(df, "channel", "day", DAY_ORDER),
+        "heat_timebelt": _timebelt_heat(df),
         "category_trend": {"weeks": [str(w.date()) for w in weeks], "series": [{"name": c, "values": trend[c].tolist()} for c in trend.columns]},
         "daily_tvr": {"dates": [str(d.date()) for d in daily.index], "values": daily.tolist()},
         "efficiency": eff.head(300).to_dict("records"),

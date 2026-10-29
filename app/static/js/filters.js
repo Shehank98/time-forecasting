@@ -19,6 +19,7 @@
       { key: 'ad_position', label: 'Ad position', type: 'multi' },
       { type: 'range', label: 'Cost range (LKR)', min: 'cost_min', max: 'cost_max', opt: 'cost_range' },
     ],
+    kpi: [{ type: 'date', label: 'Date range' }, { key: 'segment', label: 'Segment', type: 'multi' }],
   };
 
   function multi(field, options, state, onChange) {
@@ -51,8 +52,8 @@
     return wrap;
   }
 
-  function init(container, kind, opts, onChange) {
-    const key = 'filters:' + kind;
+  function init(container, kind, opts, onChange, storeKey) {
+    const key = storeKey || 'filters:' + kind;
     let state = App.store.get(key, {});
     const fire = App.debounce(() => { App.store.set(key, state); onChange(state); }, 350);
     const change = () => { App.store.set(key, state); fire(); };

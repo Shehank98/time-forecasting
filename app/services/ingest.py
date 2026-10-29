@@ -9,6 +9,7 @@ import datetime as dt
 import io
 import logging
 import re
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -170,23 +171,38 @@ def to_seconds(series: pd.Series) -> pd.Series:
 _DATE_FORMATS = ("%Y/%m/%d", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%Y.%m.%d", "%m/%d/%Y", "%d %b %Y", "%d-%b-%Y")
 
 
+def _plausible(parsed: pd.Series) -> pd.Series:
+    """Keep dates between 1900 and 2100 in nanosecond precision; numbers like 100 are not dates."""
+    try:
+        yrs = parsed.dt.year
+    except (AttributeError, TypeError):
+        return pd.Series(pd.NaT, index=parsed.index, dtype="datetime64[ns]")
+    ok = (yrs >= 1900) & (yrs <= 2100)
+    return pd.to_datetime(parsed.where(ok).astype("object"), errors="coerce").astype("datetime64[ns]")
+
+
 def to_date(series: pd.Series) -> pd.Series:
     """Parse mixed-format dates (text like 2026/09/21, ISO, excel datetimes)."""
     if pd.api.types.is_datetime64_any_dtype(series):
         return series.dt.normalize()
     out = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
-    native = series.map(lambda v: pd.Timestamp(v) if isinstance(v, (dt.datetime, dt.date, pd.Timestamp)) else pd.NaT)
+    native = series.map(lambda v: v if isinstance(v, (dt.datetime, dt.date, pd.Timestamp)) and 1900 <= v.year <= 2100 else None)
     out = out.fillna(pd.to_datetime(native, errors="coerce"))
     txt = series.where(series.map(lambda v: isinstance(v, str)), other=None).dropna().astype(str).str.strip()
     for fmt in _DATE_FORMATS:
         pending = txt[out.reindex(txt.index).isna()]
         if pending.empty:
             break
-        parsed = pd.to_datetime(pending, format=fmt, errors="coerce")
+        parsed = _plausible(pd.to_datetime(pending, format=fmt, errors="coerce"))
         out.loc[parsed.index] = out.loc[parsed.index].fillna(parsed)
     pending = txt[out.reindex(txt.index).isna()]
     if not pending.empty:
-        parsed = pd.to_datetime(pending, errors="coerce", dayfirst=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                parsed = _plausible(pd.to_datetime(pending, errors="coerce", dayfirst=True, format="mixed"))
+            except (ValueError, TypeError, OverflowError):
+                parsed = pd.Series(pd.NaT, index=pending.index, dtype="datetime64[ns]")
         out.loc[parsed.index] = out.loc[parsed.index].fillna(parsed)
     return out.dt.normalize()
 

@@ -405,8 +405,39 @@ def dashboard(df_nodate: pd.DataFrame, start: pd.Timestamp | None, end: pd.Times
         "creatives": creatives(df_nodate, cur, date_slice(scope_all, *win["prev"]) if win["prev"] else None, cmp_cur, win["cur"][0]),
         "pricing": price, "position": position_strategy(cur),
         "alerts": alerts(scope_all, min(end, scope_all["date"].max()), my_brand, price),
+        "grp": grp_block(cur, my_brand),
     }
     return jsonable(out)
+
+
+def grp_block(cur: pd.DataFrame, my_brand: str | None) -> dict | None:
+    """GRPs, share of GRPs and CPRP when spots were matched to programme ratings."""
+    if "grp" not in cur.columns or not (cur["grp"] > 0).any():
+        return None
+    from .joins import grp_summary
+    m = cur[cur["grp"] > 0]
+    tot_grp, tot_cost = float(m["grp"].sum()), float(m["cost"].sum())
+    by_adv = grp_summary(cur, "advertiser")
+    mine = next((r for r in by_adv if r["name"] == my_brand), None)
+    weeks = weekly_axis(m)
+    wk = m.pivot_table(index="week_start", columns="advertiser", values="grp", aggfunc="sum").reindex(weeks).fillna(0.0)
+    top = [r["name"] for r in by_adv[:8]]
+    cp = m.assign(dp=m["daypart"]).groupby(["channel", "dp"]).apply(lambda g: g["cost"].sum() / g["grp"].sum() if g["grp"].sum() else np.nan)
+    heat = {"rows": sorted(m["channel"].unique().tolist()), "cols": [d for d in nz.daypart_order() if d in set(m["daypart"])]}
+    heat["values"] = [[None if pd.isna(cp.get((r, c), np.nan)) else float(cp.get((r, c))) for c in heat["cols"]] for r in heat["rows"]]
+    return {"matched_spots": int(len(m)), "spots": int(len(cur)), "match_rate_pct": float(len(m) / len(cur) * 100) if len(cur) else 0.0,
+            "total_grps": tot_grp, "cprp": tot_cost / tot_grp if tot_grp else None, "my_grp_share_pct": mine["grp_share_pct"] if mine else None,
+            "my_cprp": mine["cprp"] if mine else None,
+            "by_advertiser": by_adv, "by_channel": grp_summary(cur, "channel"), "by_daypart": _ordered_grp(grp_summary(cur, "daypart")),
+            "by_program": grp_summary(cur.assign(chprog=cur["channel"] + " / " + cur["matched_program"].fillna("")), "chprog")[:25],
+            "weekly": {"weeks": [str(w.date()) for w in weeks], "advertisers": [{"name": a, "grps": wk[a].tolist() if a in wk else [0.0] * len(weeks)} for a in top]},
+            "cprp_heatmap": heat,
+            "note": "Spot ratings use the average TVR of the programme airing at the spot time, for the selected target audience."}
+
+
+def _ordered_grp(rows: list[dict]) -> list[dict]:
+    idx = {n: i for i, n in enumerate(nz.daypart_order())}
+    return sorted(rows, key=lambda r: idx.get(r["name"], 99))
 
 
 def _ordered(rows: list[dict], order: list[str]) -> list[dict]:

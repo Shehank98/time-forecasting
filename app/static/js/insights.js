@@ -19,7 +19,7 @@
   }
 
   function tab(p, ctx) {
-    const kind = ctx.kind, hasFc = !!(App.lastForecast && App.lastForecast[kind]);
+    const kind = ctx.fkey(), hasFc = !!(App.lastForecast && App.lastForecast[kind]);
     p.innerHTML = `<div class="card"><div class="card-head"><div><h3>AI insights</h3><div class="sub">Gemini reads compact aggregates for the current filters and returns structured, evidence-backed findings.</div></div></div>
       <div class="row"><button class="btn primary" id="ai-go" type="button">Generate insights</button>
         <label class="row small"><input type="checkbox" id="ai-fc" ${hasFc ? 'checked' : 'disabled'}> Include last forecast${hasFc ? '' : ' (run one in the Forecast tab first)'}</label>
@@ -34,7 +34,7 @@
     p.querySelector('#ai-go').onclick = async (e) => {
       const b = e.currentTarget; b.disabled = true; msg.textContent = 'Asking Gemini. This usually takes 10 to 30 seconds.'; out.innerHTML = App.skeleton(2);
       try {
-        const res = await App.api.post('/api/insights', { kind, filters: ctx.filters(), options: ctx.options(), forecast: fcParams(), refresh: true });
+        const res = await App.api.post('/api/insights', ctx.body({ forecast: fcParams(), refresh: true }));
         App.lastInsights[kind] = res; render(out, res); msg.textContent = '';
       } catch (err) { out.innerHTML = App.emptyState('Insights are not available right now', err.message); msg.textContent = ''; App.toast(err.message, 'error', 8000); }
       b.disabled = false;
@@ -44,7 +44,7 @@
       e.preventDefault(); const q = p.querySelector('#chat-q'), text = q.value.trim(); if (!text) return; q.value = '';
       log.insertAdjacentHTML('beforeend', `<div class="msg user">${esc(text)}</div>`); const wait = document.createElement('div'); wait.className = 'msg bot muted'; wait.textContent = 'Thinking...'; log.appendChild(wait); log.scrollTop = log.scrollHeight;
       try {
-        const r = await App.api.post('/api/chat', { kind, filters: ctx.filters(), options: ctx.options(), forecast: fcParams(), question: text, history });
+        const r = await App.api.post('/api/chat', ctx.body({ forecast: fcParams(), question: text, history }));
         history.push({ role: 'user', text }, { role: 'assistant', text: r.answer });
         wait.className = 'msg bot'; wait.innerHTML = `${esc(r.answer)} <span class="badge ${confCls[r.confidence]}">${esc(r.confidence)}</span>${evidence(r.evidence, r.unverified_citations)}`;
       } catch (err) { wait.className = 'msg bot'; wait.innerHTML = `<span class="delta down">${esc(err.message)}</span>`; }

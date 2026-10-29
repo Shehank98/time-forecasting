@@ -11,6 +11,8 @@ import os
 import random
 import re
 import time
+
+import numpy as np
 from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
@@ -100,7 +102,25 @@ def build_facts(kind: str, dash: dict, forecast: dict | None = None, meta: dict 
             f.add("Filters applied", "; ".join(f"{c['label']}={c['value']}" for c in meta["chips"]), "scope")
     if dash.get("empty"):
         return f
-    if kind == "lmrb":
+    if meta and meta.get("client"):
+        f.add("Client", meta["client"], "scope")
+    if kind == "kpi":
+        f.add("Window", f"{dash['window']['start']} to {dash['window']['end']}", "scope")
+        f.add("Data granularity", dash.get("granularity"), "scope")
+        for k in dash["kpis"]:
+            f.add(f"{k['label']} ({'average' if k['agg'] == 'mean' else 'cost per result' if k['agg'] == 'ratio' else 'total'})",
+                  f"{_fmt(k['value'])}" + (f", {_pct(k['change_pct'])} vs previous period" if k.get("change_pct") is not None else ""), "kpi")
+        first = next((m for m in dash["metrics"] if m["agg"] == "sum"), None)
+        for r in dash.get("segments", [])[:8]:
+            if first:
+                f.add(f"Segment {r['segment']}: {first['label']}", f"{_fmt(r.get(first['key']))} ({r.get('share_pct', 0):.1f}% share)", "segment")
+        for e in dash.get("driver_effects", [])[:4]:
+            f.add(f"Driver effect {e['driver']} on {e['kpi']}", f"{e['kpi_per_unit']:.1f} per {e['per_unit']:,.0f}, correlation {e['correlation']:.2f} over {e['periods']} periods", "driver")
+        seas = dash.get("seasonality", {})
+        if seas.get("month"):
+            m = seas["month"]; i = int(np.argmax(m["index"]))
+            f.add(f"Seasonal high month for {dash.get('seasonality_metric')}", f"{m['labels'][i]} (index {m['index'][i]:.0f})", "seasonality")
+    elif kind == "lmrb":
         k = dash["kpis"]
         f.add("Window", f"{dash['window']['start']} to {dash['window']['end']}", "scope")
         if dash.get("my_brand"):
@@ -133,6 +153,13 @@ def build_facts(kind: str, dash: dict, forecast: dict | None = None, meta: dict 
             f.add(f"Position {p['advertiser']}", f"first-in-break {p['first_rate_pct']:.0f}%, last-in-break {p['last_rate_pct']:.0f}%", "position")
         for a in dash["alerts"]["items"][:10]:
             f.add(f"Alert ({a['severity']})", a["text"], "alert")
+        g = dash.get("grp")
+        if g:
+            f.add("GRPs delivered (matched spots)", f"{g['total_grps']:.1f} GRPs, average CPRP LKR {g['cprp']:,.0f}, {g['match_rate_pct']:.0f}% of spots matched", "grp")
+            if g.get("my_grp_share_pct") is not None:
+                f.add("Client share of GRPs", f"{g['my_grp_share_pct']:.1f}%, client CPRP LKR {g['my_cprp']:,.0f}", "grp")
+            for r in g["by_advertiser"][:5]:
+                f.add(f"GRPs {r['name']}", f"{r['grps']:.1f} GRPs ({r['grp_share_pct']:.1f}% share), CPRP LKR {r['cprp']:,.0f}", "grp")
     else:
         k = dash["kpis"]
         f.add("Programmes", k["programmes"], "kpi"); f.add("Channels", k["channels"], "kpi"); f.add("Airings", k["airings"], "kpi")
@@ -161,6 +188,11 @@ def build_facts(kind: str, dash: dict, forecast: dict | None = None, meta: dict 
             o, rel = r["outlook"], r["reliability"]
             exp = o.get("expected_next_4w") if o.get("expected_next_4w") is not None else o.get("avg_next_4w")
             bt = r.get("backtest")
+            pk = (r.get("peaks") or {}).get("peaks") or []
+            if pk:
+                f.add(f"Forecast peak {r['entity']}", f"around {pk[0]['date']}, launch by {pk[0]['launch_by']}", "forecast")
+            if r.get("band_breaches"):
+                f.add(f"Monitoring alerts {r['entity']}", "; ".join(b["text"] for b in r["band_breaches"][:3]), "forecast")
             f.add(f"Forecast {r['entity']}", f"trend {o['trend']} ({_pct(o.get('trend_change_pct'))}), expected next {o['n_weeks']} weeks {_fmt(exp)}, active weeks {o.get('active_weeks')}, burst weeks {', '.join(o.get('burst_windows') or []) or 'none'}, "
                   f"reliability {rel['level']}, backtest sMAPE {'n/a' if not bt or bt['model']['smape'] is None else format(bt['model']['smape'], '.0f') + '%'}", "forecast")
     return f

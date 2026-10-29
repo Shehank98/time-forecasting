@@ -77,3 +77,19 @@ def to_xlsx_bytes(df: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
     df.to_excel(buf, index=False)
     return buf.getvalue()
+
+
+def make_kpi(days: int = 420, start: str = "2025-08-01", seed: int = 5) -> pd.DataFrame:
+    """Daily client data: spend drives leads, weekly and yearly seasonality, two campaigns."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i, d in enumerate(pd.date_range(start, periods=days)):
+        season = 1 + 0.35 * np.sin(2 * np.pi * (d.dayofyear - 60) / 365)
+        weekday = 0.8 if d.dayofweek >= 5 else 1.05
+        for camp, share in (("Always-on search", 0.6), ("TV burst", 0.4)):
+            spend = max(0.0, 150000 * share * (1.6 if camp == "TV burst" and (i // 30) % 3 == 0 else 1.0) * rng.uniform(0.8, 1.2))
+            leads = max(0, int(spend / 1500 * season * weekday * rng.uniform(0.85, 1.15)))
+            clicks = int(leads * rng.uniform(18, 25))
+            rows.append({"Date": d.strftime("%d/%m/%Y"), "Campaign": camp, "Media Spend (LKR)": f"{spend:,.0f}", "Leads": leads, "Clicks": clicks,
+                         "CTR %": round(rng.uniform(1.0, 3.0), 2)})
+    return pd.DataFrame(rows)

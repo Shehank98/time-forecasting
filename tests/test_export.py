@@ -6,6 +6,8 @@ import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
+from helpers import api, login, new_client, up as up_helper
+
 import synth
 from app.main import app
 from app.services import analytics_lmrb as A
@@ -80,7 +82,7 @@ def test_no_em_dashes_in_generated_text(lm_report):
 
 def test_export_endpoint_streams_and_cleans_up(monkeypatch):
     before = set(os.listdir(tempfile.gettempdir()))
-    c = TestClient(app)
+    c = api()
     c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb()))})
     body = {"kind": "lmrb", "filters": {"channel": ["DERANA"]}, "options": {"my_brand": "Nestle Lanka Ltd"},
             "forecast": {"metric": "spend", "entity_type": "advertiser", "granularity": "weekly", "horizon_days": 28}, "include_ai": True, "ai": AI}
@@ -100,16 +102,16 @@ def test_export_endpoint_streams_and_cleans_up(monkeypatch):
 
 def test_export_without_ai_when_gemini_unavailable_adds_note(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    c = TestClient(app)
+    c = api()
     c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb(days=10)))})
     r = c.post("/api/export", json={"kind": "lmrb", "format": "xlsx", "include_ai": True})
     assert r.status_code == 200
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
-    assert "AI insights" not in wb.sheetnames and "AI summary not included" in " ".join(str(c.value) for row in wb["Cover"].iter_rows() for c in row if c.value)
+    assert "AI insights" not in wb.sheetnames and "summary not included" in " ".join(str(c.value) for row in wb["Cover"].iter_rows() for c in row if c.value)
 
 
 def test_export_errors_are_clear():
-    c = TestClient(app)
+    c = api()
     c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb(days=10)))})
     assert c.post("/api/export", json={"kind": "lmrb", "format": "docx"}).status_code == 422
     r = c.post("/api/export", json={"kind": "lmrb", "format": "pdf", "filters": {"advertiser": ["Nobody"]}})

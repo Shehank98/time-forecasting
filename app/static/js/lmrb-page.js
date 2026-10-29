@@ -194,12 +194,34 @@
     [['hh-ch', 'by_channel'], ['hh-dp', 'by_daypart'], ['hh-lg', 'by_language']].forEach(([id, k]) => { const labs = union(k); C.bar({ id, labels: labs.map(fmt.title), datasets: [A, B].map((s, i) => ({ label: [r.a, r.b][i], data: labs.map((n) => val(s, k, n)), backgroundColor: colors[i] })) }); });
   }
 
+  /* ---------------- GRPs and CPRP ---------------- */
+  function grps(p, ctx) {
+    const g = ctx.data.grp, st = ctx.meta.grp_stats || {};
+    const k = (l, v, s) => `<div class="kpi"><div class="k-lbl">${esc(l)}</div><div class="k-val">${v}</div>${s ? `<div class="k-sub">${s}</div>` : ''}</div>`;
+    p.innerHTML = `<div class="banner info"><span>${esc(g.note)} Audience: <b>${esc(st.data_set || 'n/a')}</b>. ${fmt.num(g.matched_spots)} of ${fmt.num(g.spots)} spots in this view matched a rated programme (${fmt.pct(g.match_rate_pct, 0)}). Spots outside the TVR file's dates or channels are not counted.</span></div>
+      <div class="kpis">${k('GRPs delivered', fmt.num(g.total_grps, 1))}${k('Average CPRP', fmt.lkr(g.cprp), 'Cost per rating point')}${k('Client share of GRPs', g.my_grp_share_pct == null ? 'Pick a brand' : fmt.pct(g.my_grp_share_pct))}${k('Client CPRP', g.my_cprp == null ? 'n/a' : fmt.lkr(g.my_cprp))}</div>
+      <div class="grid g2" style="margin-top:16px">${C.box('c-grp', 'GRPs by advertiser', 'Share of GRPs is share of voice measured in audience', { tall: true })}${C.box('c-cprp', 'CPRP by advertiser', 'Lower is more efficient', { tall: true })}</div>
+      <div style="margin-top:16px">${C.box('c-grpw', 'Weekly GRPs', 'Top advertisers', {})}</div>
+      <div class="card" style="margin-top:16px"><h3>CPRP by channel and daypart (LKR)</h3>${C.heat(g.cprp_heatmap, { fmt: (v) => fmt.num(v), lowIsGood: true })}</div>
+      <div class="grid g2" style="margin-top:16px"><div class="card"><h3>By channel</h3><div id="grp-ch"></div></div><div class="card"><h3>By daypart</h3><div id="grp-dp"></div></div></div>
+      <div class="card" style="margin-top:16px"><h3>Programmes delivering the most GRPs</h3><div id="grp-pg"></div></div>`;
+    const top = g.by_advertiser.slice(0, 12);
+    C.bar({ id: 'c-grp', horizontal: true, labels: top.map((r) => r.name), valueFmt: (v) => fmt.num(v, 1), datasets: [{ data: top.map((r) => r.grps), backgroundColor: top.map((r) => C.colorFor(r.name)) }] });
+    C.bar({ id: 'c-cprp', horizontal: true, labels: top.map((r) => r.name), valueFmt: fmt.compact, datasets: [{ data: top.map((r) => r.cprp), backgroundColor: top.map((r) => C.colorFor(r.name)) }] });
+    C.line({ id: 'c-grpw', labels: g.weekly.weeks, valueFmt: (v) => fmt.num(v, 1), datasets: g.weekly.advertisers.map((a) => ({ label: a.name, data: a.grps, borderColor: C.colorFor(a.name), backgroundColor: C.colorFor(a.name) })) });
+    const cols = (label) => [{ key: 'name', label }, { key: 'grps', label: 'GRPs', num: true, fmt: (v) => fmt.num(v, 1) }, { key: 'grp_share_pct', label: 'GRP share', num: true, fmt: (v) => fmt.pct(v) },
+      { key: 'spots', label: 'Spots', num: true }, { key: 'avg_spot_rating', label: 'Avg spot rating', num: true, fmt: (v) => fmt.num(v, 2) }, { key: 'cost', label: 'Cost', num: true, fmt: (v) => fmt.num(v) }, { key: 'cprp', label: 'CPRP', num: true, fmt: (v) => fmt.num(v) }];
+    T.create(p.querySelector('#grp-ch'), { csv: 'grp_by_channel', search: false, pageSize: 8, rows: g.by_channel, columns: cols('Channel') });
+    T.create(p.querySelector('#grp-dp'), { csv: 'grp_by_daypart', search: false, pageSize: 8, rows: g.by_daypart, columns: cols('Daypart') });
+    T.create(p.querySelector('#grp-pg'), { csv: 'grp_by_programme', rows: g.by_program, columns: cols('Channel / programme') });
+  }
+
   const tabs = [
     { id: 'overview', label: 'Overview', render: overview }, { id: 'spend', label: 'Spend breakdown', render: spend }, { id: 'mix', label: 'Channel and programme mix', render: mix },
     { id: 'flighting', label: 'Flighting', render: flighting }, { id: 'creatives', label: 'Creatives', render: creatives }, { id: 'pricing', label: 'Pricing', render: pricing },
-    { id: 'position', label: 'Position strategy', render: position }, { id: 'alerts', label: 'Alerts', render: alerts }, { id: 'h2h', label: 'Head to head', render: head },
+    { id: 'position', label: 'Position strategy', render: position }, { id: 'grp', label: 'GRPs and CPRP', render: grps, hidden: (ctx) => !(ctx.data && ctx.data.grp) }, { id: 'alerts', label: 'Alerts', render: alerts }, { id: 'h2h', label: 'Head to head', render: head },
   ];
-  if (App.forecast) tabs.push({ id: 'forecast', label: 'Forecast', alwaysRender: true, render: (p, ctx) => App.forecast.tab(p, ctx) });
+  if (App.forecast) tabs.push({ id: 'forecast', label: 'Forecast studio', alwaysRender: true, render: (p, ctx) => App.forecast.tab(p, ctx) });
   if (App.insights) tabs.push({ id: 'ai', label: 'AI insights', alwaysRender: true, render: (p, ctx) => App.insights.tab(p, ctx) });
   tabs.push({ id: 'rows', label: 'Raw rows', alwaysRender: true, render: (p, ctx) => App.rawRows(p, ctx) });
   App.workspace({ kind: 'lmrb', fileLabel: 'LMRB ad monitoring file', perspective: true, tabs });

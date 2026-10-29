@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in</title><script>try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script><link rel="stylesheet" href="/css/app.css"></head>
+<body class="login-body">
+<main class="login-wrap">
+  <form class="card login-card" id="login-form" novalidate>
+    <div class="login-brand" id="login-brand"><span class="brand-mark"><svg class="ico" style="stroke:#fff" viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 8-10"/><path d="M15 5h5v5"/></svg></span><span id="agency-name">Media Radar</span></div>
+    <h1>Sign in</h1>
+    <p class="muted" style="margin-top:4px">Competitor analysis and TimesFM forecasting for your clients.</p>
+    <div class="field" style="margin-top:16px"><label for="email">Email</label><input type="text" id="email" autocomplete="username" inputmode="email" required></div>
+    <div class="field" style="margin-top:12px"><label for="password">Password</label><input type="password" id="password" autocomplete="current-password" required></div>
+    <div id="login-err" class="delta down small" role="alert" style="min-height:20px;margin-top:10px"></div>
+    <button class="btn primary" type="submit" style="width:100%;margin-top:4px">Sign in</button>
+  </form>
+</main>
+<script src="/js/api.js"></script>
+<script>
+(async () => {
+  try { const b = await (await fetch('/api/branding/public')).json();
+    document.getElementById('agency-name').textContent = b.agency_name;
+    if (b.has_logo) document.querySelector('#login-brand .brand-mark').outerHTML = '<img src="/api/branding/logo" alt="" class="brand-logo">'; } catch (e) { /* defaults */ }
+})();
+document.getElementById('login-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const err = document.getElementById('login-err'); err.textContent = '';
+  try {
+    await App.api.post('/api/auth/login', { email: document.getElementById('email').value, password: document.getElementById('password').value });
+    const next = new URLSearchParams(location.search).get('next');
+    location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
+  } catch (x) { err.textContent = x.message; }
+};
+document.getElementById('email').focus();
+</script>
+</body></html>

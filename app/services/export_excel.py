@@ -193,3 +193,10 @@ def build_workbook(rep: Report) -> Workbook:
         c = ws.cell(row=r + len(rep.filters) + 2 + n_notes + j, column=2, value=nm)
         c.hyperlink = f"#'{nm}'!A1"; c.font = Font(color="4F46E5", underline="single")
     return wb
+
+
+def workbook_bytes(rep: Report) -> bytes:
+    import io
+    buf = io.BytesIO()
+    build_workbook(rep).save(buf)
+    return buf.getvalue()

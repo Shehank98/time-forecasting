@@ -211,11 +211,13 @@ def detect_anomalies(dates: pd.DatetimeIndex, y: np.ndarray, gran: str, z_thr: f
         win = y[i - w:i]
         med = np.median(win)
         mad = np.median(np.abs(win - med)) * 1.4826
-        scale = mad if mad > 0 else (np.std(win) if np.std(win) > 0 else 0)
+        floor = 0.1 * abs(med)                     # smooth series: a tiny MAD must not turn normal moves into alerts
+        scale = max(mad, floor, np.std(win) * 0.5)
         if scale == 0:
             continue
         z = (y[i] - med) / scale
-        if abs(z) >= z_thr:
+        rel = abs(y[i] - med) / abs(med) if med else np.inf
+        if abs(z) >= z_thr and rel >= 0.25:
             out.append({"date": str(dates[i].date()), "value": float(y[i]), "z": float(z), "direction": "spike" if z > 0 else "drop"})
     return out[:30]
 
@@ -547,7 +549,7 @@ def run_scenarios(df: pd.DataFrame, kind: str, params: dict, meta: dict | None =
         warnings.append("The driver barely varied in the history, so its effect on the KPI cannot be learned well. Expect scenarios to look similar.")
     plans: list[tuple[str, np.ndarray]] = []
     for mlt in params.get("multipliers") or ([0.8, 1.0, 1.2] if not params.get("budgets") else []):
-        label = "Current pace" if abs(mlt - 1) < 1e-9 else f"{'+' if mlt > 1 else ''}{(mlt - 1) * 100:.0f}% {params.get('driver_label', 'driver')}"
+        label = "Current pace" if abs(mlt - 1) < 1e-9 else f"Budget {'+' if mlt > 1 else ''}{(mlt - 1) * 100:.0f}%"
         plans.append((label, _driver_future(x, H, gran, float(mlt), None)))
     for b in params.get("budgets") or []:
         plans.append((f"Budget {b:,.0f}", _driver_future(x, H, gran, 1.0, float(b))))

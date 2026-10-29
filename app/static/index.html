@@ -1,28 +1,13 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Media Radar</title><script>try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script><link rel="stylesheet" href="/css/app.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Client overview</title><script>try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script><link rel="stylesheet" href="/css/app.css"></head>
 <body>
 <a class="skip" href="#home">Skip to content</a>
 <div class="layout"><aside id="sidebar"></aside>
 <main class="main" id="main">
-  <div class="topbar"><button class="icon-btn menu-btn" id="menu-btn" type="button" aria-label="Open menu"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button></div>
-  <div id="home">
-    <div class="hero"><h1>What are competitors doing, and what will they do next?</h1>
-      <p>Upload your monthly sheets. Get competitor analysis, TimesFM forecasts and AI insights that end in what to do about it.</p></div>
-    <div class="home-cards">
-      <a class="home-card" href="/tv.html"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
-        <h2>TV Programme Analysis</h2><p>TVR sheet: top programmes, channel and category heatmaps, efficiency, consistency and time slot opportunities.</p><div id="tv-status" class="muted small">No file loaded</div><span class="go">Open workspace &rarr;</span></a>
-      <a class="home-card" href="/lmrb.html"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div>
-        <h2>LMRB Ad Monitoring</h2><p>Competitor ad spots and spend: share of voice, flighting, creatives, pricing, alerts and forecasts.</p><div id="lmrb-status" class="muted small">No file loaded</div><span class="go">Open workspace &rarr;</span></a>
-    </div>
-  </div>
+  <div class="topbar"><button class="icon-btn menu-btn" id="menu-btn" type="button" aria-label="Open menu"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="grow" id="client-head"></div></div>
+  <div id="home"></div>
 </main></div>
-<script src="/js/api.js"></script><script src="/js/shell.js"></script>
-<script>
-App.shell.init('home');
-['tv','lmrb'].forEach(async (k) => {
-  try { const s = await App.api.get('/api/' + k + '/state');
-    if (s.loaded) document.getElementById(k + '-status').innerHTML = '<span class="badge good">Loaded</span> ' + App.esc(s.files.join(', ')) + ' &middot; ' + App.fmt.num(s.report.rows_kept) + ' rows'; } catch (e) { /* ignore */ }
-});
-</script>
+<script src="/js/vendor/chart.umd.js"></script>
+<script src="/js/api.js"></script><script src="/js/shell.js"></script><script src="/js/tables.js"></script><script src="/js/home.js"></script>
 </body></html>
