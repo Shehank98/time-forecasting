@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from .services import analytics_lmrb, analytics_tv, ingest, normalise, series as series_mod, filters as flt
 from .services import forecast as fc
+from .services import gemini_client as gem
 from .services.store import Dataset, Session, SessionStore, content_hash
 from .services.util import jsonable
 
@@ -25,7 +28,15 @@ MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "25"))
 STATIC_DIR = Path(__file__).parent / "static"
 KINDS = ("tv", "lmrb")
 
-app = FastAPI(title="TV Competitor Analysis and Forecasting", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Warm TimesFM in the background so the first forecast is fast (PRELOAD_MODEL=0 keeps it lazy)."""
+    if os.environ.get("PRELOAD_MODEL", "1") == "1" and os.environ.get("FORCE_FALLBACK") != "1":
+        threading.Thread(target=fc.model.load, daemon=True, name="timesfm-preload").start()
+    yield
+
+
+app = FastAPI(title="TV Competitor Analysis and Forecasting", version="1.0.0", lifespan=lifespan)
 store = SessionStore()
 
 
@@ -201,14 +212,6 @@ def model_status() -> dict:
     return fc.model.status()
 
 
-@app.on_event("startup")
-def preload_model() -> None:
-    """Warm TimesFM in the background so the first forecast is fast (set PRELOAD_MODEL=0 to stay lazy)."""
-    if os.environ.get("PRELOAD_MODEL", "1") == "1" and os.environ.get("FORCE_FALLBACK") != "1":
-        import threading
-        threading.Thread(target=fc.model.load, daemon=True, name="timesfm-preload").start()
-
-
 # ------------------------------------------------------------------ forecasting
 class ForecastReq(DashReq):
     kind: str
@@ -265,6 +268,77 @@ def forecast_job(jid: str) -> dict:
     if j is None:
         raise HTTPException(404, "Forecast job not found. It may have expired.")
     return jsonable({k: j[k] for k in ("status", "progress", "message", "result", "error")})
+
+
+# ------------------------------------------------------------------ AI insights and chat
+class AiReq(DashReq):
+    kind: str
+    forecast: dict[str, Any] | None = None       # forecast params the user last ran (served from cache)
+    question: str = ""
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    refresh: bool = False
+
+
+_ai_hits: dict[str, list[float]] = {}
+_insight_cache: dict[str, dict] = {}
+
+
+def _rate_limit(sid: str, per_minute: int = 12) -> None:
+    import time
+    now = time.time()
+    hits = [t for t in _ai_hits.get(sid, []) if now - t < 60]
+    if len(hits) >= per_minute:
+        raise HTTPException(429, "Too many AI requests. Please wait a minute.")
+    hits.append(now)
+    _ai_hits[sid] = hits
+
+
+def ai_facts(sess: Session, req: AiReq) -> tuple[gem.Facts, dict | None, dict, dict]:
+    """Aggregates only (never raw rows): dashboard KPIs and movers, plus the cached forecast when requested."""
+    built = build_dashboard(sess, req.kind, req.filters, req.options)
+    fcres = None
+    if req.forecast:
+        fcres = forecast_result(sess, ForecastReq(kind=req.kind, filters=req.filters, options=req.options, params=req.forecast))
+    return gem.build_facts(req.kind, built["data"], fcres, built["meta"]), fcres, built["data"], built["meta"]
+
+
+@app.post("/api/insights")
+def insights(req: AiReq, sess: Session = Depends(current_session)) -> dict:
+    _rate_limit(sess.sid)
+    facts, fcres, dash, meta = ai_facts(sess, req)
+    if dash.get("empty"):
+        raise HTTPException(422, "No rows match the current filters, so there is nothing to analyse.")
+    key = fc.ResultCache.key(dataset(sess, req.kind).version, req.kind, req.filters, req.options, {"ai": req.forecast, "m": gem.service.model_name})
+    if not req.refresh and key in _insight_cache:
+        return {**_insight_cache[key], "cached": True}
+    try:
+        out = gem.service.insights(facts, req.kind, gem.standing_caveats(fcres, dash, meta))
+    except gem.GeminiError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    res = jsonable({"insights": out, "model": gem.service.model_name, "fact_count": len(facts.items), "cached": False})
+    _insight_cache[key] = res
+    if len(_insight_cache) > 100:
+        _insight_cache.pop(next(iter(_insight_cache)))
+    return res
+
+
+@app.post("/api/chat")
+def chat(req: AiReq, sess: Session = Depends(current_session)) -> dict:
+    if not req.question.strip():
+        raise HTTPException(422, "Type a question first.")
+    _rate_limit(sess.sid)
+    facts, _, dash, _ = ai_facts(sess, req)
+    if dash.get("empty"):
+        raise HTTPException(422, "No rows match the current filters, so there is nothing to ask about.")
+    try:
+        return jsonable(gem.service.chat(facts, req.question, req.history))
+    except gem.GeminiError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@app.get("/api/ai-status")
+def ai_status() -> dict:
+    return {"configured": gem.service.configured(), "model": gem.service.model_name}
 
 
 # ------------------------------------------------------------------ config (editable JSON)
