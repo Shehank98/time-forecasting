@@ -46,7 +46,8 @@ def test_excel_structure_formats_and_native_charts(lm_report):
     assert ws["C5"].number_format == '"LKR" #,##0' and ws["D5"].number_format == "0.0%"
     assert len(wb["SOV weekly"]._charts) == 1 and len(wb["Spend by channel"]._charts) == 1 and len(wb["FC chart 1"]._charts) == 1
     assert wb["Channel mix"].conditional_formatting
-    assert wb["Cover"]["B3"].value == "LMRB Ad Monitoring" and "DERANA" in " ".join(str(c.value) for c in wb["Cover"]["B"])
+    cover = " ".join(str(c.value) for c in wb["Cover"]["B"])
+    assert "LMRB Ad Monitoring" in cover and "DERANA" in cover and "Executive summary" in " ".join(str(c.value) for c in wb["Cover"]["A"])
     assert wb["Spend by advertiser"].column_dimensions["B"].width > 8
     sh = wb["Forecast summary"]
     assert [c.value for c in sh[4]][:3] == ["Entity", "Reliability", "History points"]

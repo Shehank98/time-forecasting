@@ -45,6 +45,7 @@ class Report:
     saved: list[dict] = field(default_factory=list)
     dataset_meta: dict = field(default_factory=dict)
     dataset_name: str = ""
+    logos: dict = field(default_factory=dict)       # {"agency": (bytes, type), "client": (bytes, type)}
 
 
 def _df(rows: list[dict], cols: dict[str, str]) -> pd.DataFrame:
@@ -169,7 +170,8 @@ def build_kpi_tables(dash: dict) -> tuple[list[tuple[str, Any, str]], list[Table
     tr = dash["trend"]
     if tr["dates"]:
         d = pd.DataFrame({"Period": tr["dates"], **{s["label"]: s["values"] for s in tr["series"]}})
-        sums = [s["label"] for s in tr["series"] if s["unit"] != "currency"][:3]
+        tk = set(dash.get("targets") or [])
+        sums = [s["label"] for s in tr["series"] if s["key"] in tk][:1] or [s["label"] for s in tr["series"] if s["unit"] != "currency"][:1]
         T.append(Table("KPI trend", d, {s["label"]: unit_fmt.get(s["unit"], "dec2") for s in tr["series"]}, f"{tr['granularity'].title()} totals or averages.",
                        charts=[{"type": "line", "cat": "Period", "vals": sums or [tr["series"][0]["label"]], "title": "KPI trend"}]))
     if dash.get("segments"):
@@ -228,7 +230,7 @@ def ai_table(ai: dict) -> list[Table]:
 
 def build(kind: str, dash: dict, meta: dict, files: list[str], forecast: dict | None, ai: dict | None, filters_text: list[str], adv_order: list[str] | None = None,
           client: dict | None = None, branding: dict | None = None, scenarios: dict | None = None, pacing: dict | None = None, saved: list[dict] | None = None,
-          dataset_meta: dict | None = None, dataset_name: str = "", title: str = "") -> Report:
+          dataset_meta: dict | None = None, dataset_name: str = "", title: str = "", logos: dict | None = None) -> Report:
     kpis, tables = {"lmrb": build_lmrb_tables, "tv": build_tv_tables, "kpi": build_kpi_tables}[kind](dash)
     notes: list[str] = []
     if forecast and forecast.get("ok"):
@@ -240,4 +242,4 @@ def build(kind: str, dash: dict, meta: dict, files: list[str], forecast: dict | 
     return Report(kind=kind, title=title or f"{CARD_NAMES[kind]} report", card=CARD_NAMES[kind] + (f": {dataset_name}" if dataset_name else ""), filters=filters_text or ["None"],
                   date_range=dr, generated=dt.datetime.now().strftime("%Y-%m-%d %H:%M"), source_files=files, kpis=kpis, tables=tables,
                   forecast=forecast if forecast and forecast.get("ok") else None, ai=ai, notes=notes, dash=dash, advertiser_order=adv_order or dash.get("all_advertiser_order", []),
-                  client=client or {}, branding=branding or {}, scenarios=scenarios, pacing=pacing, saved=saved or [], dataset_meta=dataset_meta or {}, dataset_name=dataset_name)
+                  client=client or {}, branding=branding or {}, logos=logos or {}, scenarios=scenarios, pacing=pacing, saved=saved or [], dataset_meta=dataset_meta or {}, dataset_name=dataset_name)

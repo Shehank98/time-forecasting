@@ -78,7 +78,7 @@ def build_report(ws: Workspace, req: ExportReq) -> tuple[report_data.Report, lis
     chips = [f"{c['label']}: {c['value']}" for c in built["meta"]["chips"]]
     rep = report_data.build(req.kind, built["data"], built["meta"], ds.files, fcres, ai, chips, client=repo.get_client(ws.client_id),
                             branding=repo.get_branding(), scenarios=scen, pacing=pace, saved=saved, dataset_meta=ds.meta, dataset_name=req.dataset,
-                            title=req.title)
+                            title=req.title, logos={"agency": repo.agency_logo(), "client": repo.client_logo(ws.client_id)})
     rep.notes += notes
     return rep, notes
 
