@@ -18,7 +18,7 @@
     <div class="dm-kpis">${tile('Projected average TVR', 3.26, 2)}${tile('Guaranteed minimum', 3.04, 2)}${tile('Projected reach', 4.3, 1, '', '%')}</div>
     <div class="dm-grid">
       <div class="dm-card p1 wide"><h4>Where TVR is going <em>actual + forecast</em></h4>
-        <svg viewBox="0 0 430 190"><rect x="240" y="0" width="190" height="190" class="zone"/><text x="250" y="16" class="fct">FORECAST: estimated, not recorded</text>
+        <svg viewBox="0 0 430 190"><rect x="240" y="0" width="190" height="190" class="zone"/><text x="246" y="186" class="fct">FORECAST: estimated, not recorded</text>
           <path d="${BAND}" class="band"/><path d="${CHART_ACTUAL}" class="line actual"/><path d="${CHART_FC}" class="line fc"/>
           <g class="tag t3"><circle cx="410" cy="14" r="4"/><text x="402" y="10" text-anchor="end">High case</text></g><g class="tag t2"><circle cx="410" cy="48" r="4"/><text x="402" y="44" text-anchor="end">Most likely</text></g><g class="tag t1"><circle cx="410" cy="96" r="4"/><text x="402" y="116" text-anchor="end">Safe floor</text></g></svg></div>
       <div class="dm-card p2"><h4>Channel audience share <em>now vs next</em></h4>${bars([['Derana', 42, 46, '+0.8', 1], ['Sirasa', 38, 35, '-0.6', 0], ['Hiru', 22, 24, '+0.3', 1], ['Swarnavahini', 14, 12, '-0.2', 0]])}</div>
@@ -30,10 +30,10 @@
     <div class="dm-kpis">${tile('Predicted competitor spend', 1.5, 1, 'LKR ', 'B')}${tile('Cheapest rating point', 34.1, 1, 'LKR ', 'K')}${tile('Predicted spot volume', 13536, 0)}</div>
     <div class="dm-grid">
       <div class="dm-card p1 wide"><h4>What competitors will do next <em>spend per advertiser</em></h4>
-        <svg viewBox="0 0 430 190"><rect x="240" y="0" width="190" height="190" class="zone"/><text x="250" y="16" class="fct">FORECAST: estimated, not recorded</text>
+        <svg viewBox="0 0 430 190"><rect x="240" y="0" width="190" height="190" class="zone"/><text x="246" y="186" class="fct">FORECAST: estimated, not recorded</text>
           <path d="M10 120 C50 100 80 130 120 110 S190 90 240 100" class="line l1"/><path d="M10 140 C50 135 90 120 130 135 S200 140 240 128" class="line l2"/><path d="M10 100 C40 90 90 105 140 90 S200 70 240 82" class="line l3"/>
           <path d="M240 100 C270 90 290 40 320 52 S380 90 420 80" class="line fc l1d"/><path d="M240 128 C280 126 310 120 350 124 S400 118 420 120" class="line fc l2d"/><path d="M240 82 C280 80 300 84 340 78 S400 72 420 70" class="line fc l3d"/>
-          <g class="burst"><path d="M320 40 l9 -16 l9 16 z"/><text x="298" y="18">Predicted burst +60%</text></g></svg></div>
+          <g class="burst"><path d="M320 40 l9 -16 l9 16 z"/><text x="262" y="20">Predicted burst +60%</text></g></svg></div>
       <div class="dm-card p2"><h4>Where money is moving <em>channel mix</em></h4>${bars([['Shakthi', 18, 24, '+0.6', 1], ['ITN', 12, 16, '+1.1', 1], ['Hiru', 25, 20, '-0.9', 0], ['Derana', 22, 21, '-0.4', 0]])}</div>
       <div class="dm-card p3"><h4>Cheapest rating points <em>optimal buying zone</em></h4><svg viewBox="0 0 260 150" class="bub"><rect x="130" y="70" width="120" height="70" class="zn"/><text x="138" y="132" class="znt">OPTIMAL BUYING ZONE</text><circle cx="60" cy="40" r="14" class="b1"/><circle cx="190" cy="108" r="17" class="b2"/><circle cx="105" cy="95" r="10" class="b3"/></svg></div>
     </div>
