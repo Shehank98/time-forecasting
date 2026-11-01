@@ -10,11 +10,26 @@
   const nameOf = (L, colName) => (i) => S(L, colName, i);
   const keyFor = (L, k) => (typeof k === 'function' ? k : nameOf(L, k));
   const slice = (L, idx, a, b) => { const D = L.cols.date; return where(L, idx, (i) => D[i] >= a && D[i] <= b); };
+  const S1 = (L, col, c) => (c < 0 ? null : L.dicts[col][c]);
   const cpsOf = (L, i) => (L.cols.dur[i] > 0 ? L.cols.cost[i] / L.cols.dur[i] : NaN);
-  function sums(L, idx, keyFn, valFn = (i) => L.cols.cost[i]) {
-    const m = new Map();
-    for (let k = 0; k < idx.length; k++) { const i = idx[k], key = keyFn(i); const g = m.get(key) || { sum: 0, n: 0 }; g.sum += valFn(i); g.n++; m.set(key, g); }
+  /** Sum (default: cost) and count per key, as a Map in first-seen order. A column name uses its integer codes (fast path). */
+  function sums(L, idx, keyFn, valFn) {
+    if (typeof keyFn === 'string' && L.dicts[keyFn]) return codeSums(L, idx, keyFn, valFn);
+    if (typeof keyFn === 'string') keyFn = nameOf(L, keyFn);
+    const V = valFn || ((i) => L.cols.cost[i]), m = new Map();
+    for (let k = 0; k < idx.length; k++) { const i = idx[k], key = keyFn(i); const g = m.get(key) || { sum: 0, n: 0 }; g.sum += V(i); g.n++; m.set(key, g); }
     return m;
+  }
+  function codeSums(L, idx, col, valFn) {
+    const C = L.cols[col], dict = L.dicts[col], n = dict.length + 1, sum = new Float64Array(n), cnt = new Float64Array(n), first = new Int32Array(n).fill(-1), cost = L.cols.cost;
+    for (let k = 0; k < idx.length; k++) {
+      const i = idx[k], c = C[i] + 1;
+      if (first[c] < 0) first[c] = k;
+      sum[c] += valFn ? valFn(i) : cost[i]; cnt[c]++;
+    }
+    const order = []; for (let c = 0; c < n; c++) if (first[c] >= 0) order.push(c);
+    order.sort((a, b) => first[a] - first[b]);
+    return new Map(order.map((c) => [c === 0 ? null : dict[c - 1], { sum: sum[c], n: cnt[c] }]));
   }
   const bySumDesc = (m) => [...m.entries()].sort((a, b) => b[1].sum - a[1].sum).map((e) => e[0]);
   const uniqCount = (L, idx, c) => { const s = new Set(); const C = L.cols[c]; for (let k = 0; k < idx.length; k++) s.add(C[idx[k]]); return s.size; };
@@ -51,7 +66,7 @@
 
   function breakdown(L, cur, cmpCur, cmpPrev, k, limit = 500) {
     if (!cur.length) return [];
-    const kf = keyFor(L, k);
+    const kf = typeof k === 'string' && L.dicts[k] ? k : keyFor(L, k);
     const g = sums(L, cur, kf);
     const total = [...g.values()].reduce((a, v) => a + v.sum, 0), totalSpots = cur.length;
     const cc = sums(L, cmpCur, kf), pp = cmpPrev ? sums(L, cmpPrev, kf) : null;
@@ -67,7 +82,7 @@
   function sovWeekly(L, idx, topN = TOP_ADVERTISERS) {
     if (!idx.length) return { weeks: [], advertisers: [] };
     const weeks = weeksOf(L, idx), wpos = new Map(weeks.map((w, i) => [w, i]));
-    const top = bySumDesc(sums(L, idx, nameOf(L, 'advertiser'))).slice(0, topN), topSet = new Set(top);
+    const top = bySumDesc(sums(L, idx, 'advertiser')).slice(0, topN), topSet = new Set(top);
     const series = new Map();
     let others = false;
     for (let k = 0; k < idx.length; k++) {
@@ -84,9 +99,10 @@
   /** Heatmap pivot. rows ranked by cost; value 'sum' of cost or 'median' of cps. */
   function matrix(L, idx, rowK, colK, opts = {}) {
     if (!idx.length) return { rows: [], cols: [], values: [] };
+    const rs = bySumDesc(sums(L, idx, rowK)).slice(0, opts.topRows || 12);
+    const cs = opts.colOrder && opts.colOrder.length ? opts.colOrder : bySumDesc(sums(L, idx, colK)).slice(0, opts.topCols || 14);
+    if (typeof rowK === 'string' && typeof colK === 'string' && L.dicts[rowK] && L.dicts[colK]) return codeMatrix(L, idx, rowK, colK, rs, cs, opts);
     const rf = keyFor(L, rowK), cf = keyFor(L, colK);
-    const rs = bySumDesc(sums(L, idx, rf)).slice(0, opts.topRows || 12);
-    const cs = opts.colOrder && opts.colOrder.length ? opts.colOrder : bySumDesc(sums(L, idx, cf)).slice(0, opts.topCols || 14);
     const rset = new Set(rs), cset = new Set(cs), cells = new Map();
     for (let k = 0; k < idx.length; k++) {
       const i = idx[k], r = rf(i), c = cf(i);
@@ -97,6 +113,21 @@
     }
     const val = (key) => { if (!cells.has(key)) return null; const v = cells.get(key); return opts.agg === 'median' ? MR.median(v) : v; };
     return { rows: rs, cols: cs, values: rs.map((r) => cs.map((c) => val(r + '\u0001' + c))) };
+  }
+
+  function codeMatrix(L, idx, rowK, colK, rs, cs, opts) {
+    const R = L.cols[rowK], Cc = L.cols[colK];
+    const rpos = new Int32Array(L.dicts[rowK].length).fill(-1), cpos = new Int32Array(L.dicts[colK].length).fill(-1);
+    rs.forEach((name, j) => { const c = L.dicts[rowK].indexOf(name); if (c >= 0) rpos[c] = j; });
+    cs.forEach((name, j) => { const c = L.dicts[colK].indexOf(name); if (c >= 0) cpos[c] = j; });
+    const nc = cs.length, med = opts.agg === 'median', tot = new Float64Array(rs.length * nc), has = new Uint8Array(rs.length * nc), lists = med ? Array.from({ length: rs.length * nc }, () => []) : null, cost = L.cols.cost;
+    for (let k = 0; k < idx.length; k++) {
+      const i = idx[k], r = R[i] >= 0 ? rpos[R[i]] : -1; if (r < 0) continue;
+      const c = Cc[i] >= 0 ? cpos[Cc[i]] : -1; if (c < 0) continue;
+      const p = r * nc + c; has[p] = 1;
+      if (med) lists[p].push(opts.value(i)); else tot[p] += cost[i];
+    }
+    return { rows: rs, cols: cs, values: rs.map((_, r) => cs.map((__, c) => { const p = r * nc + c; return has[p] ? (med ? MR.median(lists[p]) : tot[p]) : null; })) };
   }
 
   /* ---------------- flighting ---------------- */
@@ -141,7 +172,7 @@
   }
   function flighting(L, cur, ws, we, topN = 12) {
     if (!cur.length) return { advertisers: [], calendar: { dates: [], rows: [] } };
-    const g = sums(L, cur, nameOf(L, 'advertiser')), order = bySumDesc(g);
+    const g = sums(L, cur, 'advertiser'), order = bySumDesc(g);
     const byAdv = new Map(); for (let k = 0; k < cur.length; k++) { const a = S(L, 'advertiser', cur[k]); if (!byAdv.has(a)) byAdv.set(a, []); byAdv.get(a).push(cur[k]); }
     const stats = order.slice(0, 60).map((a) => ({ ...flightStats(L, Int32Array.from(byAdv.get(a)), ws, we), advertiser: a, spend: g.get(a).sum, spots: g.get(a).n }));
     const days = range(ws, we), top = order.slice(0, topN);
@@ -191,31 +222,37 @@
     const C = L.cols;
     const d = where(L, cur, (i) => C.dur[i] > 0 && Number.isFinite(C.cost[i] / C.dur[i]));
     if (!d.length) return { cells: [], discount_flags: [], outliers: [], heatmap: { rows: [], cols: [], values: [] }, outlier_counts: {} };
-    const cd = (i) => S(L, 'channel', i) + '\u0001' + S(L, 'daypart', i);
+    // integer keys: channel x daypart, and advertiser x channel x daypart (codes shifted by one so -1 maps to 0)
+    const CH = C.channel, DP = C.daypart, AD = C.advertiser, nCh = L.dicts.channel.length + 1, nDp = L.dicts.daypart.length + 1;
+    const cd = (i) => (CH[i] + 1) * nDp + (DP[i] + 1);
+    const nameCd = (key) => [S1(L, 'channel', Math.floor(key / nDp) - 1), S1(L, 'daypart', (key % nDp) - 1)];
     const groups = new Map();
-    for (let k = 0; k < d.length; k++) { const i = d[k], key = cd(i); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(i); }
+    for (let k = 0; k < d.length; k++) { const i = d[k], key = cd(i); let g = groups.get(key); if (!g) { g = []; groups.set(key, g); } g.push(C.cost[i] / C.dur[i]); }
     const med = new Map(), q = new Map();
-    for (const [key, ids] of groups) {
-      const v = Float64Array.from(ids, (i) => cpsOf(L, i)).sort();
+    for (const [key, vals] of groups) {
+      const v = Float64Array.from(vals).sort();
       med.set(key, MR.quantile(v, 0.5)); q.set(key, [MR.quantile(v, 0.25), MR.quantile(v, 0.75), v.length]);
     }
     const cells = new Map();
     for (let k = 0; k < d.length; k++) {
-      const i = d[k], key = S(L, 'advertiser', i) + '\u0001' + cd(i);
-      const c = cells.get(key) || { spots: 0, spend: 0, seconds: 0 }; c.spots++; c.spend += C.cost[i]; c.seconds += C.dur[i]; cells.set(key, c);
+      const i = d[k], key = (AD[i] + 1) * nCh * nDp + cd(i);
+      let c = cells.get(key); if (!c) { c = { spots: 0, spend: 0, seconds: 0 }; cells.set(key, c); }
+      c.spots++; c.spend += C.cost[i]; c.seconds += C.dur[i];
     }
-    let rows = [...cells.entries()].map(([key, c]) => {
-      const [advertiser, channel, daypart] = key.split('\u0001'), m = med.get(channel + '\u0001' + daypart), cps = c.spend / c.seconds, idx = cps / m;
-      const flag = idx < DISCOUNT_INDEX && c.spots >= MIN_SPOTS_PRICING ? 'Below median (possible discount)' : idx > PREMIUM_INDEX && c.spots >= MIN_SPOTS_PRICING ? 'Above median (premium)' : '';
-      return { advertiser, channel, daypart, spots: c.spots, spend: c.spend, seconds: c.seconds, cps, median_cps: m, index_vs_median: idx, flag };
+    const rows = [...cells.entries()].map(([key, c]) => {
+      const a = Math.floor(key / (nCh * nDp)), ck = key % (nCh * nDp), [channel, daypart] = nameCd(ck);
+      const m = med.get(ck), cps = c.spend / c.seconds, ix = cps / m;
+      const flag = ix < DISCOUNT_INDEX && c.spots >= MIN_SPOTS_PRICING ? 'Below median (possible discount)' : ix > PREMIUM_INDEX && c.spots >= MIN_SPOTS_PRICING ? 'Above median (premium)' : '';
+      return { advertiser: S1(L, 'advertiser', a - 1), channel, daypart, spots: c.spots, spend: c.spend, seconds: c.seconds, cps, median_cps: m, index_vs_median: ix, flag };
     }).sort((a, b) => b.spend - a.spend);
     const outs = [];
     for (let k = 0; k < d.length; k++) {
-      const i = d[k], key = cd(i), [q1, q3, n] = q.get(key), iqr = q3 - q1, v = cpsOf(L, i);
+      const i = d[k], [q1, q3, n] = q.get(cd(i)), iqr = q3 - q1, v = C.cost[i] / C.dur[i];
       if (n >= 8 && iqr > 0 && (v < q1 - 1.5 * iqr || v > q3 + 1.5 * iqr)) outs.push(i);
     }
     const counts = new Map(); outs.forEach((i) => { const a = S(L, 'advertiser', i); counts.set(a, (counts.get(a) || 0) + 1); });
-    const present = new Set(); for (let k = 0; k < d.length; k++) present.add(S(L, 'daypart', d[k]));
+    const presentDp = new Uint8Array(nDp); for (let k = 0; k < d.length; k++) presentDp[DP[d[k]] + 1] = 1;
+    const present = new Set(L.dicts.daypart.filter((_, c) => presentDp[c + 1]));
     const heat = matrix(L, d, 'channel', 'daypart', { topRows: 12, colOrder: MR.daypartOrder().filter((x) => present.has(x)), agg: 'median', value: (i) => cpsOf(L, i) });
     return {
       cells: rows.slice(0, 1000), discount_flags: rows.filter((r) => r.flag.startsWith('Below')).slice(0, 50),
@@ -249,7 +286,7 @@
     if (!prev.length) notes.push('No spots in the previous 7 days, so changes are shown as launches only.');
     const items = [];
     const advF = nameOf(L, 'advertiser');
-    const sc = sums(L, cur, advF), sp = sums(L, prev, advF);
+    const sc = sums(L, cur, 'advertiser'), sp = sums(L, prev, 'advertiser');
     const totalCur = [...sc.values()].reduce((a, v) => a + v.sum, 0) || 1, totalPrev = [...sp.values()].reduce((a, v) => a + v.sum, 0) || 1;
     const add = (severity, type, advertiser, text, evidence, magnitude = 0) => items.push({ severity, type, advertiser, is_mine: advertiser === my, text, evidence, magnitude });
     const byAdv = (idx) => { const m = new Map(); for (let k = 0; k < idx.length; k++) { const a = advF(idx[k]); if (!m.has(a)) m.set(a, []); m.get(a).push(idx[k]); } return m; };
@@ -359,7 +396,7 @@
       let ms = 0, mn = 0; for (let j = 0; j < cur.length; j++) if (S(L, 'advertiser', cur[j]) === my) { ms += L.cols.cost[cur[j]]; mn++; }
       k.sov_spend_pct = k.total_spend ? (ms / k.total_spend) * 100 : null; k.sov_spots_pct = k.spots ? (mn / k.spots) * 100 : null;
     } else { k.sov_spend_pct = null; k.sov_spots_pct = null; }
-    const advOrder = bySumDesc(sums(L, cur, nameOf(L, 'advertiser')));
+    const advOrder = bySumDesc(sums(L, cur, 'advertiser'));
     k.my_rank = my && advOrder.includes(my) ? advOrder.indexOf(my) + 1 : null;
     if (cmpPrev && cmpPrev.length) {
       let a = 0, b = 0; for (const i of cmpCur) a += L.cols.cost[i]; for (const i of cmpPrev) b += L.cols.cost[i];
@@ -370,7 +407,7 @@
     const lastScope = minMax(L.cols.date, scopeAll)[1];
     return {
       empty: false, scope: brands, my_brand: my || null, window: { start: isoFromDay(start), end: isoFromDay(end) }, comparison: winMeta(win), kpis: k,
-      advertiser_order: advOrder, all_advertiser_order: bySumDesc(sums(L, all, nameOf(L, 'advertiser'))),
+      advertiser_order: advOrder, all_advertiser_order: bySumDesc(sums(L, all, 'advertiser')),
       sov_weekly: sovWeekly(L, cur),
       by_advertiser: breakdown(L, cur, cmpCur, cmpPrev, 'advertiser'), by_product: breakdown(L, cur, cmpCur, cmpPrev, 'product'),
       by_channel: breakdown(L, cur, cmpCur, cmpPrev, 'channel'), by_daypart: ordered(breakdown(L, cur, cmpCur, cmpPrev, 'daypart'), MR.daypartOrder()),

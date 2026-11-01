@@ -47,7 +47,12 @@
     if (v == null) return NaN;
     if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
     if (typeof v === 'boolean') return NaN;
-    let s = String(v).trim();
+    let s = String(v);
+    // fast path: plain decimal numbers (the vast majority of cells)
+    let plain = s.length > 0 && s.length < 24;
+    for (let k = 0; plain && k < s.length; k++) { const c = s.charCodeAt(k); if (!((c >= 48 && c <= 57) || c === 46 || (k === 0 && c === 45))) plain = false; }
+    if (plain && s !== '-' && s !== '.') { const n = +s; if (Number.isFinite(n)) return n; }
+    s = s.trim();
     if (!s || s === '-' || s.toLowerCase() === 'nan' || s === 'None') return NaN;
     s = s.replace(/,/g, '').replace(/%/g, '').replace(/\b(lkr|rs\.?)\b/gi, '').trim();
     if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s)) return NaN;

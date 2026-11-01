@@ -1,14 +1,38 @@
 # Media Radar: competitor analysis and TimesFM forecasting for media agencies
 
 One FastAPI service (API plus a plain HTML/CSS/vanilla JS frontend) that an agency runs for many clients.
-Planners sign in, pick a client, upload data, and get competitor analysis, probabilistic forecasts,
-budget scenarios, pacing checks and branded client reports.
+Planners sign in, pick a client and open one of three prediction cards from **Mission control**. Each card opens
+with a short launch animation. The interface uses a futuristic dark theme by default, with a light variant.
 
-| Workspace | Data | What planners get |
+| Card | Data | What planners get |
 | --- | --- | --- |
-| **TV Programme Analysis** | TVR sheet | Top programmes, channel by category, daypart, day and time-belt heatmaps, efficiency, consistency, slot opportunities, TVR forecasts and emerging or declining time-belts |
-| **LMRB Ad Monitoring** | Competitor spots and spend | Share of voice, spend breakdowns, GRPs and CPRP (when the TVR sheet is loaded for the same client), flighting, creatives, pricing, alerts, head to head, competitor forecasts, budget scenarios, pacing |
+| **TVR Audience Behaviour Prediction** | TVR sheet (plus LMRB for the market tab) | *TVR & Audience Forecast* tab, *Market & Competitor Forecast* tab, and the analysis tabs: top programmes, heatmaps, categories, efficiency, consistency, slot opportunities, Forecast studio, AI insights, raw rows |
+| **Market Prediction** | LMRB ad monitoring sheet (plus TVR for ratings and CPRP) | Both forecast tabs, plus share of voice, spend breakdowns, GRPs and CPRP, flighting, creatives, pricing, position, alerts, head to head, Forecast studio, AI insights, raw rows |
 | **Client KPI Forecast** | Any dated client sheet (leads, sales, website traffic, search demand, GRPs) | Column mapping, CPL, CPA, CPC, CPM and CPRP, segment mix, spend effects, seasonality, forecasts, spend scenarios, pacing and demand peaks with launch timing |
+
+### The two forecast tabs
+
+Both TV cards share a **global control bar**: the TVR and LMRB uploaders, a forecast horizon (7, 14 or 30 days, or a slider from 1 to 60 days) and global filters for Channel, Programme, Category, Product group and Advertiser.
+TimesFM 2.5 always forecasts 60 days ahead in one batch, so moving the horizon only re-slices the outlook and is instant.
+
+| Tab | KPI cards | Charts |
+| --- | --- | --- |
+| **TVR & Audience Forecast** | Projected average TVR, Guaranteed minimum TVR (P10), Projected reach %, Top growing category | TVR fan chart (history solid, forecast dashed, P10 to P90 ribbon; the tooltip converts it into guaranteed GRPs for your spots per day and the shortfall risk), daypart by weekday heatmap of forecast TVR share, category share shift (stacked to 100%), channel momentum, programme risk map, reach outlook |
+| **Market & Competitor Forecast** | Predicted competitor spend, Predicted spot volume, High-clutter alert (max AdsinBrk), Best estimated CPRP slot | Competitor spend and next move per advertiser in the chosen product group, with *Predicted Competitor Campaign Burst* markers (a forecast day more than 25% above the trailing 7-day average), break clutter and position combo (rising clutter in red, PosinBrk 1 to 2 advice), CPRP efficiency bubbles (forecast rating vs forecast spot cost, size = clutter, colour = channel) with the *Optimal Buying Zone*, share of voice forecast, daypart spend shift, cost inflation outlook |
+
+Every chart has a **?** icon: hover or focus it to read how the chart predicts (or is built) and what a planner gets from it.
+Under each forecast chart a **Planner's Evidence** box states the numbers in plain language and ends with a recommendation. The evidence also feeds AI insights and the client reports.
+
+### Data stays in the browser
+
+Sheets are uploaded **once** and kept in the planner's browser, never on the server:
+
+- A Web Worker streams the file, parses it into compact column arrays and stores them in IndexedDB, separately for each signed-in user and client. Reopening the card on the same computer loads it in seconds.
+- CSV works at any size; a 545 MB LMRB file with 3.9 million spots parses and stores in about 35 seconds and reloads in about 3 seconds. Excel files are limited to 150 MB because browsers must hold the whole workbook in memory; for bigger sheets use *File > Save As > CSV*.
+- *Append new period* merges a new month into the stored history and skips duplicate rows. *Replace* and *Remove* are in the same panel, and Mission control shows browser storage use with a *Clear* button.
+- Dashboards, filters and raw rows are computed in the worker. Only compact daily series (a few kilobytes) go to the server for TimesFM, and only aggregated summaries go to Gemini and the report builders.
+- Each planner and each computer keeps its own copy. Saved forecasts and reports are stored on the server per client, as before.
+- The browser engine (`app/static/js/engine`) is a port of the Python analytics in `app/services`; `tests/test_parity.py` runs both on the same files and checks the numbers match.
 
 ## The agency use cases it covers
 
@@ -34,14 +58,14 @@ budget scenarios, pacing checks and branded client reports.
 ## Client workspaces
 
 - **Users and roles**: admins manage clients, users, branding and settings. Planners see only the clients assigned to them.
-- **Clients** have a name, industry, brand colour and logo. Everything is scoped by client: datasets, saved forecasts and reports.
-- **History grows**: *Append file* merges new months into the stored dataset (duplicates dropped; restated KPI rows replaced). Only parsed data is stored (as Parquet in the database), never the uploaded file.
-- **Saved forecasts**: *Save to client* keeps a forecast, scenario plan or pacing check with its settings. Open it again from Client overview.
+- **Clients** have a name, industry, brand colour and logo. Saved forecasts and reports are scoped by client on the server; sheets are scoped by user and client in each browser.
+- **History grows**: *Append new period* (or *Append file* for KPI datasets) merges new months into the stored data (duplicates dropped; restated KPI rows replaced).
+- **Saved forecasts**: *Save to client* keeps a forecast, scenario plan or pacing check with its settings. Open it again from Mission control.
 - **Reports** are kept per client and can be downloaded again.
 
 ## Reports
 
-From any workspace, **Client report** builds one of three formats with the current filters, and optionally the last forecast, scenario plan, pacing check and executive summary:
+From any card, **Client report** builds one of three formats from the summary the browser computed for the current filters, and optionally the prediction tabs with their Planner's Evidence, the last Forecast studio run, scenario plan, pacing check and executive summary:
 
 - **Branded PDF**: cover with agency and client logos, executive summary with KPI tiles, forecast outlook with P10 to P90 charts, peaks and alerts, budget scenarios, pacing, workspace insights, and a methodology and reliability appendix with backtest results and the disclaimer.
 - **PowerPoint deck**: one message per slide, with native editable charts (forecast bands, scenarios, pacing, share of voice, GRPs, top programmes, KPI trends).
@@ -80,7 +104,7 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install --no-deps "timesfm==2.0.2" && pip install "huggingface_hub>=0.23" "safetensors>=0.5.3" scikit-learn jax jaxlib
 ```
 
-Tests (they never download the model):
+Tests (they never download the model; the parity tests need Node 18 or newer):
 
 ```bash
 python -m pytest -q
@@ -98,7 +122,7 @@ TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/mr_test python -m pytest
 2. Add the **PostgreSQL** plugin and set `DATABASE_URL=${{Postgres.DATABASE_URL}}` on the app service.
 3. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (the first admin is created on first start), `GEMINI_API_KEY`, and optionally `GEMINI_MODEL`.
 4. Memory: **3 GB minimum, 4 GB comfortable**, with **one worker** (the model lives in memory once). TimesFM 2.5 is 200M parameters, much lighter than 2.0.
-5. The image installs CPU-only torch and pre-downloads the TimesFM 2.5 checkpoint (about 0.9 GB) at build time, so the build needs access to huggingface.co. Alternative: mount a volume at `/data`, set `HF_HOME=/data/hf` and build with `--build-arg PREFETCH_MODEL=0`.
+5. The image installs CPU-only torch and pre-downloads the TimesFM 2.5 checkpoint (about 0.9 GB) at build time, then runs offline (`HF_HUB_OFFLINE=1`) from that saved checkpoint, so the running service never calls Hugging Face. The build needs access to huggingface.co. Alternative: mount a volume at `/data`, put the checkpoint there, and set `TIMESFM_LOCAL_DIR` (or `HF_HOME=/data/hf`), building with `--build-arg PREFETCH_MODEL=0`.
 6. Health: `GET /health` is always fast. `GET /api/model-status` says whether TimesFM is loaded or the fallback is in use.
 7. Sign in, open **Admin**, set report branding, create clients and add planners.
 
@@ -112,10 +136,12 @@ TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/mr_test python -m pytest
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model |
 | `HF_HOME` | `/opt/hf` in Docker | Hugging Face cache for the checkpoint |
 | `TIMESFM_REPO` | `google/timesfm-2.5-200m-pytorch` | Checkpoint repo or local folder |
+| `TIMESFM_LOCAL_DIR` | none | Folder with a saved checkpoint (`model.safetensors`); used offline when present |
+| `HF_HUB_OFFLINE` | `1` in Docker when the model was prefetched | Never contact Hugging Face at run time |
 | `TIMESFM_MAX_CONTEXT` | `1024` | Longest history fed to the model, in periods |
 | `PRELOAD_MODEL` | `1` | Load TimesFM in the background at startup |
 | `FORCE_FALLBACK` | `0` | Never load TimesFM |
-| `MAX_UPLOAD_MB` | `25` | Upload limit |
+| `MAX_BODY_MB` | `30` | Largest JSON request (series, summaries); sheets never reach the server |
 | `LOGIN_DAYS` | `7` | Sign-in session length |
 | `CONFIG_DIR` | `app/config` | Folder with the editable JSON settings |
 
@@ -132,6 +158,7 @@ TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/mr_test python -m pytest
 - Passwords are hashed with scrypt; sign-in cookies are HttpOnly, SameSite=Lax and Secure behind HTTPS; session tokens are stored hashed. Sign-in is throttled.
 - Every data request is checked against the user's client access. State-changing requests need a header that cross-site forms cannot send (CSRF guard).
 - Uploaded text is escaped in the UI, never executed as an Excel formula, and prefixed in CSV downloads. Logos are type and size checked.
+- Sheets never leave the browser. Excel files are read with SheetJS 0.18.5 (the last npm release, Apache 2.0) inside the worker; it has a published prototype-pollution advisory for crafted files, so the app only opens the planner's own files, in an isolated worker, and CSV is the recommended format.
 - The Gemini key never leaves the server; Gemini only ever sees aggregated numbers.
 
 ## Project layout
@@ -139,18 +166,21 @@ TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/mr_test python -m pytest
 ```
 app/
   main.py                 app, middleware, routers, static files
-  core.py                 shared request models, auth and workspace dependencies, computations
-  routers/                account (auth, clients, users, branding, settings), data, forecasting, ai, reports
+  core.py                 auth, client workspace and rate limit dependencies
+  routers/                account (auth, clients, users, branding, settings), forecasting, ai, reports
   services/
-    db.py, auth.py, repo.py, store.py    database, users and sessions, data access, per-client datasets
-    ingest.py, ingest_kpi.py, normalise.py, filters.py
-    analytics_tv.py, analytics_lmrb.py, analytics_kpi.py, joins.py (GRP and CPRP)
+    db.py, auth.py, repo.py, store.py    database, users and sessions, data access
+    ingest.py, ingest_kpi.py, normalise.py, filters.py               Python reference for the browser engine
+    analytics_tv.py, analytics_lmrb.py, analytics_kpi.py, joins.py   (parity tested against app/static/js/engine)
     series.py, forecast.py                metric registry, TimesFM 2.5, scenarios, pacing, peaks, monitoring
     gemini_client.py, narrative.py        AI insights and the report narrative
     report_data.py, export_pdf.py, export_pptx.py, export_excel.py
   config/                 channel_aliases.json, holidays_lk.json, dayparts.json
-  static/                 login, client overview, three workspaces, admin; css and js
-tests/                    parsing, analytics, forecasting, KPI, reports, Gemini, API, security
+  static/                 login, Mission control, three cards, admin; css, fonts and js
+    js/engine/            browser data engine: ingest, filters, analytics, GRP join, series, prediction prep
+    js/data-worker.js     Web Worker with IndexedDB storage; js/datastore.js talks to it
+    js/predict-tabs.js    TVR & Audience and Market & Competitor forecast tabs
+tests/                    parsing, analytics, forecasting, KPI, reports, Gemini, API, security, browser parity (tests/js)
 ```
 
 ## Limits to know about
@@ -160,3 +190,5 @@ tests/                    parsing, analytics, forecasting, KPI, reports, Gemini,
 - Total reach in the TV workspace is a sum across airings, not unique people.
 - The PDF uses a Latin-1 font, so Sinhala or Tamil text prints as `?`. PowerPoint and Excel keep full Unicode.
 - Real TimesFM inference needs the checkpoint, which the build downloads from Hugging Face. The test suite exercises the TimesFM 2.5 code path with a stand-in model that mimics its outputs.
+- Browser storage is per browser profile. Private windows and some locked-down browsers do not keep data; the app then works for the session only and says so. Very large sheets need a recent desktop browser with a few GB of free memory.
+- The LMRB analysis tabs recompute on every filter change; on several million spots that takes a few seconds (the loader shows progress). Filtering by brand or date range makes it faster.

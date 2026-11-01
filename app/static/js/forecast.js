@@ -159,7 +159,7 @@
         <div class="kpi"><div class="k-lbl">Actual to date</div><div class="k-val">${vf(res.actual_to_date)}</div><div class="k-sub">${fmt.pct(res.pct_of_target, 0)} of target, ${fmt.pct(res.time_elapsed_pct, 0)} of time gone</div></div>
         <div class="kpi"><div class="k-lbl">Projected end total (P50)</div><div class="k-val">${vf(res.projected_p50)}</div><div class="k-sub">Range ${vf(res.projected_p10)} to ${vf(res.projected_p90)}</div></div>
         <div class="kpi"><div class="k-lbl">Versus target</div><div class="k-val">${fmt.delta(res.projected_vs_target_pct)}</div><div class="k-sub">Target ${vf(res.target)}</div></div>
-        <div class="kpi"><div class="k-lbl">Needed per day</div><div class="k-val">${res.required_per_day == null ? 'n/a' : vf(res.required_per_day)}</div><div class="k-sub">Recent run rate ${vf(res.recent_run_rate)} per day, ${res.remaining_days} days left</div></div></div>
+        <div class="kpi"><div class="k-lbl">Needed per day</div><div class="k-val">${res.required_per_day == null ? 'n/a' : res.required_per_day <= 0 ? 'Target reached' : vf(res.required_per_day)}</div><div class="k-sub">Recent run rate ${vf(res.recent_run_rate)} per day, ${res.remaining_days} days left</div></div></div>
       ${res.notes.map((n) => `<div class="banner info" style="margin-top:12px"><span>${esc(n)}</span></div>`).join('')}
       <div style="margin-top:16px">${C.box('c-pace', `Cumulative ${esc(res.metric_label)} against target`, `${esc(res.entity)}, flight ${esc(res.start)} to ${esc(res.end)}. Band: P10 to P90 projection.`, { tall: true, extra: '<button class="btn sm" id="pc-save" type="button">Save to client</button>' })}</div>`;
     const labels = res.cumulative.dates.concat(res.projection.dates), n = res.cumulative.dates.length;
