@@ -78,6 +78,7 @@ function table(kind, name) {
   return T;
 }
 const lmrbBase = (options) => (tables.tv ? MR.withGrps(tables.lmrb, tables.tv, (options && options.tv_data_set) || null) : tables.lmrb);
+const marketBase = (options) => (tables.tv ? MR.withTimebands(tables.lmrb, tables.tv, (options && options.tv_data_set) || null) : tables.lmrb);
 function baseFrame(kind, name, options) { if (kind === 'lmrb') { table('lmrb'); return lmrbBase(options); } return table(kind, name); }
 function info(T) {
   if (!T) return null;
@@ -272,7 +273,7 @@ const OPS = {
   },
   predictMarket({ filters, options }) {
     table('lmrb');
-    const L = lmrbBase(options), idx = MR.applyFilters(L, 'lmrb', filters || {});
+    const L = marketBase(options), idx = MR.applyFilters(L, 'lmrb', filters || {});
     return MR.marketPayload(L, idx, options || {});
   },
 

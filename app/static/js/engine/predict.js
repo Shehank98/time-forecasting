@@ -32,6 +32,15 @@
     const cdp = (T2) => (i) => `${S(T2, 'channel', i)} | ${S(T2, 'daypart', i)}`;
     run(daily, 'chan_daypart', 'channel', 'tvr', G, { entity: cdp, maxEntities: 48 });
     const wk = run(monthly ? daily : weekly, 'program_tvr', 'program', 'tvr', monthly ? 'monthly' : 'weekly', { maxEntities: 16 });
+    // stickiness: reach % and viewing time for the same programme slots, so TVR can be set against reach
+    const slotNames = wk.series.map((x) => x.entity);
+    if (slotNames.length && ctx.has_reach_pct) run(monthly ? daily : weekly, 'program_reach', 'program', 'reach_pct', monthly ? 'monthly' : 'weekly', { entities: slotNames });
+    ctx.has_avg_time = hasValues(T, 'avg_time', idx);
+    if (slotNames.length && ctx.has_avg_time) run(monthly ? daily : weekly, 'program_avgtime', 'program', 'avg_time', monthly ? 'monthly' : 'weekly', { entities: slotNames });
+    // how much audience each hour carries (recent 8 weeks): peak hours are the busiest quarter
+    { const lvl = new Map(), days = new Set(); const lo8 = hi - 55;
+      for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (T.cols.date[i] < lo8 || T.cols.start[i] < 0 || !Number.isFinite(T.cols.tvr[i])) continue; const h = MR.hourBand(T.cols.start[i]); lvl.set(h, (lvl.get(h) || 0) + T.cols.tvr[i]); days.add(T.cols.date[i]); }
+      ctx.hour_level = Object.fromEntries([...lvl.entries()].map(([h, v]) => [h, v / Math.max(1, days.size)])); }
     ctx.months_of_history = Math.round((hi - lo) / 30.4);
     notes.push(...wk.notes.filter((n) => !/recur weekly/.test(n)));
     return { daily, weekly, notes, ctx, gran: G };
@@ -54,6 +63,8 @@
 
   function marketPayload(L, idx, opt = {}) {
     const monthly = opt.mode === 'monthly', G = monthly ? 'monthly' : 'daily', recentDays = monthly ? 91 : 28;
+    // premium position (PosinBrk 1 or 2) as a 100/0 flag so its mean is a percentage
+    { const P = L.cols.posinbrk, f = new Float32Array(L.n); for (let i = 0; i < L.n; i++) f[i] = P[i] >= 1 ? (P[i] <= 2 ? 100 : 0) : NaN; L = { ...L, cols: { ...L.cols, first2: f } }; }
     const daily = [], notes = [];
     const ctx = { mode: monthly ? 'monthly' : 'daily', gran: G, rows: idx.length, has_grp: !!(L.cols.grp && hasValues(L, 'grp', idx)) };
     if (!idx.length) return { daily, weekly: [], notes: ['No LMRB rows match the current filters.'], ctx, gran: G };
@@ -99,11 +110,30 @@
     ctx.pos_recent = avgBy(L, recent, progOf(L), 'posinbrk', progs);
     // channel mix and competitor x channel (media specialist views)
     run('chan_mix', gIdx, 'channel', 'sov', { maxEntities: 8 });
-    const topCh = topBy(L, gIdx, (i) => S(L, 'channel', i), cost, 4), topAd = comp.slice(0, 5);
+    const topCh = topBy(L, gIdx, (i) => S(L, 'channel', i), cost, 4), topAd = comp.slice(0, 6);
     const pairs = []; for (const a of topAd) for (const c of topCh) pairs.push(a + ' | ' + c);
     const advCh = (L2) => (i) => `${S(L2, 'advertiser', i)} | ${S(L2, 'channel', i)}`;
     run('adv_channel', gIdx, 'advertiser', 'spend', { entity: advCh, entities: pairs });
     ctx.top_channels = topCh; ctx.top_advertisers = topAd;
+    // focus brand against rivals by daypart and language (the same advertisers as the channel view)
+    const pairsOf = (keyFn, vals) => { const o = []; for (const a of topAd) for (const v of vals) o.push(a + ' | ' + v); return o; };
+    const advDp = (L2) => (i) => `${S(L2, 'advertiser', i)} | ${S(L2, 'daypart', i)}`, advLg = (L2) => (i) => `${S(L2, 'advertiser', i)} | ${S(L2, 'lng', i)}`;
+    ctx.top_dayparts = topBy(L, gIdx, (i) => S(L, 'daypart', i), cost, 5); ctx.top_langs = topBy(L, gIdx, (i) => S(L, 'lng', i), cost, 3);
+    run('adv_daypart', gIdx, 'advertiser', 'spend', { entity: advDp, entities: pairsOf(null, ctx.top_dayparts) });
+    run('adv_lang', gIdx, 'advertiser', 'spend', { entity: advLg, entities: pairsOf(null, ctx.top_langs) });
+    // break clutter and premium positions per channel and daypart, for any medium that records them
+    { const cdE = (L2) => (i) => `${S(L2, 'channel', i)} | ${S(L2, 'daypart', i)}`;
+      const cdIdx = MR.where(L, idx, (i) => L.cols.adsinbrk[i] >= 0 || L.cols.posinbrk[i] >= 1);
+      const cds = topBy(L, cdIdx, cdE(L), () => 1, 10); ctx.cd_pairs = cds;
+      if (cds.length) {
+        run('clutter_cd', cdIdx, 'cd', 'clutter', { entity: cdE, entities: cds });
+        run('first2_cd', cdIdx, 'cd', 'first2', { entity: cdE, entities: cds, metricDef: MR.metricDef('first2', 'Spots in position 1 or 2 (%)', 'mean', { col: 'first2', zero_fill: false, unit: 'percent' }) });
+      } }
+    // multi-year history analytics (not forecasts): recurring competitor bursts and creative lifecycles
+    ctx.history_years = (hi - lo) / 365.25;
+    ctx.radar = seasonalBursts(L, gIdx, comp);
+    ctx.lifecycle = themeLifecycle(L, gIdx, comp.slice(0, 8), hi);
+    ctx.bridge = L.bridgeStats || null;
     // CPRP efficiency: matched programme ratings (needs the TVR sheet)
     if (ctx.has_grp) {
       run('sog', gIdx, 'advertiser', 'sog', { entities: comp });
@@ -118,6 +148,81 @@
       run('slot_cost', idx, 'slot', 'cost_spot', { entity: matchedOf, entities: slots, metricDef: costSpot });
     } else notes.push('Load the TVR sheet as well to see programme ratings, CPRP and the optimal buying zone.');
     return { daily, weekly: [], notes, ctx, gran: G };
+  }
+
+
+  /* ---------------- multi-year burst radar ---------------- */
+  /** Weekly spend bursts per advertiser: a week more than 1.5x the median of the 8 weeks before it (and not trivial) starts or continues an episode. */
+  function seasonalBursts(L, gIdx, advertisers) {
+    const want = new Set(advertisers), per = new Map();
+    for (let k = 0; k < gIdx.length; k++) {
+      const i = gIdx[k], a = S(L, 'advertiser', i); if (!want.has(a)) continue;
+      const w = MR.weekStart(L.cols.date[i]); let m = per.get(a); if (!m) { m = new Map(); per.set(a, m); }
+      m.set(w, (m.get(w) || 0) + L.cols.cost[i]);
+    }
+    const out = {};
+    for (const [a, m] of per) {
+      const weeks = [...m.keys()].sort((x, y) => x - y), w0 = weeks[0], w1 = weeks[weeks.length - 1], arr = [];
+      for (let w = w0; w <= w1; w += 7) arr.push(m.get(w) || 0);
+      const peak = Math.max(...arr), eps = []; let cur = null;
+      for (let j = 0; j < arr.length; j++) {
+        const prev = arr.slice(Math.max(0, j - 8), j); if (prev.length < 4) continue;
+        const base = median(prev) || 0, hit = arr[j] >= peak * 0.12 && (base > 0 ? arr[j] > base * 1.5 : true);
+        if (hit) { if (cur && cur.endW === j - 1) { cur.endW = j; cur.spend += arr[j]; cur.lift = Math.max(cur.lift, base > 0 ? arr[j] / base : 3); } else { cur = { startW: j, endW: j, spend: arr[j], lift: base > 0 ? arr[j] / base : 3 }; eps.push(cur); } }
+      }
+      out[a] = eps.map((e) => ({ start: w0 + e.startW * 7, end: w0 + e.endW * 7 + 6, spend: e.spend, lift: e.lift }));
+    }
+    return out;
+  }
+  /** Chance that an advertiser starts a burst in the next `horizon` days, from how many past years had one in the same calendar window (+/- tol days). Needs 2 covered years. */
+  function radarProb(episodes, loDay, hiDay, horizon, tol = 10) {
+    const ws = hiDay + 1, we = hiDay + horizon; let covered = 0, hits = 0; const dates = [];
+    for (let y = 1; y <= 6; y++) {
+      const a = Math.round(ws - y * 365.25), b = Math.round(we - y * 365.25);
+      if (a - tol < loDay || b > hiDay) continue;       // that year is not fully in the data
+      covered++;
+      const hit = episodes.filter((e) => e.start >= a - tol && e.start <= b + tol);
+      if (hit.length) { hits++; dates.push(...hit.map((e) => MR.isoFromDay(e.start))); }
+    }
+    const lifts = episodes.map((e) => e.lift).filter(finite);
+    return { covered, hits, prob: covered >= 2 ? hits / covered : null, dates, typical_lift: lifts.length ? median(lifts) : null };
+  }
+
+  /* ---------------- creative lifecycle ---------------- */
+  /** Per advertiser: how long each Advt_Theme ran, the typical lifespan of finished themes, and whether the current main theme is ageing, wearing out or due for refresh. */
+  function themeLifecycle(L, gIdx, advertisers, hiDay) {
+    const want = new Set(advertisers), th = new Map(), T = L.cols.theme;
+    for (let k = 0; k < gIdx.length; k++) {
+      const i = gIdx[k], a = S(L, 'advertiser', i); if (!want.has(a)) continue;
+      const name = S(L, 'theme', i); if (MR.isSponsorTheme(name)) continue;
+      const key = a + '\u0001' + name; let r = th.get(key); if (!r) { r = { advertiser: a, theme: name, rows: [] }; th.set(key, r); }
+      r.rows.push([L.cols.date[i], L.cols.dur[i], L.cols.cost[i]]);
+    }
+    const items = [];
+    for (const r of th.values()) {
+      r.rows.sort((x, y) => x[0] - y[0]);
+      const n = r.rows.length, first = r.rows[0][0], last = r.rows[n - 1][0];
+      const q = Math.max(1, Math.floor(n / 4)), dm = (rows) => mean(rows.map((x) => x[1]).filter((v) => v > 0));
+      const wk = new Map(); r.rows.forEach((x) => { const w = MR.weekStart(x[0]); wk.set(w, (wk.get(w) || 0) + 1); });
+      const counts = [...wk.entries()].sort((x, y) => x[0] - y[0]).map((e) => e[1]), peak = Math.max(...counts);
+      const recent = r.rows.filter((x) => x[0] > hiDay - 28).length / 4;
+      items.push({ advertiser: r.advertiser, theme: r.theme, first, last, spots: n, spend: r.rows.reduce((s2, x) => s2 + x[2], 0), life: last - first + 1,
+        dur_early: dm(r.rows.slice(0, q)), dur_late: dm(r.rows.slice(-q)), peak_weekly: peak, recent_weekly: recent, active: last >= hiDay - 21 });
+    }
+    const done = items.filter((x) => !x.active && x.life >= 14).map((x) => x.life), allMed = done.length >= 3 ? median(done) : null;
+    const out = [];
+    for (const a of advertisers) {
+      const mine = items.filter((x) => x.advertiser === a); if (!mine.length) continue;
+      const fin = mine.filter((x) => !x.active && x.life >= 14).map((x) => x.life), typical = fin.length >= 2 ? median(fin) : allMed;
+      const cur = mine.filter((x) => x.active).sort((x, y) => y.recent_weekly - x.recent_weekly || y.spend - x.spend)[0]; if (!cur) continue;
+      const age = hiDay - cur.first + 1, wear = cur.peak_weekly > 0 ? cur.recent_weekly / cur.peak_weekly : 1;
+      const shorter = cur.dur_early > 0 && cur.dur_late > 0 && cur.dur_late <= cur.dur_early * 0.6;
+      let status = 'Fresh';
+      if (typical && age >= typical * 0.9) status = 'Refresh due'; else if (wear <= 0.6 || shorter) status = 'Wearing out'; else if (typical && age >= typical * 0.7) status = 'Ageing';
+      out.push({ advertiser: a, theme: cur.theme, first: MR.isoFromDay(cur.first), age_days: age, typical_days: typical, finished_themes: fin.length, due_date: typical ? MR.isoFromDay(cur.first + Math.round(typical)) : null,
+        due_in_days: typical ? Math.round(cur.first + typical - hiDay) : null, wear_pct: wear * 100, dur_early: cur.dur_early, dur_late: cur.dur_late, shorter_spots: shorter, spots: cur.spots, status });
+    }
+    return out;
   }
 
   /* ---------------- helpers for results ---------------- */
@@ -188,5 +293,5 @@
     };
   }
 
-  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, sliceForecast, bursts, dowHourMatrix, monthHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
+  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, seasonalBursts, radarProb, themeLifecycle, sliceForecast, bursts, dowHourMatrix, monthHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
 })(typeof self !== 'undefined' ? self : globalThis);

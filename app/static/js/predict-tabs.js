@@ -78,7 +78,7 @@
     <div class="fc-key-note">Every number marked FORECAST is an estimate of the next ${M ? 'months' : 'days'} based on your own history. It can be wrong.</div></details></div>`;
 
   /* ---------------- sub-views (one question per view) ---------------- */
-  const SV = { tvr: 'plan', market: 'plan' };
+  const SV = { tvr: 'playbook', market: 'war' };
   const svNav = (kind, items) => `<div class="sv-nav" role="tablist" aria-label="Choose a view">${items.map(([id, label, q]) => `<button type="button" class="sv-btn" role="tab" data-svb="${id}" aria-pressed="${SV[kind] === id}"><b>${esc(label)}</b><small>${esc(q)}</small></button>`).join('')}</div>`;
   const svHide = (kind, id) => (SV[kind] === id ? '' : ' hidden');
   function wireSv(p, kind) {
@@ -94,7 +94,7 @@
     if (!el) return;
     const reg = [];
     el.innerHTML = cards.map((c) => `<div class="card sl-card fc"><span class="fc-pill tile">Forecast</span><h3>${esc(c.title)}</h3>${c.sub ? `<div class="sub muted small">${esc(c.sub)}</div>` : ''}
-      <div class="sl-rows">${c.rows.length ? c.rows.map((r) => { reg.push(r.detail); return `<button type="button" class="sl-row" data-sl="${reg.length - 1}"><span class="sl-l">${esc(r.label)}</span><span class="sl-v ${r.tone || ''}">${esc(r.value)}</span></button>`; }).join('') : '<div class="muted small">Not enough data yet.</div>'}</div>
+      <div class="sl-rows">${c.rows.length ? c.rows.map((r) => { reg.push(r.detail); return `<button type="button" class="sl-row" data-sl="${reg.length - 1}"><span class="sl-l">${esc(r.label)}</span><span class="sl-v ${r.tone || ''}">${esc(r.value)}</span></button>`; }).join('') : `<div class="muted small">${esc(c.empty || 'Not enough data yet.')}</div>`}</div>
       ${c.todo ? `<div class="sl-todo"><b>Do this</b> ${esc(c.todo)}</div>` : ''}</div>`).join('');
     el.querySelectorAll('[data-sl]').forEach((b) => { b.onclick = () => { const d = reg[+b.dataset.sl]; if (d) C.detail({ forecast: true, ...d }); }; });
   }
@@ -180,7 +180,19 @@
         ${kpiTile('Projected reach %', fR ? fmt.pct(avg(fR.p50), 1) : 'n/a', fR ? `Range ${fmt.pct(avg(fR.p10), 1)} to ${fmt.pct(avg(fR.p90), 1)}` : 'Reach % is not in the sheet', App.help('Mean of the daily most likely forecast of average Reach % per airing.', 'How much of the audience an average airing is expected to touch.'))}
         ${kpiTile('Top growing category', growing[0] ? esc(growing[0].name) : 'n/a', growing[0] ? `${growing[0].shift >= 0 ? '+' : ''}${f1(growing[0].shift)} pts of TVR share` : '', App.help('Each category\'s share of total TVR is forecast; the one gaining the most share points versus the last 4 weeks is shown.', 'Where audience attention is moving, for content and programme selection.'))}
       </div>
-      ${svNav('tvr', [['plan', 'Next month plan', 'What do I buy?'], ['channels', 'Channel share', 'Who will win audience?'], ['programmes', 'Programmes', 'Which shows will deliver?'], ['when', 'When and who', 'Which hours and genres?']])}
+      <div class="pb-head"><h2>Planner's Action Playbook</h2><span class="muted small">From the TVR sheet alone. No other file needed.</span></div>
+      <div class="sl-grid" id="pb-tvr"></div>
+      ${svNav('tvr', [['playbook', 'Playbook details', 'Which slots do I act on?'], ['plan', 'Next month plan', 'What do I buy?'], ['channels', 'Channel share', 'Who will win audience?'], ['programmes', 'Programmes', 'Which shows will deliver?'], ['when', 'When and who', 'Which hours and genres?']])}
+      <section class="sv" data-sv="playbook"${svHide('tvr', 'playbook')}>
+        <div class="grid g2">
+          ${C.box('pt-sticky', 'Loyal audience or zapping?', 'Each dot is a programme slot. Right and high is a big, loyal audience. Right and low is reach that zaps away.', { tall: true, ev: true,
+            help: ['Forecast TVR and forecast Reach % are compared for every programme slot. TVR per point of reach shows how much of the audience that tuned in stayed to watch. Average viewing time is added when the sheet has it.', 'Buy loyal slots for message delivery. Be careful with high-reach, low-TVR slots: people sample them and leave.'] })}
+          ${C.box('pt-decay', 'Slots losing audience', 'Change in expected TVR against the last 4 weeks. Red means a drop of more than 15%.', { tall: true, ev: true,
+            help: ['Each programme slot is forecast. The next 14 days and the next 30 days are compared with its average of the last 4 weeks. Slots with a drop above 15%, or a very wide low-to-high range, are flagged.', 'Move spots out of fading or unpredictable slots before you commit money.'] })}
+        </div>
+        <div style="margin-top:16px">${C.box('pt-sweet', 'Sweet-spot hours', 'Off-peak and shoulder hours forecast to hold above-average audience share.', { tall: true, ev: true,
+          help: ['Every start hour is forecast. Peak hours are the busiest quarter of hours by audience. Off-peak hours that still hold above-average forecast share, and are not falling, are the sweet spots.', 'Hours where advertiser demand is lower than prime time but the audience is still there.'] })}</div>
+      </section>
       <section class="sv" data-sv="plan"${svHide('tvr', 'plan')}>
         <div class="sl-grid" id="sl-tvr"></div>
         <div style="margin-top:16px">${C.box('pt-fan', 'Total audience: history and forecast', 'Solid is actual. Dashed is the forecast. Click any point for the numbers.', { xtall: true, ev: true,
@@ -213,6 +225,7 @@
       </section>`);
     wireRerun(p, key, () => tvrTab(p, ctx));
     wireSv(p, 'tvr');
+    p.querySelectorAll('[data-open-sv]').forEach((b) => { b.onclick = () => { const t = p.querySelector(`[data-svb="${b.dataset.openSv}"]`); if (t) t.click(); }; });
     markForecast(p, { R, H, M });
     p.querySelectorAll('[data-intro]').forEach((b) => { b.onclick = () => App.loadIntro().then(() => App.intro.open(true)); });
     const spd = $('#spd', p); spd.onchange = () => { App.store.set('spots-per-day', Math.max(1, +spd.value || 1)); tvrTab(p, ctx); };
@@ -367,6 +380,75 @@
           detail: dRow({ title: x.name, sub: 'Genre share of all TVR', rows: [['Now', fmt.num(x.now, 1) + '%'], ['Forecast', fmt.num(x.next, 1) + '%'], ['Change', (x.shift >= 0 ? '+' : '') + f1(x.shift) + ' pts']] }) })).concat(cells.slice(0, 2).map((c) => ({ label: `Peak ${hl(c)}`, value: isShare ? fmt.num(c.v, 1) + '%' : f2(c.v),
           detail: dRow({ title: hl(c), sub: 'Strongest forecast slot', rows: [['Forecast', isShare ? fmt.num(c.v, 1) + '%' : f2(c.v)]] }) }))),
         todo: growing[0] && growing[0].shift > 0.3 ? `Lean into ${growing[0].name} programmes.` : 'Genre mix is steady.' }]);
+
+    // 9. Planner's Action Playbook (TVR sheet only)
+    {
+      const PN = M ? 3 : 4, nearH = M ? 30 : 14, farH = M ? Math.max(H, 30) : 30;
+      const reachBy = new Map(group(R, 'program_reach').map((r) => [r.entity, r])), timeBy = new Map(group(R, 'program_avgtime').map((r) => [r.entity, r]));
+      const stats = progs.map((r) => {
+        const f = slice(r, H), rr = reachBy.get(r.entity), tr = timeBy.get(r.entity), rec = MR.recentMean(r, PN);
+        const tvrF = avg(f.p50), reachF = rr ? avg(slice(rr, H).p50) : null, atF = tr ? avg(slice(tr, H).p50) : null;
+        return { r, name: r.entity, nm: pname(r.entity), tvrF, reachF, atF, ratio: finite(reachF) && reachF > 0 ? tvrF / reachF : null, rec,
+          dNear: pct(avg(slice(r, nearH).p50), rec), dFar: pct(avg(slice(r, farH).p50), rec), width: tvrF > 0 ? (avg(f.p90) - avg(f.p10)) / tvrF * 100 : null };
+      }).filter((x) => finite(x.tvrF));
+      const qt = (a, q) => { const v = a.filter(finite).sort((x, y) => x - y); return v.length ? v[Math.min(v.length - 1, Math.floor(q * v.length))] : null; };
+      // 1. loyal vs zapping
+      const withR = stats.filter((x) => finite(x.ratio)), hiR = qt(withR.map((x) => x.ratio), 0.6), loR = qt(withR.map((x) => x.ratio), 0.4), medReach = qt(withR.map((x) => x.reachF), 0.5);
+      withR.forEach((x) => { x.cls = x.ratio >= hiR ? 'Loyal audience' : (x.reachF >= medReach && x.ratio <= loR ? 'High zapping risk' : 'In between'); });
+      if (withR.length >= 3) {
+        const colr = { 'Loyal audience': C.css('--good') || '#22f5a6', 'High zapping risk': C.css('--bad') || '#ff5d7a', 'In between': C.PALETTE[1] };
+        C.make('pt-sticky', { type: 'scatter', data: { datasets: Object.keys(colr).map((k) => ({ label: k, pointRadius: 7, pointHoverRadius: 10, backgroundColor: colr[k] + 'cc', borderColor: colr[k],
+          data: withR.filter((x) => x.cls === k).map((x) => ({ x: x.reachF, y: x.tvrF, q: { programme: x.nm, class: x.cls, 'forecast TVR': x.tvrF, 'forecast reach %': x.reachF, 'TVR per reach point': x.ratio, 'avg time viewed': x.atF } })) })) },
+          detailOnly: false, options: { plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (c) => { const q = c.raw.q; return [short(q.programme, 60), `${q.class}: TVR ${f2(q['forecast TVR'])}, reach ${f2(q['forecast reach %'])}%`]; } } } },
+            scales: { x: { title: { display: true, text: 'Forecast reach % (how many tuned in)' } }, y: { title: { display: true, text: 'Forecast TVR (how many watched)' } } } } });
+        const loyal = withR.filter((x) => x.cls === 'Loyal audience').sort((a, b) => b.tvrF - a.tvrF), zap = withR.filter((x) => x.cls === 'High zapping risk').sort((a, b) => b.reachF - a.reachF);
+        ev.sticky = [loyal.length ? `Loyal audience: ${loyal.slice(0, 3).map((x) => `${x.nm} (TVR ${f2(x.tvrF)} on ${f1(x.reachF)}% reach)`).join('; ')}.` : 'No slot stands out as especially loyal.',
+          zap.length ? `Zapping risk: ${zap.slice(0, 3).map((x) => `${x.nm} (reach ${f1(x.reachF)}%, TVR only ${f2(x.tvrF)})`).join('; ')}.` : null,
+          { rec: true, text: loyal.length ? `Put message-heavy and guaranteed spots in ${loyal[0].nm}.${zap.length ? ` Use ${zap[0].nm} only for cheap reach.` : ''}` : 'Spread spots; no clear loyal slot.' }];
+      } else { const el = document.getElementById('pt-sticky'); if (el) el.closest('.chart-wrap').innerHTML = App.emptyState('Reach % is needed', 'The sheet needs the Reach % column and several recurring programmes.'); ev.sticky = []; }
+      evid('pt-sticky', ev.sticky);
+      // 2. slot decay and volatility
+      const wideCut = Math.max(50, (qt(stats.map((x) => x.width), 0.5) || 0) * 1.5);
+      stats.forEach((x) => { x.decline = (finite(x.dNear) && x.dNear <= -15) || (finite(x.dFar) && x.dFar <= -15); x.wide = finite(x.width) && x.width >= wideCut; });
+      const dRows = stats.filter((x) => finite(x.dNear) || finite(x.dFar)).sort((a, b) => Math.min(a.dNear ?? 0, a.dFar ?? 0) - Math.min(b.dNear ?? 0, b.dFar ?? 0)).slice(0, 12);
+      if (dRows.length) {
+        const bad = C.css('--bad') || '#ff5d7a', ok = 'rgba(142,154,200,.55)', lbl = (x) => `${short(x.nm, 30)}${x.decline ? '  DECLINE' : ''}${x.wide ? '  VOLATILE' : ''}`;
+        C.make('pt-decay', { type: 'bar', data: { labels: dRows.map(lbl), datasets: [
+          { label: M ? 'First forecast month' : 'Next 14 days', data: dRows.map((x) => x.dNear), backgroundColor: dRows.map((x) => (finite(x.dNear) && x.dNear <= -15 ? bad + 'cc' : ok)), borderRadius: 4, barThickness: 9 },
+          { label: M ? 'Whole horizon' : 'Next 30 days', data: dRows.map((x) => x.dFar), backgroundColor: dRows.map((x) => (finite(x.dFar) && x.dFar <= -15 ? bad : C.PALETTE[0] + '99')), borderRadius: 4, barThickness: 9 }] },
+          detailOnly: true, detail: (i) => { const x = dRows[i]; return `<div class="dt-kpis"><div class="dt-k"><span>Last 4 weeks</span><b>${f2(x.rec)}</b></div><div class="dt-k"><span>Next ${M ? 'month' : '14 days'}</span><b>${signed(x.dNear, 0)}</b></div><div class="dt-k"><span>${M ? 'Whole horizon' : 'Next 30 days'}</span><b>${signed(x.dFar, 0)}</b></div><div class="dt-k"><span>Range width</span><b>${finite(x.width) ? x.width.toFixed(0) + '%' : 'n/a'}</b></div><div class="dt-k"><span>Verdict</span><b>${x.decline ? 'Shift out' : x.wide ? 'Unpredictable' : 'Hold'}</b></div></div><div class="small muted">${esc(x.name)}</div>`; },
+          options: { indexAxis: 'y', plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { title: (it) => dRows[it[0].dataIndex].name, label: (c) => `${c.dataset.label}: ${signed(c.parsed.x, 0)}` } } },
+            scales: { x: { ticks: { callback: (v) => v + '%' }, title: { display: true, text: 'Change in expected TVR vs the last 4 weeks' } }, y: { grid: { display: false }, ticks: { font: { size: 10 } } } } } });
+      } else { const el = document.getElementById('pt-decay'); if (el) el.closest('.chart-wrap').innerHTML = App.emptyState('Not enough recurring programmes', 'A slot needs several weeks of airings.'); }
+      const out = stats.filter((x) => x.decline).sort((a, b) => Math.min(a.dNear ?? 0, a.dFar ?? 0) - Math.min(b.dNear ?? 0, b.dFar ?? 0)), wide = stats.filter((x) => x.wide && !x.decline).sort((a, b) => b.width - a.width);
+      ev.decay = [out.length ? `Structural decline (more than 15% below the last 4 weeks): ${out.slice(0, 3).map((x) => `${x.nm} (${signed(Math.min(x.dNear ?? 0, x.dFar ?? 0), 0)})`).join('; ')}.` : 'No slot is forecast to fall more than 15%.',
+        wide.length ? `Very uncertain range: ${wide.slice(0, 2).map((x) => `${x.nm} (range ${x.width.toFixed(0)}% wide)`).join('; ')}.` : null,
+        { rec: true, text: out.length ? `Shift spots out of ${out.slice(0, 2).map((x) => x.nm).join(' and ')} and into a loyal slot.` : (wide.length ? `Buy ${wide[0].nm} only with make-goods.` : 'Keep the current slot mix.') }];
+      evid('pt-decay', ev.decay);
+      // 3. daypart sweet spots
+      const hr = group(R, 'hour_share').filter((r) => /^\d\d:00$/.test(r.entity)).map((r) => ({ h: r.entity, now: MR.recentMean(r, NOW), next: avg(slice(r, H).p50), level: (pc.hour_level || {})[r.entity] })).filter((x) => finite(x.next)).sort((a, b) => (a.h < b.h ? -1 : 1));
+      if (hr.length >= 6) {
+        const lv = hr.map((x) => x.level).filter(finite), peakCut = qt(lv, 0.75), meanNext = avg(hr.map((x) => x.next)), unit = pc.heat_metric === 'share' ? '% share' : ' TVR';
+        hr.forEach((x) => { x.peak = finite(x.level) && x.level >= peakCut; x.sweet = !x.peak && x.next >= meanNext && (!finite(x.now) || x.next >= x.now * 0.98); });
+        const good = C.css('--good') || '#22f5a6';
+        C.make('pt-sweet', { type: 'bar', data: { labels: hr.map((x) => x.h), datasets: [{ label: 'Forecast ' + (pc.heat_metric === 'share' ? 'TVR share %' : 'TVR'), data: hr.map((x) => x.next), backgroundColor: hr.map((x) => (x.sweet ? good + 'dd' : x.peak ? 'rgba(142,154,200,.4)' : C.PALETTE[0] + '77')), borderRadius: 4 },
+          { type: 'line', label: 'Average of all hours', data: hr.map(() => meanNext), borderColor: C.css('--warn') || '#ffb547', borderDash: [5, 4], pointRadius: 0, borderWidth: 2 }] },
+          detailOnly: true, detail: (i) => { const x = hr[i]; return `<div class="dt-kpis"><div class="dt-k"><span>Forecast</span><b>${f2(x.next)}${unit}</b></div><div class="dt-k"><span>Recent</span><b>${f2(x.now)}${unit}</b></div><div class="dt-k"><span>Type</span><b>${x.sweet ? 'Sweet spot' : x.peak ? 'Peak hour' : 'Regular'}</b></div></div><div class="small muted">Peak hours are the busiest quarter of hours by audience. Off-peak hours are usually cheaper to buy.</div>`; },
+          options: { plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${f2(c.parsed.y)}` } } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: pc.heat_metric === 'share' ? 'Forecast TVR share %' : 'Forecast TVR' } } } } });
+        const sw = hr.filter((x) => x.sweet).sort((a, b) => b.next - a.next);
+        ev.sweet = [sw.length ? `Sweet-spot hours (off-peak, above-average, not falling): ${sw.slice(0, 4).map((x) => `${x.h} (${f2(x.next)}${unit})`).join(', ')}.` : 'No off-peak hour beats the all-hours average.',
+          { rec: true, text: sw.length ? `Add frequency in ${sw.slice(0, 2).map((x) => x.h).join(' and ')} instead of paying peak rates.` : 'Stay in the strongest hours; the shoulders are weak.' }];
+        stats.sweet = sw;
+      } else { const el = document.getElementById('pt-sweet'); if (el) el.closest('.chart-wrap').innerHTML = App.emptyState('Start times are needed', 'The Start column is needed to forecast hours.'); ev.sweet = []; stats.sweet = []; }
+      evid('pt-sweet', ev.sweet);
+      const loyalL = withR.filter((x) => x.cls === 'Loyal audience').sort((a, b) => b.tvrF - a.tvrF), zapL = withR.filter((x) => x.cls === 'High zapping risk').sort((a, b) => b.reachF - a.reachF);
+      const dt = (x, extra) => ({ title: x.nm, sub: 'Programme slot', rows: [['Forecast TVR', f2(x.tvrF)], ['Forecast reach %', finite(x.reachF) ? f2(x.reachF) : 'n/a'], ['TVR per reach point', finite(x.ratio) ? f2(x.ratio) : 'n/a'], ['Change vs last 4 weeks', signed(x.dNear ?? x.dFar, 0)]].concat(extra || []), extra: `<div class="small muted">${esc(x.name)}</div>` });
+      shortlist($('#pb-tvr', p), [
+        { title: 'Loyal audience', sub: 'High TVR for the reach they get', rows: loyalL.slice(0, 3).map((x) => ({ label: short(x.nm, 30), value: f2(x.tvrF), tone: 'up', detail: dt(x) })).concat(zapL.slice(0, 1).map((x) => ({ label: `Zaps: ${short(x.nm, 24)}`, value: `${f1(x.reachF)}% reach`, tone: 'down', detail: dt(x) }))), todo: loyalL[0] ? `Put your key message in ${short(loyalL[0].nm, 34)}.` : 'Needs Reach % in the sheet.' },
+        { title: 'Shift spots out of', sub: 'Falling or unpredictable slots', rows: out.slice(0, 3).map((x) => ({ label: short(x.nm, 30), value: signed(Math.min(x.dNear ?? 0, x.dFar ?? 0), 0), tone: 'down', detail: dt(x) })).concat(wide.slice(0, 2).map((x) => ({ label: short(x.nm, 28), value: `±${(x.width / 2).toFixed(0)}% range`, detail: dt(x) }))), empty: 'No slot is forecast to fall by more than 15% or to be very unpredictable.', todo: out.length ? 'Move this weight to a loyal slot.' : 'No slot needs to be dropped.' },
+        { title: 'Sweet-spot hours', sub: 'Off-peak with strong audience', rows: (stats.sweet || []).slice(0, 4).map((x) => ({ label: `${x.h}`, value: `${f2(x.next)}${pc.heat_metric === 'share' ? '%' : ''}`, tone: 'up', detail: { title: `${x.h} sweet spot`, sub: 'Off-peak hour', rows: [['Forecast', f2(x.next)], ['Recent', f2(x.now)]] } })), empty: 'No off-peak hour holds an above-average share right now.', todo: (stats.sweet || []).length ? `Buy frequency at ${(stats.sweet)[0].h} before prime.` : 'No off-peak hour qualifies.' }]);
+      $('#pb-tvr', p).insertAdjacentHTML('beforeend', '');
+    }
     App.predictEvidence.tv = { title: 'TVR & Audience Forecast', horizon: H, span: SPAN, lines: flatten(ev).map(w),
       kpis: [['Projected average TVR', f2(pTVR)], ['Guaranteed minimum TVR (low case)', f2(gTVR)], ['Projected reach %', fR ? fmt.pct(avg(fR.p50), 1) : 'n/a'], ['Top growing category', growing[0] ? growing[0].name : 'n/a']],
       result: subset(pr.res, R, ['tvr_total', 'channel_tvr', 'reach_total']) };
@@ -404,8 +486,11 @@
     const worst = clutRows.slice().sort((a, b) => b.next - a.next)[0];
     const bubble = rate.map((r) => { const c = costs.find((q) => q.entity === r.entity); if (!c) return null; return { name: r.entity, channel: r.entity.split(' / ')[0], x: avg(slice(r, H).p50), y: avg(slice(c, H).p50), clutter: pc.slot_clutter[r.entity], spots: pc.slot_spots[r.entity] }; }).filter((q) => q && finite(q.x) && finite(q.y));
     const zone = bubble.length ? MR.buyingZone(bubble) : null;
+    const bd = pc.bridge, bridgeBanner = pc.has_grp && bd
+      ? `<div class="banner info"><span><b>Ratings bridge:</b> spots are matched to TVR by 30-minute timeband on shared TV channels, never by programme name. ${fmt.num(bd.rated_pct, 0)}% of spots have a rating (${fmt.num(bd.rated_exact)} on the exact day, ${fmt.num(bd.rated_profile)} from the usual weekday pattern). The other ${fmt.num(bd.not_rated_pct, 0)}% are <span class="badge warn">TVR N/A</span> (radio, press, unmonitored TV or no matching timeband) and are left out of the slot charts, never guessed.</span></div>`
+      : `<div class="banner info"><span><span class="badge warn">TVR N/A</span> No TVR sheet loaded, so rating-based charts are hidden. Everything else on this card works from the LMRB sheet alone. Add the TVR sheet to rate TV slots.</span></div>`;
     const groupSel = `<label class="row small">Product group <select id="mk-group" style="max-width:220px">${pc.product_groups.map((g) => `<option ${g === pc.product_group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></label>
-      <label class="row small">My brand <select id="mk-brand" style="max-width:220px"><option value="">None</option>${pc.advertisers.map((a) => `<option ${a === persp.my_brand ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>`;
+      <label class="row small">Focus brand <select id="mk-brand" style="max-width:220px"><option value="">None</option>${pc.advertisers.map((a) => `<option ${a === persp.my_brand ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>`;
     p.innerHTML = w(`${headCard('Market & Competitor Forecast', `${pc.product_group}: next ${SPAN} from ${pc.date_max}, ${fmt.num(pc.group_rows)} spots in the group.`, spots, groupSel)}
       ${forecastKey(M)}${M ? monthNote(pc) : ''}${(pr.payload.notes || []).filter((n) => !/interpolation/.test(n)).map((n) => `<div class="banner info"><span>${esc(n)}</span></div>`).join('')}
       <div class="kpis">
@@ -414,7 +499,26 @@
         ${kpiTile('High-clutter alert', worst ? `${fmt.num(worst.next, 1)} ads/break` : 'n/a', worst ? `${esc(short(worst.name, 40))}${worst.rising ? ' (rising)' : ''}` : 'AdsinBrk not available', App.help('Average AdsinBrk is forecast for the programmes this group buys; the highest expected break length is flagged.', 'Breaks to avoid, or to buy only in first position.'), worst && worst.rising ? 'alert-kpi' : '')}
         ${kpiTile('Best estimated CPRP slot', zone && zone.best ? fmt.lkrc(zone.best.cprp) : 'n/a', zone && zone.best ? esc(short(zone.best.name, 42)) : 'Load the TVR sheet to rate slots', App.help('Cost per rating point = forecast average spot cost divided by forecast spot rating (matched programme TVR), for the most-used slots.', 'The cheapest rating points to buy next, inside the optimal buying zone where possible.'))}
       </div>
-      ${svNav('market', [['plan', 'Next month plan', 'What will rivals do?'], ['comp', 'Competitors', 'Who gains share?'], ['price', 'Price and discounts', 'Sponsorship vs commercial'], ['slots', 'Slots and clutter', 'Where to buy?']])}
+      <div class="pb-head"><h2>Competitor War-Room and Next-Move Playbook</h2><span class="muted small">From the LMRB sheet alone, every medium. The TVR sheet is optional.</span></div>
+      <div class="sl-grid four" id="pb-mk"></div>
+      ${svNav('market', [['war', 'War-room details', 'What will rivals do next?'], ['plan', 'Next month plan', 'What will rivals do?'], ['comp', 'Competitors', 'Who gains share?'], ['price', 'Price and discounts', 'Sponsorship vs commercial'], ['slots', 'Slots and clutter', 'Where to buy?']])}
+      <section class="sv" data-sv="war"${svHide('market', 'war')}>
+        ${C.box('pm-focus', 'Where rivals outspend your focus brand', 'Forecast spend of your focus brand against the biggest rival, by channel, daypart or language.', { tall: true, ev: true,
+          extra: '<div class="seg" id="pmf-seg"><button type="button" data-d="channel" aria-pressed="true">Channel</button><button type="button" data-d="daypart" aria-pressed="false">Daypart</button><button type="button" data-d="lang" aria-pressed="false">Language</button></div>',
+          help: ['Spend is forecast for each of the top advertisers on each channel, daypart and language. For every one, your focus brand is compared with the biggest rival there.', 'Shows where you are being out-shouted, and where you already lead.'] })}
+        <div class="grid g2" style="margin-top:16px">
+          ${C.box('pm-radar', 'Burst radar: who launches next?', 'Chance that each rival starts a spend burst in the coming period, from what they did in earlier years.', { tall: true, ev: true,
+            help: ['Weekly spend is scanned over all the years in the sheet. A burst is a week above 1.5 times the previous 8 weeks. For the coming window we count how many past years had a burst start in the same calendar window (plus or minus 10 days).', 'An early warning built on repeating habits. It needs about 2 years of history, and 3 or more is better.'] })}
+          ${C.box('pm-fatigue', 'Creative fatigue and refresh predictor', 'Age of each rival\'s main theme against how long their themes usually run.', { tall: true, ev: true,
+            help: ['Every Advt_Theme is tracked from its first to last spot. Finished themes give each advertiser a typical lifespan. The current main theme is flagged as ageing, wearing out (fewer spots, or shorter 10s reminders replacing 30s launch spots) or due for refresh.', 'Predicts when a rival is likely to change creative or leave the campaign.'] })}
+        </div>
+        <div class="grid g2" style="margin-top:16px">
+          ${C.box('pm-clut2', 'Where ads get buried: ads per break', 'Forecast ads per break by channel and daypart. Darker means more crowded.', { html: '', ev: true,
+            help: ['AdsinBrk is averaged per channel and daypart and forecast.', 'Crowded belts hide your ad. Clear belts let it stand out.'] })}
+          ${C.box('pm-first2', 'First-in-break chance', 'Forecast share of spots in position 1 or 2 by channel and daypart. Darker means more premium.', { html: '', ev: true,
+            help: ['PosinBrk 1 or 2 is counted as a premium position and its share of spots is forecast.', 'Where premium positions are easy to get, and where they are scarce.'] })}
+        </div>
+      </section>
       <section class="sv" data-sv="plan"${svHide('market', 'plan')}>
         <div class="sl-grid" id="sl-mk"></div>
         <div style="margin-top:16px">${C.box('pm-spend', 'Competitor spend and next move', 'Solid is actual. Dashed is the forecast. Triangles are predicted bursts. Click a point for the numbers.', { xtall: true, ev: true,
@@ -450,6 +554,7 @@
         </div>
       </section>
       <section class="sv" data-sv="slots"${svHide('market', 'slots')}>
+        ${bridgeBanner}
         <div class="grid g2">
           ${C.box('pm-bubble', 'Best slots to buy', 'Cheap and high rating is best. Bigger bubble = more clutter.', { tall: true, ev: true,
             help: ['For the most-used programme slots, the matched TVR and the average spot cost are each forecast. The shaded quadrant is the Optimal Buying Zone.', 'The shortlist for your next buy.'] })}
@@ -532,7 +637,8 @@
         dear ? `Most expensive rating points: ${dear.name} (CPRP ${fmt.lkrc(dear.cprp)}).` : null,
         { rec: true, text: zone.best ? `Shift weight toward ${zone.best.name}: about ${fmt.lkrc(zone.best.cprp)} per rating point${finite(zone.best.clutter) && zone.best.clutter > 6 ? ', but ask for first position because breaks are long' : ''}.` : 'Load more TVR history to rate slots.' },
       ];
-    } else ev.bubble = [pc.has_grp ? 'Too few matched slots to compare.' : 'Load the TVR sheet as well: spot ratings come from matching each spot to the programme airing at that time.'];
+    } else { const bw = document.getElementById('pm-bubble'); if (bw) bw.closest('.chart-wrap').innerHTML = App.emptyState('TVR N/A', pc.has_grp ? 'Too few rated TV slots to compare.' : 'Load the TVR sheet to rate TV slots. Radio, press and unmonitored channels never get a rating.'); }
+    if (!(zone && zone.points.length)) ev.bubble = [pc.has_grp ? 'Too few matched slots to compare.' : 'Load the TVR sheet as well: spot ratings come from matching each spot to the programme airing at that time.'];
     evid('pm-bubble', ev.bubble);
 
     // 4. share of voice (bars)
@@ -676,6 +782,85 @@
           .concat(quiet ? [{ label: `Quietest: ${fmt.title(quiet.name)}`, value: `${quiet.chg >= 0 ? '+' : ''}${quiet.chg.toFixed(1)} pts`, detail: { title: fmt.title(quiet.name), sub: 'Channel share of competitor spend', rows: [['Now', fmt.num(quiet.now, 1) + '%'], ['Forecast', fmt.num(quiet.next, 1) + '%']] } }] : []),
           todo: zone && zone.best ? `Shift weight to ${short(zone.best.name, 30)}.` : 'Load the TVR sheet to rate slots.' }]);
     }
+
+    // 9. Competitor War-Room (LMRB sheet only)
+    const warFocus = {};
+    {
+      const dayNum = (iso) => MR.dayFromIso(iso), hiDay = dayNum(pc.date_max), loDay = dayNum(pc.date_min), yrs = pc.history_years || 0;
+      // 1. focus brand vs rivals
+      const grpOf = { channel: 'adv_channel', daypart: 'adv_daypart', lang: 'adv_lang' }, dimName = { channel: 'channel', daypart: 'daypart', lang: 'language' };
+      const gapRows = (dim) => {
+        const vals = new Map();
+        group(R, grpOf[dim]).forEach((r) => { const [a, v] = r.entity.split(' | '); const m = vals.get(v) || new Map(); m.set(a, total(slice(r, H).p50)); vals.set(v, m); });
+        return [...vals.entries()].map(([v, m]) => { const me = m.get(my) || 0; const riv = [...m.entries()].filter((e) => e[0] !== my).sort((a, b) => b[1] - a[1]); const top = riv[0] || ['none', 0];
+          return { value: v, focus: me, rival: top[1], rivalName: top[0], ratio: me > 0 ? top[1] / me : null, all: [...m.entries()].sort((a, b) => b[1] - a[1]) }; })
+          .filter((x) => x.focus > 0 || x.rival > 0).sort((a, b) => (b.rival - b.focus) - (a.rival - a.focus));
+      };
+      Object.keys(grpOf).forEach((d) => { warFocus[d] = my ? gapRows(d) : []; });
+      let curDim = 'channel';
+      const drawFocus = () => {
+        const rows = warFocus[curDim].slice(0, 8), el = document.getElementById('pm-focus'); if (!el) return;
+        if (!rows.length) { if (window.Chart && Chart.getChart(el)) Chart.getChart(el).destroy(); el.style.display = 'none'; let n = el.parentElement.querySelector('.empty-note'); if (!n) { el.parentElement.insertAdjacentHTML('beforeend', `<div class="empty-note">${App.emptyState(my ? 'No data for this view' : 'Pick a Focus brand', my ? 'This product group has no spend here.' : 'Choose your brand in the Focus brand box above to see where rivals outspend you.')}</div>`); } return; }
+        el.style.display = ''; const n = el.parentElement.querySelector('.empty-note'); if (n) n.remove();
+        const lbl = (x) => { const nm = curDim === 'channel' ? fmt.title(x.value) : x.value; return `${short(nm, 22)}  ${x.ratio == null ? '(rival only)' : x.ratio >= 1.1 ? `(${short(x.rivalName, 14)} x${x.ratio.toFixed(1)})` : '(you lead)'}`; };
+        C.make('pm-focus', { type: 'bar', data: { labels: rows.map(lbl), datasets: [{ label: my, data: rows.map((x) => x.focus), backgroundColor: C.PALETTE[0] + 'dd', borderRadius: 4, barThickness: 12 }, { label: 'Biggest rival', data: rows.map((x) => x.rival), backgroundColor: rows.map((x) => (x.rival > x.focus * 1.1 ? (C.css('--bad') || '#ff5d7a') + 'cc' : 'rgba(142,154,200,.5)')), borderRadius: 4, barThickness: 12 }] },
+          detailOnly: true, detail: (i) => { const x = rows[i]; return `<div class="dt-kpis"><div class="dt-k"><span>${esc(my)}</span><b>${fmt.lkrc(x.focus)}</b></div><div class="dt-k"><span>Biggest rival</span><b>${esc(x.rivalName)}</b></div><div class="dt-k"><span>Rival spend</span><b>${fmt.lkrc(x.rival)}</b></div><div class="dt-k"><span>Rival vs you</span><b>${x.ratio == null ? 'n/a' : 'x' + x.ratio.toFixed(1)}</b></div></div><table class="dt-table"><thead><tr><th>Advertiser</th><th>Forecast spend</th></tr></thead><tbody>${x.all.map((e) => `<tr class="${e[0] === my ? 'on' : ''}"><td>${esc(e[0])}</td><td>${fmt.lkrc(e[1])}</td></tr>`).join('')}</tbody></table>`; },
+          options: { indexAxis: 'y', plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { title: (it) => `${rows[it[0].dataIndex].value}`, label: (c) => `${c.dataset.label}: ${fmt.lkrc(c.parsed.x)}` } } }, scales: { x: { beginAtZero: true, ticks: { callback: (v) => fmt.compact(v) } }, y: { grid: { display: false }, ticks: { font: { size: 11 } } } } } });
+      };
+      drawFocus();
+      p.querySelectorAll('#pmf-seg button').forEach((b) => { b.onclick = () => { curDim = b.dataset.d; p.querySelectorAll('#pmf-seg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); drawFocus(); }; });
+      const lead = (d) => warFocus[d].filter((x) => x.ratio != null && x.ratio >= 1.5).slice(0, 2);
+      ev.focus = my ? [['channel', 'channel'], ['daypart', 'daypart'], ['lang', 'language']].map(([d, nme]) => { const l = lead(d); return l.length ? `By ${nme}: ${l.map((x) => `${x.rivalName} outspends ${my} x${x.ratio.toFixed(1)} on ${d === 'channel' ? fmt.title(x.value) : x.value}`).join('; ')}.` : null; }).filter(Boolean) : ['Pick a Focus brand to compare against rivals.'];
+      const worst = warFocus.channel[0];
+      if (my) ev.focus.push({ rec: true, text: worst && worst.ratio >= 1.5 ? `Add weight on ${fmt.title(worst.value)}, where ${worst.rivalName} is x${worst.ratio.toFixed(1)} your forecast spend, or avoid a head-on fight and win a different belt.` : 'No rival is far ahead of you anywhere. Hold your plan.' });
+      evid('pm-focus', ev.focus);
+      // 2. seasonal burst radar
+      const fcBursts = new Map(); compRows.forEach((x) => { const b = x.bursts.map((q) => slice(x.r, H).dates[q.index]).filter(Boolean); if (b.length) fcBursts.set(x.name, b[0]); });
+      const radar = Object.entries(pc.radar || {}).filter(([a]) => a !== my).map(([a, eps]) => ({ a, eps, ...MR.radarProb(eps, loDay, hiDay, H, 10) })).filter((x) => x.prob != null).sort((x, y) => y.prob - x.prob || (y.typical_lift || 0) - (x.typical_lift || 0)).slice(0, 8);
+      const el = document.getElementById('pm-radar');
+      if (el && radar.length) {
+        const bad = C.css('--bad') || '#ff5d7a';
+        C.make('pm-radar', { type: 'bar', data: { labels: radar.map((x) => `${short(x.a, 24)}  (${x.hits} of ${x.covered} years)`), datasets: [{ label: 'Chance of a spend burst', data: radar.map((x) => x.prob * 100), backgroundColor: radar.map((x) => (x.prob >= 0.67 ? bad + 'cc' : x.prob >= 0.34 ? (C.css('--warn') || '#ffb547') + 'cc' : 'rgba(142,154,200,.5)')), borderRadius: 4, barThickness: 14 }] },
+          detailOnly: true, detail: (i) => { const x = radar[i]; return `<div class="dt-kpis"><div class="dt-k"><span>Chance</span><b>${(x.prob * 100).toFixed(0)}%</b></div><div class="dt-k"><span>Years with a burst</span><b>${x.hits} of ${x.covered}</b></div><div class="dt-k"><span>Typical lift</span><b>x${f1(x.typical_lift)}</b></div><div class="dt-k"><span>Forecast shows a burst</span><b>${fcBursts.get(x.a) ? String(fcBursts.get(x.a)).slice(0, 10) : 'no'}</b></div></div><div class="small">Past bursts in this window: ${x.dates.length ? esc(x.dates.join(', ')) : 'none'}.</div><div class="small muted" style="margin-top:6px">Chance = past years with a burst in the same calendar window divided by past years that fully cover it.</div>`; },
+          options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.parsed.x.toFixed(0)}% chance` } } }, scales: { x: { min: 0, max: 100, ticks: { callback: (v) => v + '%' } }, y: { grid: { display: false } } } } });
+      } else if (el) el.closest('.chart-wrap').innerHTML = App.emptyState(yrs < 3 ? 'Needs about 3 years of history' : 'No repeating burst pattern', yrs < 3 ? `This sheet covers ${yrs.toFixed(1)} years. The radar compares the coming window with the same dates in at least two earlier years, so add older LMRB data (3 to 5 years is best).` : 'No rival repeats a burst in this calendar window.');
+      const yTxt = `${Math.round(yrs)}-year`;
+      ev.radar = radar.length ? radar.slice(0, 3).map((x) => `Based on ${yTxt} historical patterns, ${x.a} has a ${(x.prob * 100).toFixed(0)}% probability of launching a spend burst in the next ${M ? NM + ' month' + (NM === 1 ? '' : 's') : H + ' days'} (${x.hits} of ${x.covered} past years).${fcBursts.get(x.a) ? ` The forecast also shows a burst around ${String(fcBursts.get(x.a)).slice(0, 10)}.` : ''}`) : [];
+      if (radar.length) ev.radar.push({ rec: true, text: radar[0].prob >= 0.5 ? `Book inventory before ${radar[0].a} moves, and plan a response flight.` : 'No rival is likely to burst in this window. Keep your flighting.' });
+      evid('pm-radar', ev.radar);
+      // 3. creative fatigue
+      const life = (pc.lifecycle || []).slice(0, 8), fl = document.getElementById('pm-fatigue');
+      if (fl && life.length) {
+        const scol = { 'Refresh due': C.css('--bad') || '#ff5d7a', 'Wearing out': C.css('--warn') || '#ffb547', Ageing: C.PALETTE[4], Fresh: C.css('--good') || '#22f5a6' };
+        C.make('pm-fatigue', { type: 'bar', data: { labels: life.map((x) => `${short(x.advertiser, 18)}: ${short(x.theme, 20)}  [${x.status}]`), datasets: [{ label: 'Current theme age (days)', data: life.map((x) => x.age_days), backgroundColor: life.map((x) => scol[x.status] + 'cc'), borderRadius: 4, barThickness: 11 }, { label: 'Typical theme lifespan (days)', data: life.map((x) => x.typical_days), backgroundColor: 'rgba(142,154,200,.4)', borderRadius: 4, barThickness: 11 }] },
+          detailOnly: true, detail: (i) => { const x = life[i]; return `<div class="dt-kpis"><div class="dt-k"><span>Status</span><b>${x.status}</b></div><div class="dt-k"><span>Theme age</span><b>${x.age_days} days</b></div><div class="dt-k"><span>Typical lifespan</span><b>${x.typical_days ? Math.round(x.typical_days) + ' days' : 'unknown'}</b></div><div class="dt-k"><span>Expected refresh</span><b>${x.due_date || 'unknown'}</b></div><div class="dt-k"><span>Spot rate vs its peak</span><b>${x.wear_pct.toFixed(0)}%</b></div><div class="dt-k"><span>Spot length, early to late</span><b>${f1(x.dur_early)}s to ${f1(x.dur_late)}s</b></div></div><div class="small muted">${esc(x.advertiser)} / ${esc(x.theme)}. Based on ${x.finished_themes} finished theme${x.finished_themes === 1 ? '' : 's'} for this advertiser, first seen ${esc(x.first)}.${x.shorter_spots ? ' Spots have shrunk to reminders.' : ''}</div>`; },
+          options: { indexAxis: 'y', plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { title: (it) => `${life[it[0].dataIndex].advertiser}: ${life[it[0].dataIndex].theme}`, label: (c) => `${c.dataset.label}: ${c.parsed.x == null ? 'unknown' : Math.round(c.parsed.x)}` } } }, scales: { x: { beginAtZero: true, title: { display: true, text: 'Days' } }, y: { grid: { display: false }, ticks: { font: { size: 10 } } } } } });
+      } else if (fl) fl.closest('.chart-wrap').innerHTML = App.emptyState('No current themes found', 'Needs Advt_Theme and dates in the sheet.');
+      const due = life.filter((x) => x.status === 'Refresh due'), wear = life.filter((x) => x.status === 'Wearing out');
+      ev.fatigue = life.length ? [due.length ? `Due for a refresh: ${due.slice(0, 3).map((x) => `${x.advertiser} (${x.theme}, running ${x.age_days} days${x.due_date ? `, expected change around ${x.due_date}` : ''})`).join('; ')}.` : 'No rival theme is past its usual lifespan.',
+        wear.length ? `Wearing out: ${wear.slice(0, 3).map((x) => `${x.advertiser} (${x.shorter_spots ? `spots shrank from ${f1(x.dur_early)}s to ${f1(x.dur_late)}s` : `${x.wear_pct.toFixed(0)}% of peak airings`})`).join('; ')}.` : null,
+        { rec: true, text: due.length ? `Expect new work from ${due[0].advertiser}. Prepare a counter-message, or exploit the gap if they go quiet.` : 'No refresh is imminent. A fresh creative of your own will stand out.' }] : [];
+      evid('pm-fatigue', ev.fatigue);
+      // 4. clutter and first-in-break per channel x daypart
+      const cdMat = (g, f) => { const rs = group(R, g).map((r) => { const [c, d] = r.entity.split(' | '); return { c, d, v: avg(slice(r, H).p50) }; }).filter((x) => finite(x.v)); if (!rs.length) return null;
+        const chs = [...new Set(rs.map((x) => x.c))], order = MR.daypartOrder ? MR.daypartOrder() : [], dps = [...new Set(rs.map((x) => x.d))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        return { rs, mat: { rows: chs.map(fmt.title), cols: dps, values: chs.map((c) => dps.map((d) => { const x = rs.find((q) => q.c === c && q.d === d); return x ? x.v : null; })) } }; };
+      const cl = cdMat('clutter_cd'), f2m = cdMat('first2_cd');
+      $('#pm-clut2').innerHTML = cl ? C.heat(cl.mat, { fmt: (v) => fmt.num(v, 1), caption: 'Forecast ads per break' }) : App.emptyState('AdsinBrk is not in the sheet', 'Break length is needed.');
+      $('#pm-first2').innerHTML = f2m ? C.heat(f2m.mat, { fmt: (v) => fmt.num(v, 0) + '%', caption: 'Forecast share of spots in position 1 or 2' }) : App.emptyState('PosinBrk is not in the sheet', 'Position in break is needed.');
+      const buried = cl ? cl.rs.slice().sort((a, b) => b.v - a.v) : [], prem = f2m ? f2m.rs.slice().sort((a, b) => b.v - a.v) : [];
+      ev.clut2 = cl ? [`Most crowded: ${buried.slice(0, 3).map((x) => `${fmt.title(x.c)} ${x.d} (${f1(x.v)} ads per break)`).join(', ')}.`, `Clearest: ${buried.slice(-2).reverse().map((x) => `${fmt.title(x.c)} ${x.d} (${f1(x.v)})`).join(', ')}.`, { rec: true, text: `Avoid ${fmt.title(buried[0].c)} ${buried[0].d} unless you can buy first in break.` }] : [];
+      ev.first2 = f2m ? [`Premium positions are easiest in ${prem.slice(0, 3).map((x) => `${fmt.title(x.c)} ${x.d} (${f1(x.v)}% of spots)`).join(', ')}.`, `Scarcest: ${prem.slice(-2).reverse().map((x) => `${fmt.title(x.c)} ${x.d} (${f1(x.v)}%)`).join(', ')}.`, { rec: true, text: `Ask for position 1 or 2 in ${fmt.title(prem[prem.length - 1].c)} ${prem[prem.length - 1].d}, where it is rare, or buy elsewhere.` }] : [];
+      evid('pm-clut2', ev.clut2); evid('pm-first2', ev.first2);
+      // headline strip
+      const rk = (d) => warFocus[d].filter((x) => x.ratio != null && x.ratio > 1.1).slice(0, 3);
+      shortlist($('#pb-mk', p), [
+        { title: 'Rivals outspending you', sub: my ? `${my}, forecast spend` : 'Pick a Focus brand', rows: my ? rk('channel').map((x) => ({ label: fmt.title(x.value), value: `${short(x.rivalName, 12)} x${x.ratio.toFixed(1)}`, tone: 'down', detail: { title: fmt.title(x.value), sub: 'Channel', rows: [[my, fmt.lkrc(x.focus)], [x.rivalName, fmt.lkrc(x.rival)]] } })).concat(rk('lang').slice(0, 1).map((x) => ({ label: x.value, value: `${short(x.rivalName, 12)} x${x.ratio.toFixed(1)}`, tone: 'down', detail: { title: x.value, sub: 'Language', rows: [[my, fmt.lkrc(x.focus)], [x.rivalName, fmt.lkrc(x.rival)]] } }))) : [], todo: my ? (worst && worst.ratio >= 1.5 ? `Defend ${fmt.title(worst.value)} first.` : 'No big gaps.') : 'Choose the Focus brand above.' },
+        { title: 'Burst radar', sub: `Next ${SPAN}`, rows: radar.slice(0, 3).map((x) => ({ label: short(x.a, 22), value: `${(x.prob * 100).toFixed(0)}%`, tone: x.prob >= 0.67 ? 'down' : '', detail: { title: x.a, sub: 'Chance of a burst', rows: [['Chance', (x.prob * 100).toFixed(0) + '%'], ['Past years', `${x.hits} of ${x.covered}`], ['Typical lift', 'x' + f1(x.typical_lift)]] } })), todo: radar.length ? (radar[0].prob >= 0.5 ? `Lock inventory before ${short(radar[0].a, 20)} moves.` : 'No likely burst.') : (yrs < 3 ? 'Needs about 3 years of history.' : 'No repeating pattern.') },
+        { title: 'Creative refresh', sub: 'Rival themes ageing out', rows: life.filter((x) => x.status !== 'Fresh').slice(0, 3).map((x) => ({ label: short(x.advertiser, 20), value: x.status, tone: x.status === 'Refresh due' ? 'down' : '', detail: { title: `${x.advertiser}: ${x.theme}`, sub: x.status, rows: [['Age', x.age_days + ' days'], ['Expected refresh', x.due_date || 'unknown'], ['Spot rate vs peak', x.wear_pct.toFixed(0) + '%']] } })), todo: due.length ? `${short(due[0].advertiser, 20)} is due to change creative.` : 'No rival refresh is imminent.' },
+        { title: 'Where you get buried', sub: 'Ads per break, forecast', rows: buried.slice(0, 3).map((x) => ({ label: `${fmt.title(x.c)} ${x.d}`, value: `${f1(x.v)} ads`, tone: 'down', detail: { title: `${fmt.title(x.c)} ${x.d}`, sub: 'Crowded belt', rows: [['Ads per break', f1(x.v)], ['Premium position share', (() => { const q = (f2m ? f2m.rs : []).find((z) => z.c === x.c && z.d === x.d); return q ? f1(q.v) + '%' : 'n/a'; })()]] } })), todo: buried[0] ? `Buy first in break on ${fmt.title(buried[0].c)} ${buried[0].d}.` : 'Break length not in sheet.' }]);
+      $('#pb-mk', p).classList.add('four');
+    }
     App.predictEvidence.lmrb = { title: 'Market & Competitor Forecast', horizon: H, product_group: pc.product_group, lines: flatten(ev),
       kpis: [['Predicted competitor spend', fmt.lkrc(rivalNext)], ['Predicted spot volume', fS ? fmt.num(total(fS.p50)) : 'n/a'], ['High-clutter alert', worst ? `${worst.name}: ${fmt.num(worst.next, 1)} ads/break` : 'n/a'], ['Best estimated CPRP slot', zone && zone.best ? `${zone.best.name}: ${fmt.lkrc(zone.best.cprp)}` : 'n/a']],
       result: subset(pr.res, R, ['comp_spend', 'spots_total']) };
@@ -689,7 +874,7 @@
     return rs.length ? { ...res, results: rs } : null;
   }
   /** Which forecast groups stand behind each chart. */
-  const NUMS = { 'pt-fan': ['tvr_total'], 'pt-reach': ['reach_total'], 'pt-chshare': ['channel_share'], 'pt-chdp': ['chan_daypart'], 'pt-cat': ['cat_share'], 'pt-heat': ['hour_share'], 'pt-risk': ['program_tvr'], 'pt-prog': ['program_tvr'], 'pt-chtraj': ['channel_share'],
+  const NUMS = { 'pt-sticky': ['program_tvr', 'program_reach'], 'pt-decay': ['program_tvr'], 'pt-sweet': ['hour_share'], 'pm-focus': ['adv_channel', 'adv_daypart', 'adv_lang'], 'pm-clut2': ['clutter_cd'], 'pm-first2': ['first2_cd'], 'pt-fan': ['tvr_total'], 'pt-reach': ['reach_total'], 'pt-chshare': ['channel_share'], 'pt-chdp': ['chan_daypart'], 'pt-cat': ['cat_share'], 'pt-heat': ['hour_share'], 'pt-risk': ['program_tvr'], 'pt-prog': ['program_tvr'], 'pt-chtraj': ['channel_share'],
     'pm-spend': ['comp_spend'], 'pm-sov': ['sov'], 'pm-dp': ['daypart_spend'], 'pm-cps': ['cps_total'], 'pm-chmix': ['chan_mix'], 'pm-advch': ['adv_channel'], 'pm-sog': ['sog'], 'pm-cprp': ['cprp_total'],
     'pm-clutter': ['clutter', 'posinbrk'], 'pm-split': ['type_spend'], 'pm-typecps': ['type_cps'], 'pm-bubble': ['slot_rating', 'slot_cost'] };
   const valFmt = (u) => ({ currency: (v) => fmt.num(v, 0), percent: (v) => fmt.num(v, 2), rating: (v) => fmt.num(v, 3) }[u] || ((v) => fmt.num(v, 2)));
@@ -716,12 +901,13 @@
     draw(0);
   }
   /** Puts a FORECAST pill and a Numbers button on every chart card; charts that also show history say so. */
+  const HISTORY = { 'pm-radar': 'Pattern from history', 'pm-fatigue': 'Estimate from history' };
   const MIXED = ['pt-fan', 'pt-reach', 'pt-chtraj', 'pm-spend', 'pm-cps', 'pm-cprp'];
   function markForecast(p, nums) {
     p.querySelectorAll('.card').forEach((c) => {
       const h = c.querySelector('.card-head h3'); if (!h || h.querySelector('.fc-pill')) return;
       const id = (c.querySelector('canvas, [id^="pt-"], [id^="pm-"]') || {}).id || '';
-      h.insertAdjacentHTML('afterbegin', `<span class="fc-pill">${MIXED.includes(id) ? 'Actual + forecast' : 'Forecast'}</span>`);
+      h.insertAdjacentHTML('afterbegin', `<span class="fc-pill">${HISTORY[id] || (MIXED.includes(id) ? 'Actual + forecast' : 'Forecast')}</span>`);
       c.classList.add('fc');
       if (nums && NUMS[id]) {
         const row = c.querySelector('.card-head .row');

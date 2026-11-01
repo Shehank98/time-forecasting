@@ -214,3 +214,12 @@ tests/                    parsing, analytics, forecasting, KPI, reports, Gemini,
 - **Sponsorship vs commercial.** Spots whose theme is `-BB`, `Com Break`, `DJ`, `-Extro`, `-Intro`, `-LLogo`, `Next Card`, `Tag`, `Time Check` or `-Tr` are sponsorship items (same list as the JKH dashboard); everything else is a commercial. Pricing, discounts, price outliers and the reports treat them separately, and the Market forecast projects each type on its own. The JS engine and `analytics_lmrb.py` implement the same split (parity tested).
 - **Flip any chart** to see how its numbers were built (sheet, series, forecast engine, chart) with the exact data table and a CSV download.
 - **Click any point, bar or heatmap cell** to open a detail popup with the numbers behind it, marked Recorded or Forecast.
+
+## Standalone playbooks and the timeband bridge
+
+Each prediction card works on its own sheet.
+
+- **TVR card (TVR sheet only):** *Planner's Action Playbook* with a loyal-vs-zapping map (forecast TVR against forecast Reach %, plus viewing time when present), slot decay and volatility warnings (a drop of more than 15% against the last 4 weeks over the next 14 and 30 days, or a very wide low-to-high range), and off-peak sweet-spot hours.
+- **Market card (LMRB sheet only, 1 to 5 years):** *Competitor War-Room* with a Focus brand vs rivals view (channel, daypart, language), a seasonal burst radar (how many earlier years had a burst in the same calendar window; needs about 3 years), a creative fatigue and refresh predictor (theme age against each advertiser's usual theme lifespan, spot length shifts), and forecast break clutter and first-in-break rates per channel and daypart.
+- **Optional bridge:** when both sheets are loaded, ratings are matched by canonical channel and 30-minute timeband (exact date when it exists, otherwise the usual weekday pattern), never by programme name. Spots on radio, press or channels the TVR sheet does not cover show as TVR N/A and are left out of CPRP and Best slots to buy.
+- The burst radar and creative predictor are estimates from history, labelled "Pattern from history" / "Estimate from history".

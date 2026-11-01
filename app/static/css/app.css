@@ -667,3 +667,8 @@ td[data-hv]:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
 body.side-collapsed .brand-wordmark, :root[data-skin="paper"] .brand-wordmark { display: none; }
 body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display: block; }
 .login-logo { width: min(300px, 70%); height: auto; display: block; }
+
+.pb-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 6px 0 10px; } .pb-head h2 { margin: 0; }
+.sl-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; }
+@media (max-width: 1300px) { .sl-grid.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } } @media (max-width: 700px) { .sl-grid.four { grid-template-columns: 1fr; } }
+#pb-tvr { margin-bottom: 16px; } .empty-note { padding: 8px 0; }

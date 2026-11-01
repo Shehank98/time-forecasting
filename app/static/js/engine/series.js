@@ -35,6 +35,7 @@
     tvr: M('tvr', 'Average TVR', 'mean', { col: 'tvr', zero_fill: false, unit: 'rating' }),
     reach: M('reach', 'Average reach per airing', 'mean', { col: 'reach', zero_fill: false }),
     share: M('share', 'Average TVR share (%)', 'mean', { col: 'tvr_share', zero_fill: false, unit: 'percent' }),
+    avg_time: M('avg_time', 'Average time viewed', 'mean', { col: 'avg_time', zero_fill: false }),
     reach_pct: M('reach_pct', 'Average reach (%)', 'mean', { col: 'reach_pct', zero_fill: false, unit: 'percent' }),
     tvr_sum: M('tvr_sum', 'TVR share of the day (%)', 'share', { col: 'tvr', unit: 'percent' }),
   };
