@@ -97,3 +97,15 @@ def test_filter_options_and_chips(lm):
     assert "Nestle Lanka Ltd" in o["advertiser"] and o["ad_position"] == ["first", "middle", "last"]
     chips = filters.describe_filters("lmrb", {"channel": ["DERANA"], "date_from": "2026-08-01"})
     assert {c["key"] for c in chips} == {"channel", "date"}
+
+
+def test_pricing_splits_sponsorship_from_commercial(lm):
+    p = A.dashboard(lm, None, None, "Nestle Lanka Ltd")["pricing"]
+    sp = p["split"]
+    assert sp["sponsorship"]["spots"] > 0 and sp["commercial"]["spots"] > 0
+    assert sp["commercial"]["share_pct"] + sp["sponsorship"]["share_pct"] == pytest.approx(100)
+    # sponsorship items are sold cheaper in the fixture, and are never mixed into the commercial cells
+    assert sp["sponsorship"]["cps"] < sp["commercial"]["cps"]
+    assert p["sponsorship"]["cells"] and all(c["spots"] > 0 for c in p["sponsorship"]["cells"])
+    total = sum(r["commercial_spend"] + r["sponsorship_spend"] for r in sp["by_advertiser"])
+    assert total == pytest.approx(sp["commercial"]["spend"] + sp["sponsorship"]["spend"])

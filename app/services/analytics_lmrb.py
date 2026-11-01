@@ -244,7 +244,43 @@ def creatives(df_all: pd.DataFrame, cur: pd.DataFrame, prev: pd.DataFrame | None
 
 
 # --------------------------------------------------------------- pricing
+SPONSOR_THEMES = ("-bb", "com break", "dj", "-extro", "-intro", "-llogo", "next card", "tag", "time check", "-tr")
+
+
+def is_sponsor_theme(t) -> bool:
+    x = str(t or "").strip().lower()
+    return bool(x) and any(x == k or (k[0] == "-" and x.endswith(k)) for k in SPONSOR_THEMES)
+
+
 def pricing(cur: pd.DataFrame) -> dict:
+    """Pricing for commercials (main keys) and for sponsorship items (own block), plus the spend split."""
+    sp = cur["theme"].map(is_sponsor_theme) if len(cur) else pd.Series([], dtype=bool)
+    com, spo = cur[~sp], cur[sp]
+    out = _pricing_core(com)
+    out["sponsorship"] = _pricing_core(spo)
+
+    def agg(d):
+        sec = d.loc[d["dur"] > 0, "dur"].sum() if len(d) else 0
+        spend = float(d["cost"].sum()) if len(d) else 0.0
+        return {"spots": int(len(d)), "spend": spend, "seconds": float(sec), "cps": (spend / sec) if sec > 0 else None}
+    a, b = agg(com), agg(spo)
+    tot = a["spend"] + b["spend"]
+    by: dict = {}
+    for key, d in (("commercial", com), ("sponsorship", spo)):
+        for adv, g in d.groupby("advertiser"):
+            r = by.setdefault(adv, {"advertiser": adv, "commercial_spend": 0.0, "sponsorship_spend": 0.0, "commercial_spots": 0, "sponsorship_spots": 0})
+            r[key + "_spend"] += float(g["cost"].sum()); r[key + "_spots"] += int(len(g))
+    rows = []
+    for r in by.values():
+        t = r["commercial_spend"] + r["sponsorship_spend"]
+        rows.append({**r, "sponsorship_pct": (r["sponsorship_spend"] / t * 100) if t > 0 else None})
+    rows.sort(key=lambda r: (-(r["commercial_spend"] + r["sponsorship_spend"]), r["advertiser"]))
+    out["split"] = {"commercial": {**a, "share_pct": a["spend"] / tot * 100 if tot > 0 else None},
+                    "sponsorship": {**b, "share_pct": b["spend"] / tot * 100 if tot > 0 else None}, "by_advertiser": rows[:15]}
+    return out
+
+
+def _pricing_core(cur: pd.DataFrame) -> dict:
     """Cost per second intelligence: cells vs channel x daypart median, discounts and outliers."""
     d = cur[cur["cps"].notna() & cur["dur"].gt(0)]
     if d.empty:

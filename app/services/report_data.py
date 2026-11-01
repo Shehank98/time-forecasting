@@ -123,7 +123,15 @@ def build_lmrb_tables(dash: dict) -> tuple[list[tuple[str, Any, str]], list[Tabl
     T.append(Table("Creatives", _df(cr.to_dict("records") if len(cr) else [], {"status": "Status", "advertiser": "Advertiser", "product": "Product", "theme": "Creative", "first_seen": "First seen", "last_seen": "Last seen",
                                                                                "spots": "Spots", "spend": "Spend (LKR)", "channels": "Channels"}), {"Spots": "int", "Spend (LKR)": "lkr"}, "NEW and DROPPED compare the latest window with the previous one."))
     pr = _df(dash["pricing"]["cells"], {"advertiser": "Advertiser", "channel": "Channel", "daypart": "Daypart", "spots": "Spots", "spend": "Spend (LKR)", "cps": "Cost per second", "median_cps": "Channel median CPS", "index_vs_median": "Index vs median", "flag": "Flag"})
-    T.append(Table("Pricing", pr, {"Spots": "int", "Spend (LKR)": "lkr", "Cost per second": "lkr", "Channel median CPS": "lkr", "Index vs median": "pct"}, "Index is the advertiser cost per second divided by the median for the same channel and daypart."))
+    T.append(Table("Pricing", pr, {"Spots": "int", "Spend (LKR)": "lkr", "Cost per second": "lkr", "Channel median CPS": "lkr", "Index vs median": "pct"}, "Commercial spots only. Index is the advertiser cost per second divided by the median for the same channel and daypart."))
+    sp = (dash["pricing"].get("split") or {})
+    if sp and (sp.get("sponsorship") or {}).get("spots"):
+        T.append(Table("Spend split", _df(sp.get("by_advertiser", []), {"advertiser": "Advertiser", "commercial_spend": "Commercial spend (LKR)", "sponsorship_spend": "Sponsorship spend (LKR)", "sponsorship_pct": "Sponsorship share",
+                                                                      "commercial_spots": "Commercial spots", "sponsorship_spots": "Sponsorship items"}),
+                       {"Commercial spend (LKR)": "lkr", "Sponsorship spend (LKR)": "lkr", "Commercial spots": "int", "Sponsorship items": "int", "Sponsorship share": "pct"}, "Sponsorship items are the themes -BB, Com Break, DJ, -Extro, -Intro, -LLogo, Next Card, Tag, Time Check and -Tr."))
+        sc = (dash["pricing"].get("sponsorship") or {}).get("cells") or []
+        T.append(Table("Pricing (sponsorship)", _df(sc, {"advertiser": "Advertiser", "channel": "Channel", "daypart": "Daypart", "spots": "Spots", "spend": "Spend (LKR)", "cps": "Cost per second", "median_cps": "Channel median CPS", "index_vs_median": "Index vs median", "flag": "Flag"}),
+                       {"Spots": "int", "Spend (LKR)": "lkr", "Cost per second": "lkr", "Channel median CPS": "lkr", "Index vs median": "pct"}, "Sponsorship items only, compared with the median sponsorship price on the same channel and daypart."))
     T.append(Table("Pricing heatmap", _matrix(dash["pricing"]["heatmap"], "Channel"), {}, "Median cost per second (LKR) by channel and daypart.", matrix=True))
     ps = _df(dash["position"], {"advertiser": "Advertiser", "spots": "Spots", "first_n": "First in break", "last_n": "Last in break", "first_rate_pct": "First rate", "last_rate_pct": "Last rate", "share_of_first_pct": "Share of all firsts", "share_of_last_pct": "Share of all lasts"})
     ps = _frac(ps, ["First rate", "Last rate", "Share of all firsts", "Share of all lasts"])

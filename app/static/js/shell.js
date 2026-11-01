@@ -80,8 +80,11 @@
   App.evidenceBox = function (items, title = "Planner's Evidence", opts = {}) {
     const list = (items || []).filter(Boolean);
     if (!list.length) return '';
-    return `<div class="evidence-box"><div class="ev-head"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${App.esc(title)}</div>
-      ${opts.note ? `<div class="ev-note">${App.esc(opts.note)}</div>` : ''}<ul>${list.map((x) => (typeof x === 'string' ? `<li>${App.esc(x)}</li>` : `<li class="${x.rec ? 'rec' : ''}">${x.rec ? '&#9656; ' : ''}${App.esc(x.text)}</li>`)).join('')}</ul></div>`;
+    const rec = list.filter((x) => typeof x !== 'string' && x.rec), why = list.filter((x) => typeof x === 'string' || !x.rec);
+    const li = (x) => `<li>${App.esc(typeof x === 'string' ? x : x.text)}</li>`;
+    return `<div class="evidence-box"><div class="ev-head"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${rec.length ? 'Do this' : App.esc(title)}</div>
+      ${rec.map((x) => `<div class="ev-do">${App.esc(x.text)}</div>`).join('')}
+      ${why.length ? `<details class="ev-why"><summary>Why? (${why.length})</summary>${opts.note ? `<div class="ev-note">${App.esc(opts.note)}</div>` : ''}<ul>${why.map(li).join('')}</ul></details>` : ''}</div>`;
   };
 
   App.shell = {

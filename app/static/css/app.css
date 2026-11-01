@@ -618,3 +618,45 @@ body.sheet-open { overflow: hidden; }
 .skin-sw { display: flex; gap: 4px; padding: 8px; border-radius: 8px; height: 38px; align-items: stretch; } .skin-sw i { flex: 1; border-radius: 4px; display: block; }
 .skin-n { font-weight: 700; font-size: 12.5px; margin-top: 4px; } .skin-d { font-size: 11px; color: var(--muted); line-height: 1.3; }
 .login-skin { position: fixed; top: 16px; right: 16px; z-index: 5; }
+
+/* ---------- flip cards, click-to-detail popup ---------- */
+.flipcard { transition: transform .23s ease, opacity .23s ease; transform-origin: center; }
+.flipcard.turning { transform: perspective(900px) rotateY(88deg); opacity: .15; }
+.flipcard .fb { overflow: auto; max-height: 640px; }
+.flipcard.is-back { border-color: var(--accent); border-style: solid; background: var(--surface-2); }
+.fb-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+.fb-flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; list-style: none; padding: 0; margin: 0 0 12px; }
+.fb-flow li { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px; font-weight: 600; font-size: 13px; position: relative; }
+.fb-flow li b { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--bg, #000); font-size: 12px; margin-right: 6px; }
+.fb-flow li small { display: block; color: var(--muted); font-weight: 400; margin-top: 4px; font-size: 11px; }
+.fb-how, .fb-use { font-size: 13px; margin: 6px 0; color: var(--text); }
+.fb-data h4 { margin: 14px 0 6px; }
+.fb-scroll { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+.dt-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.dt-table th, .dt-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.dt-table th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--surface-solid, var(--surface)); }
+.dt-table tr.on td { background: rgba(var(--heat), .18); font-weight: 700; }
+.dt-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.dt-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.dt-k { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.dt-k span { display: block; color: var(--muted); font-size: 11px; text-transform: capitalize; }
+.dt-k b { font-size: 18px; font-family: var(--display, inherit); }
+td[data-hv]:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 640px) { .fb-flow { grid-template-columns: 1fr 1fr; } }
+
+/* ---------- strategist views ---------- */
+.sv-nav { display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 16px; }
+.sv-btn { flex: 1 1 180px; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; cursor: pointer; color: var(--text); }
+.sv-btn b { display: block; font-family: var(--display); font-size: 14px; } .sv-btn small { color: var(--muted); font-size: 12px; }
+.sv-btn[aria-pressed="true"] { border-color: var(--accent); box-shadow: var(--glow); background: var(--surface-2); }
+.sv[hidden] { display: none; }
+.sl-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1100px) { .sl-grid { grid-template-columns: 1fr; } }
+.sl-card h3 { margin: 6px 0 2px; } .sl-rows { margin-top: 10px; display: grid; gap: 6px; }
+.sl-row { display: flex; justify-content: space-between; gap: 10px; align-items: center; text-align: left; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; color: var(--text); cursor: pointer; font-size: 13px; }
+.sl-row:hover { border-color: var(--accent); } .sl-v { font-weight: 700; white-space: nowrap; } .sl-v.up { color: var(--good); } .sl-v.down { color: var(--bad); }
+.sl-todo { margin-top: 12px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--fc-zone); border-radius: 0 10px 10px 0; font-size: 13px; }
+.evidence-box .ev-do { font-weight: 600; font-size: 13.5px; margin: 2px 0 4px; }
+.ev-why summary, .fc-more summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.fc-more { margin-top: 8px; } .fc-more .fc-key-row { margin-top: 8px; }
+.card-head .sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

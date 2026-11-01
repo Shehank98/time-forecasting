@@ -43,6 +43,12 @@ def make_lmrb(days: int = 42, start: str = "2026-08-03", seed: int = 7) -> pd.Da
                 pos = int(rng.integers(1, tot + 1))
                 rows.append([pg, adv, prod, theme, 1, ch, prog, d.day, d.month, d.year, d.strftime("%a"), pt, at, int(rng.integers(1, 80)),
                              int(rng.integers(50, 300)), int(rng.integers(1, 5)), pos, tot, "Sin", dur, round(base * dur * rng.uniform(0.9, 1.1))])
+    # sponsorship items (Time Check, -BB) sold at a lower rate, deterministic copies of every 9th row
+    extra = []
+    for k, r in enumerate(rows):
+        if k % 9 == 0:
+            r2 = list(r); r2[3] = "Time Check" if k % 2 == 0 else "Summer Promo -BB"; r2[-1] = round(r2[-1] * 0.4); extra.append(r2)
+    rows = rows + extra
     return pd.DataFrame(rows, columns=LMRB_COLS)
 
 

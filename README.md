@@ -207,3 +207,10 @@ tests/                    parsing, analytics, forecasting, KPI, reports, Gemini,
 - Real TimesFM inference needs the checkpoint, which the build downloads from Hugging Face. The test suite exercises the TimesFM 2.5 code path with a stand-in model that mimics its outputs.
 - Browser storage is per browser profile. Private windows and some locked-down browsers do not keep data; the app then works for the session only and says so. Very large sheets need a recent desktop browser with a few GB of free memory.
 - The LMRB analysis tabs recompute on every filter change; on several million spots that takes a few seconds (the loader shows progress). Filtering by brand or date range makes it faster.
+
+## Planner views, flip cards and click-through
+
+- **Each prediction card is split by question.** TVR: *Next month plan* (channels to hold, programmes to buy, where audience is moving), *Channel share* (share path per channel), *Programmes* (league with low/likely/high), *When and who* (hours, genres, reach). Market: *Next month plan* (rivals, predicted bursts, best value slots), *Competitors*, *Price and discounts*, *Slots and clutter*.
+- **Sponsorship vs commercial.** Spots whose theme is `-BB`, `Com Break`, `DJ`, `-Extro`, `-Intro`, `-LLogo`, `Next Card`, `Tag`, `Time Check` or `-Tr` are sponsorship items (same list as the JKH dashboard); everything else is a commercial. Pricing, discounts, price outliers and the reports treat them separately, and the Market forecast projects each type on its own. The JS engine and `analytics_lmrb.py` implement the same split (parity tested).
+- **Flip any chart** to see how its numbers were built (sheet, series, forecast engine, chart) with the exact data table and a CSV download.
+- **Click any point, bar or heatmap cell** to open a detail popup with the numbers behind it, marked Recorded or Forecast.

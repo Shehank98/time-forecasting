@@ -31,7 +31,7 @@
     run(daily, 'channel_share', 'channel', 'tvr_sum', G, { maxEntities: 8 });
     const cdp = (T2) => (i) => `${S(T2, 'channel', i)} | ${S(T2, 'daypart', i)}`;
     run(daily, 'chan_daypart', 'channel', 'tvr', G, { entity: cdp, maxEntities: 48 });
-    const wk = run(monthly ? daily : weekly, 'program_tvr', 'program', 'tvr', monthly ? 'monthly' : 'weekly', { maxEntities: 12 });
+    const wk = run(monthly ? daily : weekly, 'program_tvr', 'program', 'tvr', monthly ? 'monthly' : 'weekly', { maxEntities: 16 });
     ctx.months_of_history = Math.round((hi - lo) / 30.4);
     notes.push(...wk.notes.filter((n) => !/recur weekly/.test(n)));
     return { daily, weekly, notes, ctx, gran: G };
@@ -78,6 +78,14 @@
     run('spots_total', gIdx, 'total', 'spots');
     run('daypart_spend', gIdx, 'daypart', 'spend', { maxEntities: 8 });
     run('cps_total', gIdx, 'total', 'cps');
+    // sponsorship items (Time Check, -BB, Tag ...) versus commercial spots: spend and price per second, each forecast on its own
+    const spFlag = L.dicts.theme.map(MR.isSponsorTheme), typeOf = (L2) => (i) => (L2.cols.theme[i] >= 0 && spFlag[L2.cols.theme[i]] ? 'Sponsorship' : 'Commercial');
+    const nSp = MR.where(L, gIdx, (i) => spFlag[L.cols.theme[i]]).length;
+    ctx.sponsor_spots = nSp;
+    if (nSp >= 20 && nSp < gIdx.length) {
+      run('type_spend', gIdx, 'adtype', 'spend', { entity: typeOf, entities: ['Commercial', 'Sponsorship'] });
+      run('type_cps', gIdx, 'adtype', 'cps', { entity: typeOf, entities: ['Commercial', 'Sponsorship'] });
+    }
     // break clutter on the programmes this product group buys (all advertisers' spots describe the breaks)
     const progs = topBy(L, gIdx, progOf(L), () => 1, 10);
     ctx.programs = progs;

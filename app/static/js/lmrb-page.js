@@ -106,36 +106,89 @@
 
   /* ---------------- Creatives ---------------- */
   let cstat = 'ALL';
+  const SPONSOR_TH = ['-bb', 'com break', 'dj', '-extro', '-intro', '-llogo', 'next card', 'tag', 'time check', '-tr'];
+  const isSponsorTheme = (t) => { const x = String(t || '').trim().toLowerCase(); return !!x && SPONSOR_TH.some((k) => x === k || (k[0] === '-' && x.endsWith(k))); };
   function creatives(p, ctx) {
-    const rows = ctx.data.creatives; const counts = {}; rows.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });
-    const opts = ['ALL', 'NEW', 'DROPPED', 'RETURNING', 'PAUSED', 'ACTIVE'].filter((s) => s === 'ALL' || counts[s]);
-    p.innerHTML = `<div class="banner info"><span>${esc(cmpNote(ctx.data))} NEW means first seen in the latest window. DROPPED means it ran in the previous window but not the latest.</span></div>
-      <div class="card"><div class="card-head"><div class="seg" id="cs-seg">${opts.map((s) => `<button type="button" data-s="${s}" aria-pressed="${s === cstat}">${s === 'ALL' ? 'All' : fmt.title(s)} ${s === 'ALL' ? `(${rows.length})` : `(${counts[s]})`}</button>`).join('')}</div></div><div id="cr-table"></div></div>`;
-    const t = T.create(p.querySelector('#cr-table'), { csv: 'creatives', defaultSort: { key: 'spend', desc: true }, rows: cstat === 'ALL' ? rows : rows.filter((r) => r.status === cstat), columns: [
-      { key: 'status', label: 'Status', html: statusBadge }, { key: 'advertiser', label: 'Advertiser', html: (v) => swatch(v) + esc(v) }, { key: 'product', label: 'Product' }, { key: 'theme', label: 'Creative (Advt_Theme)' },
+    const all = ctx.data.creatives.map((r) => ({ ...r, kind: isSponsorTheme(r.theme) ? 'Sponsorship' : 'Commercial' }));
+    const counts = {}; all.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });
+    const opts = ['ALL', 'NEW', 'RETURNING', 'PAUSED', 'DROPPED', 'ACTIVE'].filter((s) => s === 'ALL' || counts[s]);
+    const stCol = { NEW: C.css('--good') || '#22f5a6', RETURNING: C.PALETTE[1], PAUSED: C.css('--warn') || '#ffb547', DROPPED: C.css('--bad') || '#ff5d7a', ACTIVE: C.PALETTE[0] };
+    const rows = () => (cstat === 'ALL' ? all : all.filter((r) => r.status === cstat));
+    p.innerHTML = `<div class="kpis">${kpi('New this period', counts.NEW || 0, 'First seen in the latest window')}${kpi('Returning', counts.RETURNING || 0, 'Back after a break')}${kpi('Dropped', counts.DROPPED || 0, 'Ran before, not now')}${kpi('Creatives tracked', all.length, `${all.filter((r) => r.kind === 'Sponsorship').length} are sponsorship items`)}</div>
+      <div class="card-head" style="margin-top:16px"><div class="seg" id="cs-seg">${opts.map((s) => `<button type="button" data-s="${s}" aria-pressed="${s === cstat}">${s === 'ALL' ? 'All' : fmt.title(s)} (${s === 'ALL' ? all.length : counts[s]})</button>`).join('')}</div></div>
+      <div class="grid g2">${C.box('cr-adv', 'Who is refreshing creative?', 'Creatives per advertiser by status. Click a bar.', { tall: true, help: ['Every creative is an Advt_Theme. Its status compares the latest window with the one before.', 'Advertisers with many NEW creatives are pushing fresh work. Many DROPPED means they are cutting.'] })}
+        ${C.box('cr-top', 'Biggest creatives by spend', 'Colour shows status. Click a bar for its story.', { tall: true, help: ['Spend is summed over every spot of that creative in the current filters.', 'The ads carrying the most weight in the market.'] })}</div>
+      <div style="margin-top:16px">${C.box('cr-life', 'How long each creative has run', 'Each bar runs from first seen to last seen. Click a bar.', { tall: true, help: ['First and last date each creative aired in the data.', 'Spot wear-out: long runs may be tired, short bursts are tactical.'] })}</div>
+      <div class="card" style="margin-top:16px"><details><summary style="cursor:pointer"><b>All creatives (table)</b></summary><div id="cr-table" style="margin-top:10px"></div></details></div>`;
+    const draw = () => {
+      const r = rows();
+      const advs = [...new Set(r.map((x) => x.advertiser))].map((a) => ({ a, n: r.filter((x) => x.advertiser === a).length })).sort((x, y) => y.n - x.n).slice(0, 10);
+      const sts = ['NEW', 'RETURNING', 'ACTIVE', 'PAUSED', 'DROPPED'].filter((st) => r.some((x) => x.status === st));
+      C.bar({ id: 'cr-adv', horizontal: true, stacked: true, valueFmt: (v) => fmt.num(v, 0), labels: advs.map((x) => x.a), datasets: sts.map((st) => ({ label: fmt.title(st), data: advs.map((x) => r.filter((q) => q.advertiser === x.a && q.status === st).length), backgroundColor: stCol[st] })) });
+      const top = r.slice().sort((x, y) => y.spend - x.spend).slice(0, 12), nm = (x) => `${x.theme}  (${x.advertiser})`;
+      const cr = C.bar({ id: 'cr-top', horizontal: true, valueFmt: fmt.compact, labels: top.map((x) => (nm(x).length > 38 ? nm(x).slice(0, 37) + '…' : nm(x))), datasets: [{ label: 'Spend', data: top.map((x) => x.spend), backgroundColor: top.map((x) => stCol[x.status] || C.PALETTE[0]) }] });
+      C.setDetail('cr-top', (i) => creativeDetail(top[i])); C.detailOnly('cr-top'); C.setDetail('cr-adv', null);
+      const life = r.filter((x) => x.first_seen && x.last_seen).sort((x, y) => y.spend - x.spend).slice(0, 12), day = (d) => Date.parse(d) / 86400000, d0 = Math.min(...life.map((x) => day(x.first_seen)));
+      if (life.length) { const lc = C.make('cr-life', { type: 'bar', data: { labels: life.map((x) => (nm(x).length > 38 ? nm(x).slice(0, 37) + '…' : nm(x))), datasets: [{ label: 'Run', data: life.map((x) => [day(x.first_seen) - d0, day(x.last_seen) - d0 + 1]), backgroundColor: life.map((x) => (stCol[x.status] || C.PALETTE[0]) + 'cc'), borderRadius: 4, barThickness: 14 }] },
+        detailOnly: true, detail: (i) => creativeDetail(life[i]), options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${life[c.dataIndex].first_seen} to ${life[c.dataIndex].last_seen} (${c.raw[1] - c.raw[0]} days)` } } },
+          scales: { x: { ticks: { callback: (v) => new Date((v + d0) * 86400000).toISOString().slice(0, 10) }, title: { display: true, text: 'Date' } }, y: { grid: { display: false } } } } }); void lc; }
+      return r;
+    };
+    const creativeDetail = (x) => `<div class="dt-kpis"><div class="dt-k"><span>Status</span><b>${esc(fmt.title(x.status))}</b></div><div class="dt-k"><span>Type</span><b>${x.kind}</b></div><div class="dt-k"><span>Spend</span><b>${fmt.num(x.spend)}</b></div><div class="dt-k"><span>Spots</span><b>${fmt.num(x.spots)}</b></div><div class="dt-k"><span>First seen</span><b>${esc(x.first_seen)}</b></div><div class="dt-k"><span>Last seen</span><b>${esc(x.last_seen)}</b></div></div><div class="small muted">${esc(x.advertiser)} / ${esc(x.product)} / ${esc(x.theme)}<br>Channels: ${(x.channels || []).map(fmt.title).join(', ')}</div>`;
+    const t = T.create(p.querySelector('#cr-table'), { csv: 'creatives', defaultSort: { key: 'spend', desc: true }, rows: rows(), columns: [
+      { key: 'status', label: 'Status', html: statusBadge }, { key: 'kind', label: 'Type' }, { key: 'advertiser', label: 'Advertiser', html: (v) => swatch(v) + esc(v) }, { key: 'product', label: 'Product' }, { key: 'theme', label: 'Creative (Advt_Theme)' },
       { key: 'first_seen', label: 'First seen' }, { key: 'last_seen', label: 'Last seen' }, { key: 'spots', label: 'Spots', num: true }, { key: 'spend', label: 'Spend', num: true, fmt: (v) => fmt.num(v) },
       { key: 'channels', label: 'Channels', fmt: (v) => (v || []).map(fmt.title).join(', ') }] });
-    p.querySelectorAll('#cs-seg button').forEach((b) => { b.onclick = () => { cstat = b.dataset.s; p.querySelectorAll('#cs-seg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); t.refresh(cstat === 'ALL' ? rows : rows.filter((r) => r.status === cstat)); }; });
+    draw();
+    p.querySelectorAll('#cs-seg button').forEach((b) => { b.onclick = () => { cstat = b.dataset.s; p.querySelectorAll('#cs-seg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); t.refresh(draw()); }; });
   }
 
   /* ---------------- Pricing ---------------- */
+  let ptype = 'commercial';
   function pricing(p, ctx) {
-    const pr = ctx.data.pricing;
-    p.innerHTML = `<div class="banner info"><span>Cost per second (CPS) is cost divided by spot seconds. Each advertiser cell is compared with the median CPS of every spot on that channel and daypart. Below 80% of median with 3+ spots is flagged as a possible discount deal.</span></div>
-      <div class="card"><h3>Median cost per second by channel and daypart (LKR)</h3><div id="pr-heat">${C.heat(pr.heatmap, { fmt: (v) => fmt.num(v) })}</div></div>
-      <div class="grid g2" style="margin-top:16px"><div class="card"><h3>Possible discount deals</h3><div id="pr-flags"></div></div><div class="card"><h3>Price outlier spots</h3><div class="sub muted small">Outside 1.5 x IQR of their channel and daypart</div><div id="pr-out"></div></div></div>
-      <div class="card" style="margin-top:16px"><h3>Cost per second by advertiser, channel and daypart</h3><div id="pr-cells"></div></div>`;
-    const cell = (c) => c;
-    T.create(p.querySelector('#pr-flags'), { csv: 'discount_flags', pageSize: 8, empty: 'No advertiser is paying notably below the median.', rows: pr.discount_flags, columns: [
-      { key: 'advertiser', label: 'Advertiser', html: (v) => swatch(v) + esc(v) }, { key: 'channel', label: 'Channel', fmt: fmt.title }, { key: 'daypart', label: 'Daypart' }, { key: 'spots', label: 'Spots', num: true },
-      { key: 'cps', label: 'CPS', num: true, fmt: (v) => fmt.num(v) }, { key: 'index_vs_median', label: 'Index vs median', num: true, fmt: (v) => fmt.num(v * 100) + '%' }] });
-    T.create(p.querySelector('#pr-out'), { csv: 'price_outliers', pageSize: 8, empty: 'No price outliers found (needs 8+ spots per channel and daypart).', rows: pr.outliers, columns: [
-      { key: 'date', label: 'Date' }, { key: 'advertiser', label: 'Advertiser' }, { key: 'channel', label: 'Channel', fmt: fmt.title }, { key: 'daypart', label: 'Daypart' },
-      { key: 'cps', label: 'CPS', num: true, fmt: (v) => fmt.num(v) }, { key: 'median_cps', label: 'Median', num: true, fmt: (v) => fmt.num(v) }] });
-    T.create(p.querySelector('#pr-cells'), { csv: 'pricing_cells', defaultSort: { key: 'spend', desc: true }, rows: pr.cells.map(cell), columns: [
-      { key: 'advertiser', label: 'Advertiser', html: (v) => swatch(v) + esc(v) }, { key: 'channel', label: 'Channel', fmt: fmt.title }, { key: 'daypart', label: 'Daypart' }, { key: 'spots', label: 'Spots', num: true },
-      { key: 'spend', label: 'Spend', num: true, fmt: (v) => fmt.num(v) }, { key: 'cps', label: 'CPS', num: true, fmt: (v) => fmt.num(v) }, { key: 'median_cps', label: 'Median CPS', num: true, fmt: (v) => fmt.num(v) },
-      { key: 'index_vs_median', label: 'Index', num: true, fmt: (v) => fmt.num(v * 100) + '%' }, { key: 'flag', label: 'Flag', html: (v) => (v ? `<span class="badge ${v.startsWith('Below') ? 'good' : 'warn'}">${esc(v)}</span>` : '') }] });
+    const pr = ctx.data.pricing, sp = pr.split, cm = sp.commercial, so = sp.sponsorship, hasSp = so.spots > 0;
+    if (!hasSp) ptype = 'commercial';
+    const cur = () => (ptype === 'sponsorship' ? pr.sponsorship : pr);
+    const ratio = cm.cps && so.cps ? so.cps / cm.cps * 100 : null;
+    p.innerHTML = `<div class="kpis">${kpi('Commercial spend', fmt.compact(cm.spend), `${fmt.num(cm.share_pct || 0, 0)}% of spend, ${fmt.num(cm.spots)} spots`)}${kpi('Sponsorship spend', hasSp ? fmt.compact(so.spend) : 'none', hasSp ? `${fmt.num(so.share_pct || 0, 0)}% of spend, ${fmt.num(so.spots)} items` : 'No Tag, Time Check, -BB or DJ items')}
+      ${kpi('Commercial price per second', cm.cps ? 'LKR ' + fmt.num(cm.cps, 0) : 'n/a', 'Average paid')}${kpi('Sponsorship price per second', so.cps ? 'LKR ' + fmt.num(so.cps, 0) : 'n/a', ratio != null ? `${fmt.num(ratio, 0)}% of the commercial price` : '')}</div>
+      <div class="card-head" style="margin-top:16px"><div class="seg" id="pr-seg"><button type="button" data-t="commercial" aria-pressed="${ptype === 'commercial'}">Commercials</button>${hasSp ? `<button type="button" data-t="sponsorship" aria-pressed="${ptype === 'sponsorship'}">Sponsorship</button>` : ''}</div>
+        <div class="muted small">Discounts are measured against the median price of the same type on the same channel and daypart.</div></div>
+      <div class="grid g2">${C.box('pr-split', 'Spend split: commercials vs sponsorship', 'Per advertiser. Click a bar.', { tall: true, help: ['Each spot is a sponsorship item if its theme is -BB, Com Break, DJ, -Extro, -Intro, -LLogo, Next Card, Tag, Time Check or -Tr. Everything else is a commercial.', 'How much of each advertiser\'s money buys sponsorship rather than spots.'] })}
+        ${C.box('pr-disc', 'Who got a discount?', 'Below zero = paid more than the market median. Click a bar.', { tall: true, help: ['For each advertiser: money paid compared with what the same seconds would cost at the median price of that channel and daypart, for the selected type only.', 'Shows which advertiser negotiated the best rates. Sponsorship and commercials are never mixed.'] })}</div>
+      <div style="margin-top:16px"><div class="card flipcard" data-chart="pr-heat"><div class="ff"><div class="card-head"><h3>Median price per second by channel and daypart (LKR)</h3><div class="row"><button class="btn sm ghost" type="button" data-flip="pr-heat">Flip</button></div></div><div id="pr-heat"></div></div>
+        <div class="fb" data-back="pr-heat" hidden><div class="fb-head"><h3>How these numbers came</h3><button class="btn sm" type="button" data-flip-back>Back to chart</button></div><p class="fb-how">Price per second is cost divided by spot seconds. Each cell is the median of every spot of this type on that channel and daypart. Click a cell to see how it ranks.</p><div class="fb-data" data-fbdata="pr-heat"></div></div></div></div>
+      <div class="card" style="margin-top:16px"><details><summary style="cursor:pointer"><b>Deals, outliers and every cell (tables)</b></summary>
+        <div class="grid g2" style="margin-top:12px"><div><h3>Possible discount deals</h3><div id="pr-flags"></div></div><div><h3>Price outlier spots</h3><div class="sub muted small">Outside 1.5 x IQR of their channel and daypart</div><div id="pr-out"></div></div></div>
+        <h3 style="margin-top:16px">Price by advertiser, channel and daypart</h3><div id="pr-cells"></div></details></div>`;
+    const draw = () => {
+      const d = cur(), good = C.css('--good') || '#22f5a6', bad = C.css('--bad') || '#ff5d7a';
+      const sr = sp.by_advertiser.slice(0, 12);
+      const sc = C.bar({ id: 'pr-split', horizontal: true, stacked: true, valueFmt: fmt.compact, labels: sr.map((r) => r.advertiser), datasets: [{ label: 'Commercial', data: sr.map((r) => r.commercial_spend), backgroundColor: C.PALETTE[0] }, { label: 'Sponsorship', data: sr.map((r) => r.sponsorship_spend), backgroundColor: C.PALETTE[2] }] });
+      if (sc) { C.detailOnly('pr-split'); } if (sc) C.setDetail('pr-split', (i) => { const r = sr[i]; return `<div class="dt-kpis"><div class="dt-k"><span>Commercial spend</span><b>${fmt.num(r.commercial_spend)}</b></div><div class="dt-k"><span>Sponsorship spend</span><b>${fmt.num(r.sponsorship_spend)}</b></div><div class="dt-k"><span>Sponsorship share</span><b>${r.sponsorship_pct == null ? 'n/a' : fmt.num(r.sponsorship_pct, 0) + '%'}</b></div><div class="dt-k"><span>Commercial spots</span><b>${fmt.num(r.commercial_spots)}</b></div><div class="dt-k"><span>Sponsorship items</span><b>${fmt.num(r.sponsorship_spots)}</b></div></div>`; });
+      const by = new Map(); d.cells.forEach((c) => { const g = by.get(c.advertiser) || { advertiser: c.advertiser, paid: 0, expect: 0, spots: 0, cells: [] }; g.paid += c.spend; g.expect += c.median_cps * c.seconds; g.spots += c.spots; g.cells.push(c); by.set(c.advertiser, g); });
+      const dr = [...by.values()].filter((g) => g.expect > 0 && g.spots >= 3).map((g) => ({ ...g, disc: (1 - g.paid / g.expect) * 100 })).sort((x, y) => y.disc - x.disc).slice(0, 14);
+      if (dr.length) { const dc = C.bar({ id: 'pr-disc', horizontal: true, valueFmt: (v) => fmt.num(v, Math.abs(v) < 10 ? 1 : 0) + '%', legend: false, labels: dr.map((g) => g.advertiser), datasets: [{ label: 'Discount vs median', data: dr.map((g) => g.disc), backgroundColor: dr.map((g) => (g.disc >= 0 ? good : bad)) }] });
+        if (dc) C.detailOnly('pr-disc'); if (dc) C.setDetail('pr-disc', (i) => { const g = dr[i]; const top = g.cells.slice().sort((a, b) => b.spend - a.spend).slice(0, 6); return `<div class="dt-kpis"><div class="dt-k"><span>${g.disc >= 0 ? 'Discount' : 'Premium paid'}</span><b>${fmt.num(Math.abs(g.disc), 1)}%</b></div><div class="dt-k"><span>Paid</span><b>${fmt.num(g.paid)}</b></div><div class="dt-k"><span>Would cost at median</span><b>${fmt.num(g.expect)}</b></div><div class="dt-k"><span>Spots</span><b>${fmt.num(g.spots)}</b></div></div>
+          <table class="dt-table"><thead><tr><th>Channel</th><th>Daypart</th><th>Spots</th><th>Price index</th></tr></thead><tbody>${top.map((c) => `<tr><td>${esc(fmt.title(c.channel))}</td><td>${esc(c.daypart)}</td><td>${c.spots}</td><td>${fmt.num(c.index_vs_median * 100, 0)}%</td></tr>`).join('')}</tbody></table>`; }); }
+      else { const el = document.getElementById('pr-disc'); if (el) el.parentElement.innerHTML = App.emptyState('No discount view yet', 'Needs advertisers with 3 or more spots of this type.'); }
+      p.querySelector('#pr-heat').innerHTML = C.heat(d.heatmap, { fmt: (v) => fmt.num(v) });
+    };
+    const tables = () => {
+      const d = cur();
+      T.create(p.querySelector('#pr-flags'), { csv: 'discount_flags_' + ptype, pageSize: 8, empty: 'No advertiser is paying notably below the median.', rows: d.discount_flags, columns: [
+        { key: 'advertiser', label: 'Advertiser', html: (v) => swatch(v) + esc(v) }, { key: 'channel', label: 'Channel', fmt: fmt.title }, { key: 'daypart', label: 'Daypart' }, { key: 'spots', label: 'Spots', num: true },
+        { key: 'cps', label: 'Price/sec', num: true, fmt: (v) => fmt.num(v) }, { key: 'index_vs_median', label: 'Index vs median', num: true, fmt: (v) => fmt.num(v * 100) + '%' }] });
+      T.create(p.querySelector('#pr-out'), { csv: 'price_outliers_' + ptype, pageSize: 8, empty: 'No price outliers found (needs 8+ spots per channel and daypart).', rows: d.outliers, columns: [
+        { key: 'date', label: 'Date' }, { key: 'advertiser', label: 'Advertiser' }, { key: 'channel', label: 'Channel', fmt: fmt.title }, { key: 'daypart', label: 'Daypart' },
+        { key: 'cps', label: 'Price/sec', num: true, fmt: (v) => fmt.num(v) }, { key: 'median_cps', label: 'Median', num: true, fmt: (v) => fmt.num(v) }] });
+      T.create(p.querySelector('#pr-cells'), { csv: 'pricing_cells_' + ptype, defaultSort: { key: 'spend', desc: true }, rows: d.cells, columns: [
+        { key: 'advertiser', label: 'Advertiser', html: (v) => swatch(v) + esc(v) }, { key: 'channel', label: 'Channel', fmt: fmt.title }, { key: 'daypart', label: 'Daypart' }, { key: 'spots', label: 'Spots', num: true },
+        { key: 'spend', label: 'Spend', num: true, fmt: (v) => fmt.num(v) }, { key: 'cps', label: 'Price/sec', num: true, fmt: (v) => fmt.num(v) }, { key: 'median_cps', label: 'Median', num: true, fmt: (v) => fmt.num(v) },
+        { key: 'index_vs_median', label: 'Index', num: true, fmt: (v) => fmt.num(v * 100) + '%' }, { key: 'flag', label: 'Flag', html: (v) => (v ? `<span class="badge ${v.startsWith('Below') ? 'good' : 'warn'}">${esc(v)}</span>` : '') }] });
+    };
+    draw(); tables();
+    p.querySelectorAll('#pr-seg button').forEach((b) => { b.onclick = () => { ptype = b.dataset.t; p.querySelectorAll('#pr-seg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); draw(); tables(); }; });
   }
 
   /* ---------------- Position ---------------- */

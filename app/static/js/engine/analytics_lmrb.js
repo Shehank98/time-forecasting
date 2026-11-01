@@ -218,7 +218,26 @@
   }
 
   /* ---------------- pricing ---------------- */
+  /** Sponsorship / filler items (same list as the JKH dashboard): -BB, Com Break, DJ, -Extro, -Intro, -LLogo, Next Card, Tag, Time Check, -Tr. */
+  const SPONSOR_THEMES = ['-bb', 'com break', 'dj', '-extro', '-intro', '-llogo', 'next card', 'tag', 'time check', '-tr'];
+  const isSponsorTheme = (t) => { const x = String(t || '').trim().toLowerCase(); return !!x && SPONSOR_THEMES.some((k) => x === k || (k[0] === '-' && x.endsWith(k))); };
   function pricing(L, cur) {
+    const flag = L.dicts.theme.map(isSponsorTheme), T = L.cols.theme;
+    const isSp = (i) => T[i] >= 0 && flag[T[i]];
+    const com = where(L, cur, (i) => !isSp(i)), spo = where(L, cur, isSp);
+    const out = pricingCore(L, com);
+    out.sponsorship = pricingCore(L, spo);
+    const agg = (idx) => { let spend = 0, secs = 0; for (let k = 0; k < idx.length; k++) { const i = idx[k]; spend += L.cols.cost[i]; if (L.cols.dur[i] > 0) secs += L.cols.dur[i]; } return { spots: idx.length, spend, seconds: secs, cps: secs > 0 ? spend / secs : null }; };
+    const a = agg(com), b = agg(spo), tot = a.spend + b.spend;
+    const by = new Map();
+    const bump = (idx, key) => { for (let k = 0; k < idx.length; k++) { const i = idx[k], n = S(L, 'advertiser', i); const g = by.get(n) || { advertiser: n, commercial_spend: 0, sponsorship_spend: 0, commercial_spots: 0, sponsorship_spots: 0 }; g[key + '_spend'] += L.cols.cost[i]; g[key + '_spots']++; by.set(n, g); } };
+    bump(com, 'commercial'); bump(spo, 'sponsorship');
+    out.split = { commercial: { ...a, share_pct: tot > 0 ? a.spend / tot * 100 : null }, sponsorship: { ...b, share_pct: tot > 0 ? b.spend / tot * 100 : null },
+      by_advertiser: [...by.values()].map((g) => ({ ...g, sponsorship_pct: (g.commercial_spend + g.sponsorship_spend) > 0 ? g.sponsorship_spend / (g.commercial_spend + g.sponsorship_spend) * 100 : null }))
+        .sort((x, y) => (y.commercial_spend + y.sponsorship_spend) - (x.commercial_spend + x.sponsorship_spend) || (x.advertiser < y.advertiser ? -1 : 1)).slice(0, 15) };
+    return out;
+  }
+  function pricingCore(L, cur) {
     const C = L.cols;
     const d = where(L, cur, (i) => C.dur[i] > 0 && Number.isFinite(C.cost[i] / C.dur[i]));
     if (!d.length) return { cells: [], discount_flags: [], outliers: [], heatmap: { rows: [], cols: [], values: [] }, outlier_counts: {} };
@@ -449,5 +468,5 @@
     return out;
   }
 
-  Object.assign(MR, { lmrbDashboard: dashboard, headToHead, competitorSet, comparisonWindows, flightStats, grpSummary, lmrbBounds: bounds, lmrbSums: sums, POS_NAMES });
+  Object.assign(MR, { lmrbDashboard: dashboard, headToHead, competitorSet, comparisonWindows, flightStats, grpSummary, lmrbBounds: bounds, lmrbSums: sums, POS_NAMES, isSponsorTheme });
 })(typeof self !== 'undefined' ? self : globalThis);
