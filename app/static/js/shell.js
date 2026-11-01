@@ -115,7 +115,6 @@
           ${link('/', 'home', 'home', 'Mission control')}
           ${link('/tv.html', 'tv', 'tv', 'TVR Audience Prediction')}
           ${link('/lmrb.html', 'lmrb', 'chart', 'Market Prediction')}
-          ${link('/kpi.html', 'kpi', 'kpi', 'Client KPI Forecast')}
           ${me.user.is_admin ? `<div class="nav-label">Agency</div>${link('/admin.html', 'admin', 'admin', 'Admin')}` : ''}
         </nav>
         <div class="side-foot nav">

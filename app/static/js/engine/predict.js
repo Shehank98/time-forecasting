@@ -28,6 +28,9 @@
     run(daily, 'cat_share', 'category', 'tvr_sum', G, { maxEntities: 6 });
     run(daily, 'hour_share', 'hour', ctx.heat_metric, G, { maxEntities: 24 });
     run(daily, 'channel_tvr', 'channel', 'tvr', G, { maxEntities: 8 });
+    run(daily, 'channel_share', 'channel', 'tvr_sum', G, { maxEntities: 8 });
+    const cdp = (T2) => (i) => `${S(T2, 'channel', i)} | ${S(T2, 'daypart', i)}`;
+    run(daily, 'chan_daypart', 'channel', 'tvr', G, { entity: cdp, maxEntities: 48 });
     const wk = run(monthly ? daily : weekly, 'program_tvr', 'program', 'tvr', monthly ? 'monthly' : 'weekly', { maxEntities: 12 });
     ctx.months_of_history = Math.round((hi - lo) / 30.4);
     notes.push(...wk.notes.filter((n) => !/recur weekly/.test(n)));
@@ -86,8 +89,17 @@
     ctx.months_of_history = Math.round((hi - lo) / 30.4);
     ctx.clutter_recent = avgBy(L, recent, progOf(L), 'adsinbrk', progs);
     ctx.pos_recent = avgBy(L, recent, progOf(L), 'posinbrk', progs);
+    // channel mix and competitor x channel (media specialist views)
+    run('chan_mix', gIdx, 'channel', 'sov', { maxEntities: 8 });
+    const topCh = topBy(L, gIdx, (i) => S(L, 'channel', i), cost, 4), topAd = comp.slice(0, 5);
+    const pairs = []; for (const a of topAd) for (const c of topCh) pairs.push(a + ' | ' + c);
+    const advCh = (L2) => (i) => `${S(L2, 'advertiser', i)} | ${S(L2, 'channel', i)}`;
+    run('adv_channel', gIdx, 'advertiser', 'spend', { entity: advCh, entities: pairs });
+    ctx.top_channels = topCh; ctx.top_advertisers = topAd;
     // CPRP efficiency: matched programme ratings (needs the TVR sheet)
     if (ctx.has_grp) {
+      run('sog', gIdx, 'advertiser', 'sog', { entities: comp });
+      run('cprp_total', gIdx, 'total', 'cprp');
       const slots = topBy(L, idx, matchedOf(L), () => 1, 12);
       ctx.slots = slots;
       ctx.slot_clutter = avgBy(L, idx, matchedOf(L), 'adsinbrk', slots);

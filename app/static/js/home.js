@@ -2,7 +2,8 @@
  * saved forecasts and client reports. */
 (function (App) {
   const { esc, fmt, $ } = App;
-  const CARDS = [
+  const SHOW_KPI = false;   // Client KPI Forecast is hidden for now (page still exists at /kpi.html)
+  const ALL_CARDS = [
     { kind: 'tv', href: '/tv.html', cls: 'c1', tag: 'Card 01', title: 'TVR Audience Behaviour Prediction',
       text: 'Forecast ratings with P10 to P90 ranges, guaranteed audiences and GRPs, reach, daypart and weekday strength, genre share shifts and programme risk.',
       icon: '<path d="M2 12a10 10 0 0120 0"/><path d="M6 12a6 6 0 0112 0"/><path d="M12 12l5-5"/><circle cx="12" cy="12" r="1.6"/><path d="M4 18h16"/>' },
@@ -13,6 +14,7 @@
       text: 'Any dated client data: leads, sales, traffic and search demand. Forecasts, CPL, CPA and CPRP, spend scenarios, pacing and demand peaks.',
       icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>' },
   ];
+  const CARDS = ALL_CARDS.filter((k) => SHOW_KPI || k.kind !== 'kpi');
   const when = (s) => (s ? String(s).slice(0, 16).replace('T', ' ') : '');
   const page = { tv: '/tv.html', lmrb: '/lmrb.html', kpi: '/kpi.html' };
   const mb = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(0) + ' MB');
@@ -40,9 +42,8 @@
     const c = App.shell.client();
     if (!c) { App.shell.noClient(root); return; }
     $('#client-head').innerHTML = `<div class="row">${c.has_logo ? `<img src="/api/clients/${c.id}/logo" alt="" class="client-logo lg">` : `<span class="client-dot lg" style="background:${esc(c.brand_color)};color:${esc(c.brand_color)}"></span>`}<div><div class="eyebrow">Mission control</div><h1>${esc(c.name)}</h1></div></div>`;
-    root.innerHTML = `<section class="hero"><h1>See the <span class="grad-text">next ${'60'} days</span> of TV before they happen.</h1>
-        <p>Pick a prediction card. The Media Radar forecast engine reads your ratings and ad monitoring history and projects audiences, competitor moves and costs with honest P10 to P90 ranges. Your sheets never leave this browser.</p></section>
-      <div class="home-cards three" id="cards">${CARDS.map((k, i) => `<a class="home-card ${k.cls}" href="${k.href}" data-i="${i}"><span class="tag">${k.tag}</span><div class="ic"><svg viewBox="0 0 24 24">${k.icon}</svg></div>
+    root.innerHTML = `<section class="hero"><h1>Which prediction do you need <span class="grad-text">today</span>?</h1></section>
+      <div class="home-cards two" id="cards">${CARDS.map((k, i) => `<a class="home-card ${k.cls}" href="${k.href}" data-i="${i}"><span class="tag">${k.tag}</span><div class="ic"><svg viewBox="0 0 24 24">${k.icon}</svg></div>
         <h2>${k.title}</h2><p>${k.text}</p>${wave(i + 1)}<div class="small" data-st="${k.kind}">${status(k.kind, null)}</div><span class="go">Open prediction <span aria-hidden="true">&rarr;</span></span></a>`).join('')}</div>
       <div class="grid g2" style="margin-top:24px">
         <div class="card"><div class="card-head"><div><h3>Saved forecasts</h3><div class="sub">Forecasts, scenario plans and pacing checks saved for ${esc(c.name)}</div></div></div><div id="h-fc">${App.skeleton(1)}</div></div>

@@ -52,6 +52,25 @@
     if (cache.size > 12) cache.delete(cache.keys().next().value);
     return p;
   }
+  /** Rows {name, now, next, chg} for a group of share series (values are percentages). */
+  function shareRows(results, H, NOW, sorter = 'next') {
+    return results.map((r) => ({ name: r.entity, now: MR.recentMean(r, NOW), next: avg(slice(r, H).p50) })).filter((x) => finite(x.next) && finite(x.now))
+      .map((x) => ({ ...x, chg: x.next - x.now })).sort((a, b) => b[sorter] - a[sorter]);
+  }
+  /** Horizontal grouped bars: share now (grey) vs forecast (colour). The change in points is written in each label, so no hover is needed. */
+  function shareBars(id, rows, { nowLabel, nextLabel, color = C.PALETTE[0], title = (n) => n, max = 10 } = {}) {
+    const r = rows.slice(0, max);
+    return C.make(id, { type: 'bar', data: { labels: r.map((x) => `${short(title(x.name), 30)}  (${x.chg >= 0 ? '+' : ''}${x.chg.toFixed(1)} pts)`), datasets: [
+      { label: nowLabel, data: r.map((x) => x.now), backgroundColor: 'rgba(142,154,200,.45)', borderRadius: 4, barThickness: 11 },
+      { label: nextLabel, data: r.map((x) => x.next), backgroundColor: r.map((x) => (x.chg >= 0 ? (C.css('--good') || '#22f5a6') + 'cc' : (C.css('--bad') || '#ff5d7a') + 'cc')), borderRadius: 4, barThickness: 11 }] },
+      options: { indexAxis: 'y', plugins: { legend: { position: 'bottom', labels: { generateLabels: () => [
+          { text: nowLabel, fillStyle: 'rgba(142,154,200,.6)', strokeStyle: 'transparent', lineWidth: 0 }, { text: nextLabel + ' (green = gaining, red = losing)', fillStyle: (C.css('--good') || '#22f5a6'), strokeStyle: 'transparent', lineWidth: 0 }] } },
+          tooltip: { callbacks: { title: (it) => title(r[it[0].dataIndex].name), label: (c) => `${c.dataset.label}: ${fmt.num(c.parsed.x, 1)}%` } } },
+        scales: { x: { beginAtZero: true, ticks: { callback: (v) => v + '%' } }, y: { grid: { display: false }, ticks: { font: { size: 11 } } } } } });
+  }
+  /** Trailing moving average, used only to draw very noisy daily lines; all numbers in text use the raw values. */
+  const smooth = (a, k) => a.map((_, i) => { const w = a.slice(Math.max(0, i - k + 1), i + 1).filter(finite); return w.length ? w.reduce((x, y) => x + y, 0) / w.length : null; });
+
   /** Explains how to tell actual numbers from forecast numbers. Shown at the top of both prediction tabs. */
   const forecastKey = (M) => `<div class="fc-key" role="note"><div class="fc-key-t"><span class="fc-pill">Forecast</span> How to read this page</div>
     <div class="fc-key-row"><span><i class="k-actual"></i>Solid line: <b>actual</b> recorded data</span><span><i class="k-fc"></i>Dashed line: <b>forecast</b>, the most likely path (P50)</span><span><i class="k-band"></i>Shaded band: the likely <b>range</b> (P10 low case, P90 high case)</span><span><i class="k-zone"></i>Hatched area and cards marked <b>FORECAST</b>: numbers that have not happened yet</span></div>
@@ -143,8 +162,8 @@
       <div class="grid g2" style="margin-top:16px">
         ${C.box('pt-heat', M ? 'Daypart by month heatmap' : 'Daypart and day-of-week heatmap', `Forecast ${pc.heat_metric === 'share' ? 'TVR share %' : 'average TVR'} by start hour and ${M ? 'month' : 'weekday'}, next ${SPAN}`, { html: '', ev: true,
           help: [M ? 'One series per start hour is forecast month by month; each row is a forecast month and each column a start hour.' : 'One series per start hour is forecast; each forecast day is placed in its weekday column and averaged. Weekdays missing from a short horizon stay empty.', 'The strongest hour and day combinations to book, and weak belts to avoid or buy cheaply.'] })}
-        ${C.box('pt-cat', 'Category share shift', 'Share of total TVR by category: last 4 weeks actual, then forecast (stacked to 100%)', { tall: true, ev: true,
-          help: ['Each category\'s daily share of total TVR is forecast separately, then the forecasts are stacked and normalised to 100% so the shift between categories is visible.', 'Which genres are gaining or losing audience share, to steer programme and sponsorship choices.'] })}
+        ${C.box('pt-chshare', 'Channel audience share', `Each channel's share of all TVR: ${'last 4 weeks'} vs next ${SPAN}`, { tall: true, ev: true,
+          help: ['Each channel\'s share of total TVR is forecast month by month (or day by day). Bars compare the forecast share with the recent share; the change in share points is written beside each channel.', 'Which stations are winning or losing audience share, so you can move weight before rate cards change.'] })}
       </div>
       <div class="grid g2" style="margin-top:16px">
         ${C.box('pt-chan', 'Channel momentum', `Projected change in average TVR, next ${SPAN} vs last 4 weeks`, { ev: true,
@@ -152,9 +171,15 @@
         ${C.box('pt-risk', 'Programme risk map', 'Recurring slots: forecast TVR vs uncertainty (P90 minus P10 as % of P50)', { ev: true,
           help: ['Each recurring programme slot (same programme, channel, weekday and start) is forecast weekly. X is the expected TVR, Y the width of its forecast range. Low and to the right is a safe bet.', 'Separate dependable programmes for guarantees from volatile ones to buy only at a discount.'] })}
       </div>
+      <div class="grid g2" style="margin-top:16px">
+        ${C.box('pt-cat', 'Category audience share', `Each genre's share of all TVR: last 4 weeks vs next ${SPAN}`, { tall: true, ev: true,
+          help: ['Each category\'s share of total TVR is forecast separately. Bars compare the forecast share with the recent share; the change in share points is written beside each category.', 'Which genres are gaining or losing audience, to steer programme and sponsorship choices.'] })}
+        ${C.box('pt-chdp', 'Channel by daypart: forecast TVR', `Average TVR each channel is expected to deliver in each daypart, next ${SPAN}`, { html: '', ev: true,
+          help: ['Each channel and daypart pair is forecast separately and averaged over the horizon. Brighter cells mean higher expected ratings.', 'Where to buy: the strongest channel and daypart combinations, and weak spots to avoid or buy cheaply.'] })}
+      </div>
       ${fR ? `<div style="margin-top:16px">${C.box('pt-reach', 'Reach % outlook', 'Average Reach % per airing: actual and forecast range', { ev: true, help: ['The same the forecast engine fan forecast applied to the daily average Reach %.', 'Expected breadth of audience per airing, useful for reach-led campaigns.'] })}</div>` : ''}`);
     wireRerun(p, key, () => tvrTab(p, ctx));
-    markForecast(p);
+    markForecast(p, { R, H, M });
     const spd = $('#spd', p); spd.onchange = () => { App.store.set('spots-per-day', Math.max(1, +spd.value || 1)); tvrTab(p, ctx); };
     const ev = {};
 
@@ -189,24 +214,20 @@
     ] : [];
     evid('pt-heat', ev.heat);
 
-    // 3. category share shift
-    if (cats.length) {
-      const back = BACK, hd = cats[0].history.dates.slice(-back), fd = slice(cats[0], H).dates, labels = hd.concat(fd);
-      const rows = cats.map((r) => r.history.values.slice(-back).concat(slice(r, H).p50));
-      const norm = labels.map((_, k) => { const s = rows.reduce((a, row) => a + (finite(row[k]) ? Math.max(0, row[k]) : 0), 0); return s > 100 ? 100 / s : 1; });
-      const ds = cats.map((r, i) => ({ label: r.entity, data: rows[i].map((v, k) => (finite(v) ? Math.max(0, v) * norm[k] : null)), borderColor: C.colorFor('cat:' + r.entity), backgroundColor: C.colorFor('cat:' + r.entity) + '55', fill: i === 0 ? 'origin' : '-1', pointRadius: 0, tension: 0.3, borderWidth: 1.5 }));
-      ds.push({ label: 'Others', data: labels.map((_, k) => Math.max(0, 100 - rows.reduce((a, row) => a + (finite(row[k]) ? Math.max(0, row[k]) * norm[k] : 0), 0))), borderColor: '#7c86b0', backgroundColor: '#7c86b044', fill: '-1', pointRadius: 0, tension: 0.3, borderWidth: 1 });
-      C.make('pt-cat', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine],
-        options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom' }, nowLine: { index: hd.length - 1 }, tooltip: { callbacks: { title: C.fcTitle(hd.length), label: (c) => `${c.dataset.label}: ${fmt.num(c.parsed.y, 1)}%` } } },
-          scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } }, y: { stacked: true, min: 0, max: 100, ticks: { callback: (v) => v + '%' } } } } });
-      const dec = growing.slice().reverse();
-      ev.cat = [
-        growing[0] ? `${growing[0].name} gains the most: ${fmt.num(growing[0].now, 1)}% to ${fmt.num(growing[0].next, 1)}% of total TVR.` : null,
-        dec[0] && dec[0].shift < 0 ? `${dec[0].name} loses the most: ${fmt.num(dec[0].now, 1)}% to ${fmt.num(dec[0].next, 1)}%.` : null,
-        { rec: true, text: growing[0] && growing[0].shift > 0.5 ? `Lean into ${growing[0].name} programmes for the next ${SPAN}; review spend in ${dec[0] ? dec[0].name : 'declining genres'}.` : 'Category shares are stable; keep the current genre mix.' },
-      ];
-    } else ev.cat = ['Not enough category history to forecast shares.'];
-    evid('pt-cat', ev.cat);
+    // 3. category audience share (bars)
+    {
+      const rows = shareRows(cats, H, NOW);
+      if (rows.length) {
+        shareBars('pt-cat', rows, { nowLabel: w('Last 4 weeks'), nextLabel: `Next ${SPAN}` });
+        const up = rows.slice().sort((a, b) => b.chg - a.chg), dn = up.slice().reverse();
+        ev.cat = [
+          up[0] && up[0].chg > 0 ? `${up[0].name} gains the most: ${fmt.num(up[0].now, 1)}% to ${fmt.num(up[0].next, 1)}% of all TVR (${signed(up[0].chg, 1).replace('%', '')} pts).` : 'No category gains share.',
+          dn[0] && dn[0].chg < 0 ? `${dn[0].name} loses the most: ${fmt.num(dn[0].now, 1)}% to ${fmt.num(dn[0].next, 1)}% (${signed(dn[0].chg, 1).replace('%', '')} pts).` : null,
+          { rec: true, text: up[0] && up[0].chg > 0.3 ? `Lean into ${up[0].name} programmes for the next ${SPAN}; review spend in ${dn[0] && dn[0].chg < 0 ? dn[0].name : 'declining genres'}.` : 'Genre shares are stable; keep the current genre mix.' },
+        ];
+      } else ev.cat = ['Not enough category history to forecast shares.'];
+      evid('pt-cat', ev.cat);
+    }
 
     // 4. channel momentum
     const mom = chans.map((r) => { const f = slice(r, H); return { name: r.entity, now: MR.recentMean(r, NOW), next: avg(f.p50), lo: avg(f.p10), hi: avg(f.p90) }; }).map((x) => ({ ...x, chg: pct(x.next, x.now) })).filter((x) => finite(x.chg)).sort((a, b) => b.chg - a.chg);
@@ -240,6 +261,37 @@
       ];
     } else ev.risk = [M ? 'Not enough recurring programme history (a slot needs several months of airings).' : 'Not enough recurring programme history (a slot needs several weeks of airings).'];
     evid('pt-risk', ev.risk);
+
+    // 5b. channel audience share + channel x daypart heatmap
+    {
+      const rows = shareRows(group(R, 'channel_share'), H, NOW);
+      if (rows.length) {
+        shareBars('pt-chshare', rows, { nowLabel: w('Last 4 weeks'), nextLabel: `Next ${SPAN}`, title: fmt.title });
+        const up = rows.slice().sort((a, b) => b.chg - a.chg), dn = up.slice().reverse(), lead = rows[0];
+        ev.chshare = [
+          `${fmt.title(lead.name)} is expected to hold the biggest audience share: ${fmt.num(lead.next, 1)}% of all TVR (now ${fmt.num(lead.now, 1)}%).`,
+          up[0] && up[0].chg > 0.2 ? `Gaining share: ${up.filter((x) => x.chg > 0.2).slice(0, 3).map((x) => `${fmt.title(x.name)} (${signed(x.chg, 1).replace('%', '')} pts)`).join(', ')}.` : 'No channel is gaining share by more than 0.2 points.',
+          dn[0] && dn[0].chg < -0.2 ? `Losing share: ${dn.filter((x) => x.chg < -0.2).slice(0, 3).map((x) => `${fmt.title(x.name)} (${signed(x.chg, 1).replace('%', '')} pts)`).join(', ')}.` : null,
+          { rec: true, text: up[0] && up[0].chg > 0.2 ? `Negotiate volume on ${fmt.title(up[0].name)} now, before its rate card reflects the extra audience. Ask for make-goods on ${dn[0] && dn[0].chg < -0.2 ? fmt.title(dn[0].name) : 'weaker channels'}.` : 'Channel shares are steady; keep channel weights as they are.' },
+        ];
+      } else ev.chshare = ['Not enough channel history to forecast shares.'];
+      evid('pt-chshare', ev.chshare);
+
+      const cd = group(R, 'chan_daypart').map((r) => { const [ch, dp] = r.entity.split(' | '); return { ch, dp, v: avg(slice(r, H).p50), now: MR.recentMean(r, NOW) }; }).filter((x) => finite(x.v));
+      if (cd.length) {
+        const chs = [...new Set(cd.map((x) => x.ch))], order = MR.daypartOrder ? MR.daypartOrder() : [], dps = [...new Set(cd.map((x) => x.dp))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        const mat = { rows: chs.map(fmt.title), cols: dps, values: chs.map((c) => dps.map((d) => { const x = cd.find((q) => q.ch === c && q.dp === d); return x ? x.v : null; })) };
+        $('#pt-chdp').innerHTML = C.heat(mat, { fmt: f2, caption: 'Forecast TVR by channel and daypart' });
+        const sorted = cd.slice().sort((a, b) => b.v - a.v), rising = cd.filter((x) => finite(x.now) && x.now > 0).map((x) => ({ ...x, chg: pct(x.v, x.now) })).filter((x) => finite(x.chg)).sort((a, b) => b.chg - a.chg);
+        ev.chdp = [
+          `Strongest: ${sorted.slice(0, 3).map((x) => `${fmt.title(x.ch)} ${x.dp} (${f2(x.v)})`).join(', ')}.`,
+          `Weakest: ${sorted.slice(-2).reverse().map((x) => `${fmt.title(x.ch)} ${x.dp} (${f2(x.v)})`).join(', ')}.`,
+          rising[0] && rising[0].chg > 3 ? `Fastest rising: ${fmt.title(rising[0].ch)} ${rising[0].dp} (${signed(rising[0].chg, 0)} vs the last 4 weeks).` : null,
+          { rec: true, text: `Book ${fmt.title(sorted[0].ch)} ${sorted[0].dp} for reach-critical spots; use ${fmt.title(sorted[sorted.length - 1].ch)} ${sorted[sorted.length - 1].dp} only for cheap frequency.` },
+        ];
+      } else { $('#pt-chdp').innerHTML = App.emptyState('Not enough start times', 'Channel and Start columns are needed for this view.'); ev.chdp = []; }
+      evid('pt-chdp', ev.chdp);
+    }
 
     // 6. reach
     if (fR) {
@@ -294,7 +346,7 @@
         ${kpiTile('High-clutter alert', worst ? `${fmt.num(worst.next, 1)} ads/break` : 'n/a', worst ? `${esc(short(worst.name, 40))}${worst.rising ? ' (rising)' : ''}` : 'AdsinBrk not available', App.help('Average AdsinBrk is forecast for the programmes this group buys; the highest expected break length is flagged.', 'Breaks to avoid, or to buy only in first position.'), worst && worst.rising ? 'alert-kpi' : '')}
         ${kpiTile('Best estimated CPRP slot', zone && zone.best ? fmt.lkrc(zone.best.cprp) : 'n/a', zone && zone.best ? esc(short(zone.best.name, 42)) : 'Load the TVR sheet to rate slots', App.help('Cost per rating point = forecast average spot cost divided by forecast spot rating (matched programme TVR), for the most-used slots.', 'The cheapest rating points to buy next, inside the optimal buying zone where possible.'))}
       </div>
-      <div style="margin-top:16px">${C.box('pm-spend', 'Competitor spend and next move', `Daily spend per advertiser in ${pc.product_group}. Solid: actual. Dashed: forecast P50. Triangles: predicted campaign bursts.`, { xtall: true, ev: true,
+      <div style="margin-top:16px">${C.box('pm-spend', 'Competitor spend and next move', `${M ? 'Spend' : '7-day average of daily spend'} per advertiser in ${pc.product_group}. Solid: actual. Dashed: forecast P50. Triangles: predicted campaign bursts.`, { xtall: true, ev: true,
         help: ['Each advertiser\'s daily spend is forecast with the forecast engine. A forecast day more than 25% above that advertiser\'s trailing 7-day average is flagged as a Predicted Competitor Campaign Burst.', 'Early warning of rival launches and bursts, so you can defend share of voice or book inventory before prices rise.'] })}</div>
       <div class="grid g2" style="margin-top:16px">
         ${C.box('pm-clutter', 'Break clutter and position', 'Bars: forecast average ads per break (red = rising). Line: average position in break.', { tall: true, ev: true,
@@ -303,15 +355,27 @@
           help: ['For the most-used programme slots, the matched TVR (spot rating) and the average spot cost are each forecast. The shaded quadrant (rating at or above the median, cost at or below the median) is the Optimal Buying Zone.', 'Slots that deliver more rating points for less money: the shortlist for your next buy.'] })}
       </div>
       <div class="grid g2" style="margin-top:16px">
-        ${C.box('pm-sov', 'Share of voice forecast', `Share of ${pc.product_group} spend by advertiser: last 4 weeks and forecast`, { tall: true, ev: true,
-          help: ['Each advertiser\'s daily share of group spend is forecast, stacked and normalised to 100%.', 'Whether your share of voice is about to be squeezed, and by whom.'] })}
+        ${C.box('pm-sov', 'Share of voice: now vs forecast', `Share of ${pc.product_group} spend by advertiser: last 4 weeks vs next ${SPAN}`, { tall: true, ev: true,
+          help: ['Each advertiser\'s share of group spend is forecast. Bars compare the forecast share with the recent share; the change in share points is written beside each name.', 'Whether your share of voice is about to be squeezed, and by whom.'] })}
         ${C.box('pm-dp', 'Daypart spend shift', `Average daily group spend by daypart: last 4 weeks vs next ${SPAN}`, { tall: true, ev: true,
           help: ['Group spend per daypart is forecast and its daily average compared with the last 4 weeks.', 'Where competitor money is moving across the day, to find quieter, cheaper dayparts.'] })}
       </div>
+      <div class="grid g2" style="margin-top:16px">
+        ${C.box('pm-chmix', 'Where competitors will spend: channel mix', `Share of ${pc.product_group} spend by channel: last 4 weeks vs next ${SPAN}`, { tall: true, ev: true,
+          help: ['Each channel\'s share of the group\'s spend is forecast. Bars compare the forecast share with the recent share; the change in points is written beside each channel.', 'Which channels competitors are moving money to, so you can claim inventory early or avoid a crowded channel.'] })}
+        ${C.box('pm-advch', 'Competitor by channel: forecast spend', `Total ${pc.product_group} spend each advertiser is expected to put on each channel, next ${SPAN}`, { html: '', ev: true,
+          help: ['Each advertiser and channel pair is forecast separately and summed over the horizon. Brighter cells mean more money.', 'Who plans to dominate which channel, and the white space where nobody is spending.'] })}
+      </div>
+      ${pc.has_grp ? `<div class="grid g2" style="margin-top:16px">
+        ${C.box('pm-sog', 'Share of audience delivered: now vs forecast', `Share of GRPs (rating points) by advertiser: last 4 weeks vs next ${SPAN}`, { tall: true, ev: true,
+          help: ['Each spot is matched to the programme airing at that time and given its rating. Each advertiser\'s share of all rating points is forecast and compared with the recent share.', 'Share of audience is a truer share of voice than share of spend: it shows who is actually reaching viewers.'] })}
+        ${C.box('pm-cprp', 'Cost per rating point outlook', 'Average cost to buy one rating point in the group: actual and forecast range', { tall: true, ev: true,
+          help: ['Spend divided by rating points delivered is forecast as a fan with P10 to P90.', 'Whether audience is getting more or less expensive, to time bookings and negotiate rates.'] })}
+      </div>` : ''}
       ${cps ? `<div style="margin-top:16px">${C.box('pm-cps', 'Cost inflation outlook', 'Average cost per second in the group: actual and forecast range', { ev: true,
         help: ['Total spend divided by total seconds per day, forecast as a fan with P10 to P90.', 'Whether media costs are drifting up, to time bookings and negotiate rates.'] })}</div>` : ''}`);
     wireRerun(p, key, () => marketTab(p, ctx));
-    markForecast(p);
+    markForecast(p, { R, H, M });
     $('#mk-group', p).onchange = (e) => { App.store.set('mk-group:' + App.clientId(), e.target.value); marketTab(p, ctx); };
     $('#mk-brand', p).onchange = (e) => { ctx.setPersp({ my_brand: e.target.value }); marketTab(p, ctx); };
     const ev = {};
@@ -321,13 +385,14 @@
       const back = M ? 24 : 42, hd = comp[0].history.dates.slice(-back), fd = slice(comp[0], H).dates, labels = hd.concat(fd), nh = hd.length;
       const ds = [];
       compRows.forEach((x) => {
-        const col = C.colorFor(x.name), f = slice(x.r, H), hv = x.r.history.values.slice(-back);
+        const col = C.colorFor(x.name), f = slice(x.r, H), hv0 = x.r.history.values.slice(-back);
+        const all = M ? hv0.concat(f.p50) : smooth(hv0.concat(f.p50), 7), hv = all.slice(0, nh), fS = all.slice(nh); x.fs = fS;
         ds.push({ label: x.name, data: hv.concat(Array(fd.length).fill(null)), borderColor: col, backgroundColor: col, borderWidth: x.name === my ? 3 : 2, pointRadius: 0, tension: 0.25 });
-        ds.push({ label: x.name + ' (forecast)', data: Array(nh - 1).fill(null).concat([hv[nh - 1]], f.p50), borderColor: col, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, tension: 0.3 });
+        ds.push({ label: x.name + ' (forecast)', data: Array(nh - 1).fill(null).concat([hv[nh - 1]], fS), borderColor: col, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, tension: 0.3 });
       });
       const bursts = []; compRows.forEach((x) => x.bursts.forEach((b) => bursts.push({ ...b, name: x.name, date: slice(x.r, H).dates[b.index] })));
       const marks = labels.map(() => null), info = {};
-      bursts.forEach((b) => { const i = nh + b.index; if (marks[i] == null || b.value > marks[i]) { marks[i] = b.value; info[i] = b; } });
+      bursts.forEach((b) => { const i = nh + b.index; const sv = ((compRows.find((q) => q.name === b.name) || {}).fs || [])[b.index]; const yv = finite(sv) ? sv : b.value; if (marks[i] == null || yv > marks[i]) { marks[i] = yv; info[i] = b; } });
       if (bursts.length) ds.push({ label: 'Predicted Competitor Campaign Burst', data: marks, showLine: false, pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 11, borderColor: C.css('--warn') || '#ffb547', backgroundColor: C.css('--warn') || '#ffb547' });
       C.make('pm-spend', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine],
         options: { interaction: { mode: 'index', intersect: false }, plugins: { nowLine: { index: nh - 1 }, legend: { position: 'bottom', labels: { filter: (i) => !/\(forecast\)$/.test(i.text) } },
@@ -383,25 +448,21 @@
     } else ev.bubble = [pc.has_grp ? 'Too few matched slots to compare.' : 'Load the TVR sheet as well: spot ratings come from matching each spot to the programme airing at that time.'];
     evid('pm-bubble', ev.bubble);
 
-    // 4. SOV forecast
-    if (sov.length) {
-      const back = BACK, hd = sov[0].history.dates.slice(-back), fd = slice(sov[0], H).dates, labels = hd.concat(fd);
-      const rows = sov.map((r) => r.history.values.slice(-back).concat(slice(r, H).p50));
-      const norm = labels.map((_, k) => { const s = rows.reduce((a, row) => a + (finite(row[k]) ? Math.max(0, row[k]) : 0), 0); return s > 100 ? 100 / s : 1; });
-      const ds = sov.map((r, i) => ({ label: r.entity, data: rows[i].map((v, k) => (finite(v) ? Math.max(0, v) * norm[k] : null)), borderColor: C.colorFor(r.entity), backgroundColor: C.colorFor(r.entity) + '55', fill: i === 0 ? 'origin' : '-1', pointRadius: 0, tension: 0.3, borderWidth: r.entity === my ? 2.5 : 1.2 }));
-      ds.push({ label: 'Others', data: labels.map((_, k) => Math.max(0, 100 - rows.reduce((a, row) => a + (finite(row[k]) ? Math.max(0, row[k]) * norm[k] : 0), 0))), borderColor: '#7c86b0', backgroundColor: '#7c86b044', fill: '-1', pointRadius: 0, borderWidth: 1 });
-      C.make('pm-sov', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine],
-        options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom' }, nowLine: { index: hd.length - 1 }, tooltip: { callbacks: { title: C.fcTitle(hd.length), label: (c) => `${c.dataset.label}: ${fmt.num(c.parsed.y, 1)}%` } } },
-          scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } }, y: { stacked: true, min: 0, max: 100, ticks: { callback: (v) => v + '%' } } } } });
-      const sh = sov.map((r) => ({ name: r.entity, now: MR.recentMean(r, NOW), next: avg(slice(r, H).p50) })).filter((x) => finite(x.next)).sort((a, b) => b.next - a.next);
-      const me = sh.find((x) => x.name === my);
-      ev.sov = [
-        sh[0] ? `${sh[0].name} is expected to lead with ${fmt.num(sh[0].next, 1)}% share of voice.` : null,
-        me ? `${my}: ${fmt.num(me.now, 1)}% now, ${fmt.num(me.next, 1)}% forecast.` : 'Pick your brand above to track your own share of voice.',
-        { rec: true, text: me && me.next < me.now - 1 ? `Your share is set to slip by ${fmt.num(me.now - me.next, 1)} points; add weight or concentrate it in fewer days to hold presence.` : 'Share of voice is holding; maintain the plan.' },
-      ];
-    } else ev.sov = ['No share of voice history.'];
-    evid('pm-sov', ev.sov);
+    // 4. share of voice (bars)
+    {
+      const rows = shareRows(sov, H, NOW);
+      if (rows.length) {
+        shareBars('pm-sov', rows, { nowLabel: w('Last 4 weeks'), nextLabel: `Next ${SPAN}` });
+        const me = rows.find((x) => x.name === my), lead = rows[0], up = rows.slice().sort((a, b) => b.chg - a.chg)[0];
+        ev.sov = [
+          `${lead.name} is expected to lead with ${fmt.num(lead.next, 1)}% share of voice.`,
+          up.chg > 0.5 ? `${up.name} gains the most (${signed(up.chg, 1).replace('%', '')} pts to ${fmt.num(up.next, 1)}%).` : null,
+          me ? `${my}: ${fmt.num(me.now, 1)}% now, ${fmt.num(me.next, 1)}% forecast.` : 'Pick your brand above to track your own share of voice.',
+          { rec: true, text: me && me.chg < -1 ? `Your share is set to slip by ${fmt.num(-me.chg, 1)} points; add weight or concentrate it in fewer periods to hold presence.` : 'Share of voice is holding; maintain the plan.' },
+        ];
+      } else ev.sov = ['No share of voice history.'];
+      evid('pm-sov', ev.sov);
+    }
 
     // 5. daypart spend shift
     if (dps.length) {
@@ -421,6 +482,58 @@
       ];
     } else ev.dp = ['No daypart history.'];
     evid('pm-dp', ev.dp);
+
+    // 5b. channel mix, competitor x channel, audience share, CPRP outlook
+    {
+      const rows = shareRows(group(R, 'chan_mix'), H, NOW);
+      if (rows.length) {
+        shareBars('pm-chmix', rows, { nowLabel: w('Last 4 weeks'), nextLabel: `Next ${SPAN}`, title: fmt.title });
+        const up = rows.slice().sort((a, b) => b.chg - a.chg), dn = up.slice().reverse();
+        ev.chmix = [
+          `Most competitor money will go to ${fmt.title(rows[0].name)}: ${fmt.num(rows[0].next, 1)}% of ${pc.product_group} spend.`,
+          up[0].chg > 0.5 ? `Channel gaining spend share: ${up.filter((x) => x.chg > 0.5).slice(0, 3).map((x) => `${fmt.title(x.name)} (${signed(x.chg, 1).replace('%', '')} pts)`).join(', ')}.` : 'No channel gains more than half a point of spend share.',
+          dn[0].chg < -0.5 ? `Channel losing spend share: ${dn.filter((x) => x.chg < -0.5).slice(0, 3).map((x) => `${fmt.title(x.name)} (${signed(x.chg, 1).replace('%', '')} pts)`).join(', ')}.` : null,
+          { rec: true, text: dn[0].chg < -0.5 ? `${fmt.title(dn[0].name)} is getting less crowded; ask for better rates or premium positions there.` : 'Channel mix is stable; no urgent move needed.' },
+        ];
+      } else ev.chmix = ['No channel history for this product group.'];
+      evid('pm-chmix', ev.chmix);
+
+      const ac = group(R, 'adv_channel').map((r) => { const [a, c] = r.entity.split(' | '); return { a, c, v: total(slice(r, H).p50) }; });
+      if (ac.length) {
+        const ads = [...new Set(ac.map((x) => x.a))], chs = [...new Set(ac.map((x) => x.c))];
+        const mat = { rows: ads, cols: chs.map(fmt.title), values: ads.map((a) => chs.map((c) => { const x = ac.find((q) => q.a === a && q.c === c); return x ? x.v : null; })) };
+        $('#pm-advch').innerHTML = C.heat(mat, { fmt: fmt.compact, caption: 'Forecast spend by advertiser and channel' });
+        const best = ac.slice().sort((x, y) => y.v - x.v)[0], mine = my ? ac.filter((x) => x.a === my) : [];
+        const colTot = chs.map((c) => ({ c, v: ac.filter((x) => x.c === c).reduce((s2, x) => s2 + x.v, 0) })).sort((x, y) => x.v - y.v);
+        ev.advch = [
+          `Biggest planned commitment: ${best.a} on ${fmt.title(best.c)} (${fmt.lkrc(best.v)}).`,
+          mine.length ? `${my} is forecast to put most on ${fmt.title(mine.sort((x, y) => y.v - x.v)[0].c)} (${fmt.lkrc(mine[0].v)}).` : 'Pick your brand above to see where you stand against each rival.',
+          { rec: true, text: `${fmt.title(colTot[0].c)} has the least competitor money planned (${fmt.lkrc(colTot[0].v)} across the top advertisers): the best place to stand out, if its audience fits.` },
+        ];
+      } else { $('#pm-advch').innerHTML = App.emptyState('Not enough channel history', 'This view needs advertisers with spots on several channels.'); ev.advch = []; }
+      evid('pm-advch', ev.advch);
+
+      const sg = group(R, 'sog'), srows = shareRows(sg, H, NOW);
+      if (pc.has_grp && srows.length && $('#pm-sog')) {
+        shareBars('pm-sog', srows, { nowLabel: w('Last 4 weeks'), nextLabel: `Next ${SPAN}` });
+        const me2 = srows.find((x) => x.name === my);
+        ev.sog = [
+          `${srows[0].name} is expected to deliver the biggest audience share: ${fmt.num(srows[0].next, 1)}% of rating points.`,
+          me2 ? `${my}: ${fmt.num(me2.now, 1)}% of rating points now, ${fmt.num(me2.next, 1)}% forecast.` : 'Pick your brand above to track your own share of audience.',
+          { rec: true, text: me2 && me2.chg < -1 ? `Your audience share is set to fall ${fmt.num(-me2.chg, 1)} points. Buy higher-rated slots, not just more spots.` : 'Audience share is holding up.' },
+        ];
+        evid('pm-sog', ev.sog);
+      }
+      const cp = one(R, 'cprp_total');
+      if (pc.has_grp && cp && $('#pm-cprp')) {
+        const f = slice(cp, H);
+        fan('pm-cprp', cp, H, { color: C.PALETTE[2], vf: (v) => 'LKR ' + fmt.num(v, 0) });
+        const chg = pct(avg(f.p50), MR.recentMean(cp, NOW));
+        ev.cprp = [`Cost per rating point is expected at LKR ${fmt.num(avg(f.p50), 0)} (${signed(chg, 1)} vs the last 4 weeks; range LKR ${fmt.num(avg(f.p10), 0)} to ${fmt.num(avg(f.p90), 0)}).`,
+          { rec: true, text: chg != null && chg > 5 ? 'Audience is getting more expensive: book early and lock rates.' : chg != null && chg < -5 ? 'Rating points are getting cheaper: delay buying where you can, and push for lower rates.' : 'Rating-point cost is stable.' }];
+        evid('pm-cprp', ev.cprp);
+      }
+    }
 
     // 6. cost inflation
     if (cps) {
@@ -443,14 +556,46 @@
     const rs = results.filter((r) => groups.includes(r.group)).slice(0, 12);
     return rs.length ? { ...res, results: rs } : null;
   }
-  /** Puts a FORECAST pill on every chart card; charts that also show history say so. */
-  const MIXED = ['pt-fan', 'pt-cat', 'pt-reach', 'pm-spend', 'pm-sov', 'pm-cps', 'pm-dp', 'pt-chan'];
-  function markForecast(p) {
+  /** Which forecast groups stand behind each chart. */
+  const NUMS = { 'pt-fan': ['tvr_total'], 'pt-reach': ['reach_total'], 'pt-chan': ['channel_tvr'], 'pt-chshare': ['channel_share'], 'pt-chdp': ['chan_daypart'], 'pt-cat': ['cat_share'], 'pt-heat': ['hour_share'], 'pt-risk': ['program_tvr'],
+    'pm-spend': ['comp_spend'], 'pm-sov': ['sov'], 'pm-dp': ['daypart_spend'], 'pm-cps': ['cps_total'], 'pm-chmix': ['chan_mix'], 'pm-advch': ['adv_channel'], 'pm-sog': ['sog'], 'pm-cprp': ['cprp_total'],
+    'pm-clutter': ['clutter', 'posinbrk'], 'pm-bubble': ['slot_rating', 'slot_cost'] };
+  const valFmt = (u) => ({ currency: (v) => fmt.num(v, 0), percent: (v) => fmt.num(v, 2), rating: (v) => fmt.num(v, 3) }[u] || ((v) => fmt.num(v, 2)));
+  /** Modal with the exact numbers behind a chart: actual history, forecast P10/P50/P90, and how well the model did on recent periods. */
+  function numbersModal(title, results, H, M) {
+    if (!results.length) { App.toast('No numbers for this chart yet.', 'info'); return; }
+    const pick = results.length > 1 ? `<div class="field" style="max-width:420px;margin-bottom:12px"><label for="nm-sel">Series</label><select id="nm-sel">${results.map((r, i) => `<option value="${i}">${esc(r.entity)}</option>`).join('')}</select></div>` : '';
+    const m = App.modal(`Numbers behind: ${title}`, `<div class="banner info"><span>Rows marked <b>FORECAST</b> have not happened yet. They are estimates: P50 is the most likely value, P10 a low case and P90 a high case. Rows marked actual are recorded data.</span></div>${pick}<div id="nm-acc"></div><div id="nm-tbl"></div>`);
+    const draw = (i) => {
+      const r = results[i], f = slice(r, H), vf = valFmt(r.unit), keep = M ? 24 : 30;
+      const hist = r.history.dates.slice(-keep).map((d, k) => { const j = r.history.dates.length - Math.min(keep, r.history.dates.length) + k; return { period: d, kind: 'actual', p10: null, p50: r.history.values[j], p90: null }; });
+      const fc = f.dates.map((d, k) => ({ period: d, kind: 'FORECAST', p10: f.p10[k], p50: f.p50[k], p90: f.p90[k] }));
+      const bt = r.backtest, rel = r.reliability;
+      $('#nm-acc', m).innerHTML = `<div class="card" style="margin-bottom:12px"><h3>How much can I trust this?</h3><div class="small" style="margin-top:8px">
+        Reliability: <span class="badge ${relCls[rel.level]}">${rel.level}</span> ${esc(rel.reasons.join(' '))}
+        ${bt && bt.model ? `<div style="margin-top:6px">Accuracy check: the engine was tested on the last ${bt.holdout} ${r.granularity === 'monthly' ? 'months' : r.granularity === 'weekly' ? 'weeks' : 'days'} of recorded data, which it had not seen. It was off by <b>${bt.model.smape == null ? 'n/a' : fmt.num(bt.model.smape, 1) + '%'}</b> on average (a simple repeat-last-pattern guess was off by ${bt.baseline.smape == null ? 'n/a' : fmt.num(bt.baseline.smape, 1) + '%'}), and ${bt.model.coverage == null ? 'n/a' : fmt.num(bt.model.coverage, 0) + '%'} of actual values fell inside the P10 to P90 range (about 80% is ideal).</div>` : '<div style="margin-top:6px">There is not enough history for an accuracy test on this series.</div>'}</div></div>`;
+      const box = $('#nm-tbl', m);
+      App.tables.create(box, { csv: 'numbers_' + title.replace(/\W+/g, '_').toLowerCase() + '_' + r.entity.replace(/\W+/g, '_').toLowerCase(), search: false, pageSize: 40, defaultSort: { key: 'period', desc: false },
+        rows: hist.concat(fc), columns: [{ key: 'period', label: r.granularity === 'monthly' ? 'Month' : r.granularity === 'weekly' ? 'Week starting' : 'Date' },
+          { key: 'kind', label: 'Type', html: (v) => (v === 'FORECAST' ? '<span class="fc-pill" style="margin:0">Forecast</span>' : '<span class="badge">actual</span>') },
+          { key: 'p10', label: 'P10 (low case)', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p50', label: 'Value / P50 (most likely)', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p90', label: 'P90 (high case)', num: true, fmt: (v) => (v == null ? '' : vf(v)) }] });
+    };
+    const sel = $('#nm-sel', m); if (sel) sel.onchange = () => draw(+sel.value);
+    draw(0);
+  }
+  /** Puts a FORECAST pill and a Numbers button on every chart card; charts that also show history say so. */
+  const MIXED = ['pt-fan', 'pt-reach', 'pm-spend', 'pm-cps', 'pm-cprp'];
+  function markForecast(p, nums) {
     p.querySelectorAll('.card').forEach((c) => {
       const h = c.querySelector('.card-head h3'); if (!h || h.querySelector('.fc-pill')) return;
       const id = (c.querySelector('canvas, [id^="pt-"], [id^="pm-"]') || {}).id || '';
       h.insertAdjacentHTML('afterbegin', `<span class="fc-pill">${MIXED.includes(id) ? 'Actual + forecast' : 'Forecast'}</span>`);
       c.classList.add('fc');
+      if (nums && NUMS[id]) {
+        const row = c.querySelector('.card-head .row');
+        if (row) { row.insertAdjacentHTML('afterbegin', '<button class="btn sm" type="button" data-nums>Numbers</button>');
+          row.querySelector('[data-nums]').onclick = () => numbersModal(h.textContent.replace(/Actual \+ forecast|Forecast|\?/g, '').trim(), nums.R.filter((r) => NUMS[id].includes(r.group)), nums.H, nums.M); }
+      }
     });
   }
   function wireRerun(p, key, again) {
