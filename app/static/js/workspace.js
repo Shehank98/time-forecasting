@@ -98,11 +98,38 @@
   const SHEET_HINT = { tv: 'Programme ratings: Channel, Date, Start, Program, Category, TVR, Reach', lmrb: 'Ad monitoring: Advertiser, Channel, Program, date parts, AdsinBrk, PosinBrk, Cost' };
   const mb = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(0) + ' MB');
 
+  const SECTION_ICON = '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/>';
+  const SECTION_INFO = {
+    'p-tvr': { text: 'Forecast ratings with guaranteed P10 floors, daypart heatmap, genre shifts and programme risk.', icon: '<path d="M2 12a10 10 0 0120 0"/><path d="M6 12a6 6 0 0112 0"/><path d="M12 12l5-5"/><circle cx="12" cy="12" r="1.6"/>' },
+    'p-market': { text: 'Predict competitor spend and bursts, break clutter, share of voice and the cheapest rating points.', icon: '<path d="M3 20h18"/><path d="M5 16l4-5 4 3 6-8"/><path d="M15 6h4v4"/>' },
+    overview: { text: 'Headline numbers and trends for the current filters.', icon: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>' },
+    programmes: { text: 'Every programme ranked by audience, reach and share.', icon: '<path d="M4 6h16M4 12h16M4 18h10"/>' },
+    heat: { text: 'Channel by category, daypart, day and time-belt heatmaps.', icon: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>' },
+    categories: { text: 'Which genres perform best and how they trend.', icon: '<path d="M12 3a9 9 0 109 9h-9z"/><path d="M15 3.5A9 9 0 0120.5 9H15z"/>' },
+    efficiency: { text: 'Audience and reach per minute of airtime.', icon: '<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>' },
+    consistency: { text: 'Which recurring slots give predictable audiences.', icon: '<path d="M3 12h4l2-6 4 12 2-6h6"/>' },
+    opportunity: { text: 'Strong audience with low ad clutter from rivals.', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
+    forecast: { text: 'Custom forecasts, spend scenarios and pacing checks.', icon: '<path d="M3 17l5-6 4 4 8-10"/><path d="M15 5h5v5"/>' },
+    ai: { text: 'Gemini findings with evidence, plus a chat about your data.', icon: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>' },
+    rows: { text: 'Browse and export the filtered rows.', icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/>' },
+    spend: { text: 'Spend ranked by advertiser, product, channel and more.', icon: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>' },
+    mix: { text: 'Advertiser by channel, daypart and programme.', icon: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>' },
+    flighting: { text: 'When each competitor is on air, in bursts or always on.', icon: '<path d="M3 17l18-6-6 10-3-6z"/>' },
+    creatives: { text: 'New, returning, paused and dropped creatives.', icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/>' },
+    pricing: { text: 'Cost per second, discounts and price outliers.', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5c0-1 1-1.5 2.5-1.5s2.5.6 2.5 1.7c0 2.3-5 1.3-5 3.6 0 1.1 1 1.7 2.5 1.7s2.5-.5 2.5-1.5"/>' },
+    position: { text: 'Who buys first and last position in the break.', icon: '<path d="M5 6h14M5 12h14M5 18h14"/><circle cx="5" cy="6" r="1.2"/>' },
+    grp: { text: 'GRPs, CPRP and share of GRPs from matched ratings.', icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>' },
+    alerts: { text: 'Competitor moves in the last 7 days.', icon: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"/><path d="M10 20a2 2 0 004 0"/>' },
+    h2h: { text: 'Compare two advertisers side by side.', icon: '<path d="M8 4v16M16 4v16M3 8l5-4 5 4M11 16l5 4 5-4"/>' },
+    segments: { text: 'Results by campaign, channel or product.', icon: '<path d="M12 3a9 9 0 109 9h-9z"/>' },
+    drivers: { text: 'How results moved with spend in your history.', icon: '<path d="M4 20l6-8 4 4 6-10"/>' },
+  };
+
   function workspace(cfg) {
     const kind = cfg.kind, root = $('#ws'), predictMode = kind !== 'kpi';
     const allTabs = (predictMode ? (cfg.predict || []) : []).concat(cfg.tabs);
     let state = null, status = null, filtersCtl = null, data = null, meta = null, reqId = 0, gopts = {};
-    let active = App.store.get('tab:' + kind, cfg.defaultTab || allTabs[0].id);
+    let active = null;   // id of the section open in the popup, or null
     const dirty = new Set();
     let persp = App.store.get('persp:lmrb', { my_brand: '', competitors: [], tv_data_set: '' });
     let ds = kind === 'kpi' ? (new URLSearchParams(location.search).get('dataset') || App.store.get('kpi-ds:' + App.clientId(), '')) : '';
@@ -173,7 +200,7 @@
       $$('#hz-quick button').forEach((x) => x.setAttribute('aria-pressed', String(+x.dataset.d === horizon)));
       const r = $('#hz-range'); if (r) r.value = horizon; const v = $('#hz-val'); if (v) v.textContent = horizon + 'd';
       (cfg.predict || []).forEach((t) => dirty.add(t.id));
-      if ((cfg.predict || []).some((t) => t.id === active)) renderTab(active);
+      if (active && (cfg.predict || []).some((t) => t.id === active)) renderTab(active);
       document.dispatchEvent(new CustomEvent('horizonchange', { detail: horizon }));
     }
     function renderGlobalFilters() {
@@ -336,7 +363,10 @@
       const dsPicker = kind === 'kpi' ? `<select id="ds-sel" aria-label="KPI dataset" style="max-width:260px">${(state.datasets || []).map((d) => `<option ${d.name === ds ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
         <button class="btn" id="b-newds" type="button">New dataset</button><button class="btn" id="b-meta" type="button">Edit metrics</button><button class="btn" id="b-append" type="button">Append file</button><button class="btn" id="b-change" type="button">Replace file</button>
         <button class="btn ghost danger" id="b-delds" type="button">Remove dataset</button>` : '';
-      const tabBtn = (t) => `<button class="tab ${t.predict ? 'predict' : ''}" role="tab" id="tab-${t.id}" aria-controls="panel-${t.id}" aria-selected="false" data-tab="${t.id}">${t.predict ? '<span class="pulse" aria-hidden="true"></span>' : ''}${esc(t.label)}</button>`;
+      const INFO = SECTION_INFO;
+      const tabBtn = (t) => { const i = INFO[t.id] || {}; return `<button class="tab scard ${t.predict ? 'predict' : ''}" type="button" id="tab-${t.id}" aria-haspopup="dialog" aria-controls="sheet" aria-selected="false" data-tab="${t.id}">
+        <span class="sc-ic"><svg viewBox="0 0 24 24" aria-hidden="true">${i.icon || SECTION_ICON}</svg></span><span class="sc-t">${esc(t.label)}${t.predict ? '<span class="pulse" aria-hidden="true"></span>' : ''}</span>
+        <span class="sc-d">${esc(i.text || '')}</span><span class="sc-go" aria-hidden="true">Open &rarr;</span></button>`; };
       const pTabs = predictMode ? (cfg.predict || []) : [];
       v.innerHTML = `
         <div class="ws-head"><div class="grow row">${dsPicker}${pageLoaded ? `<span class="badge info">${esc(state.files.slice(-3).join(' + '))}${state.files.length > 3 ? ` +${state.files.length - 3}` : ''}</span> <span class="muted small">${esc(state.report.date_min)} to ${esc(state.report.date_max)}</span>` : ''}</div>
@@ -348,8 +378,11 @@
         ${pageLoaded ? `<div class="card filters-card"><details id="filters-det" ${App.store.get('filters-open:' + kind, false) ? 'open' : ''}><summary><svg class="ico" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>${predictMode ? 'Advanced filters for the analysis tabs' : 'Filters'} <span class="counter" id="counter" style="margin-left:auto"></span></summary>
           <div id="filter-body"></div><div class="row" style="margin-top:12px"><button class="btn sm" id="reset" type="button">Reset filters</button></div></details>
           <div class="chips" id="chips"></div></div>` : ''}
-        <div class="tabs" role="tablist" aria-label="Sections" id="tablist">${pTabs.map(tabBtn).join('')}${pTabs.length ? '<span class="tab-sep" aria-hidden="true"></span>' : ''}${cfg.tabs.map(tabBtn).join('')}</div>
-        ${allTabs.map((t) => `<div role="tabpanel" id="panel-${t.id}" aria-labelledby="tab-${t.id}" hidden></div>`).join('')}`;
+        ${pTabs.length ? `<div class="sec-title">Predictions</div><div class="section-cards feature" id="tablist" aria-label="Predictions">${pTabs.map(tabBtn).join('')}</div>` : ''}
+        <div class="sec-title">${pTabs.length ? 'Analysis' : 'Sections'}</div><div class="section-cards" ${pTabs.length ? '' : 'id="tablist"'} aria-label="Sections">${cfg.tabs.map(tabBtn).join('')}</div>
+        <div class="sheet-back" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden><div class="sheet">
+          <div class="sheet-bar"><h2 id="sheet-title"></h2><div class="row"><a class="btn sm" id="sheet-new" target="_blank" rel="noopener">Open in new tab</a><button class="btn sm primary" id="sheet-close" type="button">Close</button></div></div>
+          <div class="sheet-body">${allTabs.map((t) => `<div role="region" id="panel-${t.id}" aria-label="${esc(t.label)}" hidden></div>`).join('')}</div></div></div>`;
       if ($('#b-summary')) $('#b-summary').onclick = () => modal('Data summary', summaryHtml(state.report));
       if ($('#b-settings')) $('#b-settings').onclick = openSettings;
       if (kind === 'kpi') {
@@ -372,20 +405,31 @@
         $('#filters-det').ontoggle = (e) => App.store.set('filters-open:' + kind, e.target.open);
         if (cfg.perspective) mountPersp();
       } else filtersCtl = null;
-      $$('.tab', v).forEach((b) => { b.onclick = () => select(b.dataset.tab); b.onkeydown = (e) => { const vis = $$('.tab:not([hidden])', v); const i = vis.indexOf(b); if (e.key === 'ArrowRight') vis[(i + 1) % vis.length].focus(); if (e.key === 'ArrowLeft') vis[(i - 1 + vis.length) % vis.length].focus(); }; });
+      $$('.tab', v).forEach((b) => { b.onclick = () => select(b.dataset.tab, true); });
+      $('#sheet-close', v).onclick = () => select(null);
+      $('#sheet', v).addEventListener('mousedown', (e) => { if (e.target.id === 'sheet') select(null); });
+      $('#sheet', v).addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); select(null); } });
       const want = new URLSearchParams(location.search).get('tab');
-      if (want && allTabs.find((t) => t.id === want)) active = want;
-      if (!allTabs.find((t) => t.id === active)) active = allTabs[0].id;
-      if (!pageLoaded && !(cfg.predict || []).some((t) => t.id === active)) active = (cfg.predict || allTabs)[0].id;
-      select(active, true);
+      active = null;
+      if (want && allTabs.find((t) => t.id === want) && (pageLoaded || (cfg.predict || []).some((t) => t.id === want))) select(want, true);
       load();
     }
 
+    /** Opens a section in the popup (null closes it). */
     function select(id, force) {
-      active = id; App.store.set('tab:' + kind, id);
+      const sheet = $('#sheet'); if (!sheet) return;
+      const prev = active; active = id;
       $$('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === id)));
       allTabs.forEach((t) => { const p = $('#panel-' + t.id); if (p) p.hidden = t.id !== id; });
+      sheet.hidden = !id; document.body.classList.toggle('sheet-open', !!id);
+      if (!id) { App.charts.destroyAll(); const b = prev && $('#tab-' + prev); if (b) b.focus(); return; }
+      const t = allTabs.find((x) => x.id === id);
+      $('#sheet-title').textContent = t ? t.label : '';
+      $('#sheet-new').href = location.pathname + '?tab=' + encodeURIComponent(id);
+      const body = $('.sheet-body', sheet); if (body) body.scrollTop = 0;
+      if (prev && prev !== id) App.charts.destroyAll();
       if (dirty.has(id) || force) renderTab(id);
+      $('#sheet-close').focus();
     }
     function renderTab(id) {
       dirty.delete(id);
@@ -400,8 +444,8 @@
       const id = ++reqId;
       const counter = $('#counter');
       allTabs.forEach((t) => dirty.add(t.id));
-      if (!(state && state.loaded)) { data = null; meta = null; if ($('#v-dash') && !$('#v-dash').hidden) select(active, true); return; }
-      const p = $('#panel-' + active); if (p && !data && !(cfg.predict || []).some((t) => t.id === active)) p.innerHTML = App.skeleton(3);
+      if (!(state && state.loaded)) { data = null; meta = null; if (active) renderTab(active); return; }
+      const p = active && $('#panel-' + active); if (p && !data && !(cfg.predict || []).some((t) => t.id === active)) p.innerHTML = App.skeleton(3);
       try {
         const res = await App.data.dashboard(ctx.body());
         if (id !== reqId) return;
@@ -410,11 +454,11 @@
         if ($('#chips')) App.filters.chips($('#chips'), meta.chips, (k) => (GMAP[kind] || []).includes(k) ? (delete gf[k], App.store.set(gKey(), gf), renderGlobalFilters(), load()) : filtersCtl.remove(k));
         if (cfg.onData) cfg.onData(ctx);
         allTabs.forEach((t) => { const b = $('#tab-' + t.id); if (b && t.hidden) b.hidden = !!t.hidden(ctx); });
-        if (allTabs.find((t) => t.id === active && t.hidden && t.hidden(ctx))) active = allTabs[0].id;
-        select(active, true);
+        if (active && allTabs.find((t) => t.id === active && t.hidden && t.hidden(ctx))) select(null);
+        else if (active) renderTab(active);
       } catch (e) { if (id === reqId) { App.toast(e.message, 'error'); if (p) p.innerHTML = App.emptyState('Could not load the dashboard', e.message); } }
     }
-    document.addEventListener('themechange', () => { if (!$('#v-dash').hidden) { allTabs.forEach((t) => dirty.add(t.id)); renderTab(active); } });
+    document.addEventListener('themechange', () => { if (!$('#v-dash').hidden) { allTabs.forEach((t) => dirty.add(t.id)); if (active) renderTab(active); } });
 
     /* ---------------- perspective (LMRB) ---------------- */
     function mountPersp() {

@@ -317,3 +317,26 @@ body.side-collapsed .client-pick { display: none; }
 .loader-inline .r2 { inset: 12px; border-bottom-color: var(--accent-2); animation: spin 1.6s linear infinite reverse; }
 .loader-inline .r3 { inset: 24px; border-top-color: var(--accent-3); animation: spin .9s linear infinite; }
 .loader-inline .orb { position: absolute; inset: 34px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff, #3de0ff 30%, #8b5cf6 70%, transparent 72%); animation: breathe 1.6s ease-in-out infinite; box-shadow: 0 0 24px rgba(61, 224, 255, .6); }
+
+/* ---------- section cards and popup ---------- */
+.sec-title { font-family: var(--display); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin: 20px 0 10px; }
+.section-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.section-cards.feature { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.section-cards .tab.scard { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; white-space: normal; padding: 16px; border: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); color: var(--text); transition: transform .2s, border-color .2s, box-shadow .2s; text-shadow: none; }
+.section-cards .tab.scard:hover, .section-cards .tab.scard:focus-visible { transform: translateY(-3px); border-color: var(--accent); box-shadow: var(--shadow), var(--glow); }
+.section-cards .tab.scard[aria-selected="true"] { border-color: var(--accent); background: var(--surface); }
+.scard .sc-ic { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--border-strong); }
+.scard .sc-ic svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.scard .sc-t { font-family: var(--display); font-weight: 600; font-size: 15px; display: inline-flex; gap: 8px; align-items: center; }
+.scard .sc-d { color: var(--muted); font-size: 12.5px; line-height: 1.45; min-height: 36px; }
+.scard .sc-go { margin-top: auto; color: var(--accent); font-weight: 700; font-size: 12px; font-family: var(--display); letter-spacing: .06em; }
+.section-cards.feature .tab.scard { padding: 20px; border-color: var(--border-strong); background: linear-gradient(135deg, var(--surface), var(--accent-soft)); }
+.section-cards.feature .scard .sc-t { font-size: 17px; } .section-cards.feature .scard .sc-ic { width: 46px; height: 46px; }
+.sheet-back { position: fixed; inset: 0; z-index: 65; background: rgba(2, 4, 12, .72); backdrop-filter: blur(4px); display: grid; place-items: center; padding: 20px; }
+.sheet { width: min(1380px, 100%); height: min(94vh, 100%); display: flex; flex-direction: column; background: var(--bg-2, var(--surface-solid)); background-color: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: 20px; box-shadow: var(--shadow), var(--glow); overflow: hidden; animation: sheetin .22s ease-out; }
+@keyframes sheetin { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+.sheet-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.sheet-bar h2 { font-size: 20px; }
+.sheet-body { flex: 1; overflow: auto; padding: 20px; }
+body.sheet-open { overflow: hidden; }
+@media (max-width: 700px) { .sheet-back { padding: 0; } .sheet { height: 100%; border-radius: 0; } .sheet-body { padding: 14px; } }
