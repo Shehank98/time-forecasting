@@ -112,7 +112,7 @@
   const VIEWS = { clients, users, brand, settings };
   App.shell.init('admin').then((me) => {
     if (!me.user.is_admin) { root().innerHTML = App.emptyState('Admins only', 'Ask an agency admin for access.'); return; }
-    $$('.tab').forEach((t) => { t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', String(x === t))); VIEWS[t.dataset.t]().catch?.((e) => App.toast(e.message, 'error')); }; });
+    $$('.tab').forEach((t) => { t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', String(x === t))); Promise.resolve().then(() => VIEWS[t.dataset.t]()).catch((e) => App.toast(e.message, 'error')); }; });
     clients().catch((e) => App.toast(e.message, 'error'));
   }).catch((e) => { if (e.status !== 401) App.toast(e.message, 'error'); });
 })(window.App);
