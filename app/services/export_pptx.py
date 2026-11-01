@@ -174,7 +174,7 @@ class Deck:
         self.text(s, rep.branding.get("disclaimer", ""), Inches(0.6), Inches(6.3), Inches(12.1), Inches(0.6), 10, False, MUTED)
         if rep.forecast:
             s = self.slide("Appendix: forecast reliability", "Backtest on the most recent periods against a seasonal naive baseline")
-            rows = [["Entity", "Reliability", "History", "sMAPE", "MASE", "Inside P10-P90", "Baseline sMAPE"]]
+            rows = [["Entity", "Reliability", "History", "sMAPE", "MASE", "Inside low-high range", "Baseline sMAPE"]]
             for r in rep.forecast["results"][:12]:
                 bt = r.get("backtest") or {}
                 m, b = bt.get("model", {}), bt.get("baseline", {})

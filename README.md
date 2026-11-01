@@ -23,6 +23,16 @@ Both TV cards share a **global control bar**: the TVR and LMRB uploaders, a fore
 | **TVR & Audience Forecast** | Projected average TVR, Guaranteed minimum TVR (P10), Projected reach %, Top growing category | TVR fan chart (history solid, forecast dashed, P10 to P90 ribbon; the tooltip converts it into guaranteed GRPs for your spots per day and the shortfall risk), daypart by weekday heatmap of forecast TVR share, category share shift (stacked to 100%), channel momentum, programme risk map, reach outlook |
 | **Market & Competitor Forecast** | Predicted competitor spend, Predicted spot volume, High-clutter alert (max AdsinBrk), Best estimated CPRP slot | Competitor spend and next move per advertiser in the chosen product group, with *Predicted Competitor Campaign Burst* markers (a forecast day more than 25% above the trailing 7-day average), break clutter and position combo (rising clutter in red, PosinBrk 1 to 2 advice), CPRP efficiency bubbles (forecast rating vs forecast spot cost, size = clutter, colour = channel) with the *Optimal Buying Zone*, share of voice forecast, daypart spend shift, cost inflation outlook |
 
+**Plain words, not statistics.** Forecasts are shown as three numbers: **most likely** (the best single guess), **low case** (a safe floor the real number should reach about 9 times in 10, used for guarantees) and **high case** (the upside). Reports and tables show the technical names in brackets (P50, P10, P90).
+
+**Intro film.** After sign-in an animated, no-time-limit film explains how the system works, how to read a forecast and what each card can find. It advances with Next (or auto-play, which can be paused), and "Don't show this again" turns it off per user. **Watch intro** in the sidebar replays it.
+
+**Check the numbers.** Every chart has a **Numbers** button with the exact actual and forecast values, an accuracy check on recent months the engine had not seen, and a CSV download. Everything marked FORECAST has a purple badge, dashed border and hatched zone.
+
+More forecasts for media specialists: channel audience share, channel by daypart TVR, genre share, competitor spend by channel, channel mix, share of audience delivered (GRPs) and the cost per rating point outlook.
+
+The Client KPI Forecast card is hidden from Mission control and the sidebar (`SHOW_KPI` in `app/static/js/home.js`); the page still exists at `/kpi.html`.
+
 Every chart has a **?** icon: hover or focus it to read how the chart predicts (or is built) and what a planner gets from it.
 Under each forecast chart a **Planner's Evidence** box states the numbers in plain language and ends with a recommendation. The evidence also feeds AI insights and the client reports.
 

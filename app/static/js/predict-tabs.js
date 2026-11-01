@@ -64,7 +64,7 @@
       { label: nowLabel, data: r.map((x) => x.now), backgroundColor: 'rgba(142,154,200,.45)', borderRadius: 4, barThickness: 11 },
       { label: nextLabel, data: r.map((x) => x.next), backgroundColor: r.map((x) => (x.chg >= 0 ? (C.css('--good') || '#22f5a6') + 'cc' : (C.css('--bad') || '#ff5d7a') + 'cc')), borderRadius: 4, barThickness: 11 }] },
       options: { indexAxis: 'y', plugins: { legend: { position: 'bottom', labels: { generateLabels: () => [
-          { text: nowLabel, fillStyle: 'rgba(142,154,200,.6)', strokeStyle: 'transparent', lineWidth: 0 }, { text: nextLabel + ' (green = gaining, red = losing)', fillStyle: (C.css('--good') || '#22f5a6'), strokeStyle: 'transparent', lineWidth: 0 }] } },
+          { text: nowLabel, fontColor: C.css('--text'), fillStyle: 'rgba(142,154,200,.6)', strokeStyle: 'transparent', lineWidth: 0 }, { text: nextLabel + ' (green = gaining, red = losing)', fontColor: C.css('--text'), fillStyle: (C.css('--good') || '#22f5a6'), strokeStyle: 'transparent', lineWidth: 0 }] } },
           tooltip: { callbacks: { title: (it) => title(r[it[0].dataIndex].name), label: (c) => `${c.dataset.label}: ${fmt.num(c.parsed.x, 1)}%` } } },
         scales: { x: { beginAtZero: true, ticks: { callback: (v) => v + '%' } }, y: { grid: { display: false }, ticks: { font: { size: 11 } } } } } });
   }
@@ -72,9 +72,10 @@
   const smooth = (a, k) => a.map((_, i) => { const w = a.slice(Math.max(0, i - k + 1), i + 1).filter(finite); return w.length ? w.reduce((x, y) => x + y, 0) / w.length : null; });
 
   /** Explains how to tell actual numbers from forecast numbers. Shown at the top of both prediction tabs. */
-  const forecastKey = (M) => `<div class="fc-key" role="note"><div class="fc-key-t"><span class="fc-pill">Forecast</span> How to read this page</div>
-    <div class="fc-key-row"><span><i class="k-actual"></i>Solid line: <b>actual</b> recorded data</span><span><i class="k-fc"></i>Dashed line: <b>forecast</b>, the most likely path (P50)</span><span><i class="k-band"></i>Shaded band: the likely <b>range</b> (P10 low case, P90 high case)</span><span><i class="k-zone"></i>Hatched area and cards marked <b>FORECAST</b>: numbers that have not happened yet</span></div>
-    <div class="fc-key-note">Every number marked FORECAST is an estimate of the next ${M ? 'months' : 'days'} based on your history. It is not recorded data and can be wrong, so use the low case (P10) for guarantees.</div></div>`;
+  const forecastKey = (M) => `<div class="fc-key" role="note"><div class="fc-key-t"><span class="fc-pill">Forecast</span> How to read this page <button class="btn sm ghost" type="button" data-intro style="margin-left:auto">Watch the intro film</button></div>
+    <div class="fc-key-row"><span><i class="k-actual"></i>Solid line: <b>actual</b>, recorded data</span><span><i class="k-fc"></i>Dashed line: <b>forecast</b>, the most likely path</span><span><i class="k-band"></i>Shaded band: the <b>range</b> between the low case and the high case</span><span><i class="k-zone"></i>Hatched area and cards marked <b>FORECAST</b>: numbers that have not happened yet</span></div>
+    <div class="fc-key-row" style="margin-top:8px"><span><b>Most likely</b>: the best single guess</span><span><b>Low case</b>: a safe floor. The real number should be at least this about 9 times in 10, so use it for guarantees</span><span><b>High case</b>: the upside. The real number should be at or below this about 9 times in 10</span></div>
+    <div class="fc-key-note">Every number marked FORECAST is an estimate of the next ${M ? 'months' : 'days'} based on your own history. It is not recorded data and it can be wrong.</div></div>`;
 
   /** Centre-of-screen loader; returns the progress callback. Call App.loader.hide() when done. */
   function scanning(p, title) {
@@ -107,16 +108,16 @@
     ctx.fillRect(x0, y0, ar.right - x0, ar.bottom - y0); ctx.strokeRect(x0, y0, ar.right - x0, ar.bottom - y0);
     ctx.setLineDash([]); ctx.fillStyle = C.css('--good') || '#22f5a6'; ctx.font = '700 11px ' + (C.css('--display') || 'sans-serif'); ctx.fillText('OPTIMAL BUYING ZONE', x0 + 8, ar.bottom - 10); ctx.restore(); } };
 
-  /** History (solid) + forecast P50 (dashed) + P10-P90 ribbon. */
-  function fan(id, r, H, { color = C.PALETTE[0], histDays = HIST, vf = f2, afterBody, lowLabel = 'P10' } = {}) {
+  /** History (solid) + forecast most likely (dashed) + low case-high case ribbon. */
+  function fan(id, r, H, { color = C.PALETTE[0], histDays = HIST, vf = f2, afterBody, lowLabel = 'Low case' } = {}) {
     const f = slice(r, H), hd = r.history.dates.slice(-histDays), hv = r.history.values.slice(-histDays), nh = hd.length;
     const labels = hd.concat(f.dates), pad = (a) => Array(nh - 1).fill(null).concat([hv[nh - 1]], a);
     const ch = C.make(id, { type: 'line', data: { labels, datasets: [
-      { label: 'P90', data: pad(f.p90), borderColor: 'transparent', backgroundColor: color + '2e', fill: '+1', pointRadius: 0 },
+      { label: 'High case', data: pad(f.p90), borderColor: 'transparent', backgroundColor: color + '2e', fill: '+1', pointRadius: 0 },
       { label: lowLabel, data: pad(f.p10), borderColor: color + '88', borderWidth: 1, borderDash: [2, 3], fill: false, pointRadius: 0 },
-      { label: 'Forecast P50', data: pad(f.p50), borderColor: color, borderDash: [7, 5], borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
+      { label: 'Most likely forecast', data: pad(f.p50), borderColor: color, borderDash: [7, 5], borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
       { label: 'Actual', data: hv.concat(Array(f.dates.length).fill(null)), borderColor: C.css('--text') || '#e8eeff', borderWidth: 2, pointRadius: 0, tension: 0.25 }] },
-      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { filter: (i) => i.text !== 'P90' } }, nowLine: { index: nh - 1 },
+      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { filter: (i) => i.text !== 'High case' } }, nowLine: { index: nh - 1 },
         tooltip: { callbacks: { title: C.fcTitle(nh), label: (c) => (c.parsed.y == null ? null : `${c.dataset.label}: ${vf(c.parsed.y)}`), afterBody: afterBody ? (items) => afterBody(items[0].dataIndex - nh) : undefined } } },
         scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }, y: { beginAtZero: false, ticks: { callback: (v) => vf(v) } } } },
       plugins: [nowLine] });
@@ -152,13 +153,13 @@
         `<label class="row small" title="Used for the guaranteed GRP tooltip">Spots per day <input type="number" min="1" max="200" value="${spotsPerDay}" id="spd" style="width:72px"></label>`)}
       ${forecastKey(M)}${M ? monthNote(pc) : ''}${(pr.payload.notes || []).filter((n) => !/interpolation/.test(n)).map((n) => `<div class="banner info"><span>${esc(n)}</span></div>`).join('')}
       <div class="kpis">
-        ${kpiTile('Projected average TVR', f2(pTVR), `${signed(pct(pTVR, recentT), 1)} vs last 4 weeks (${f2(recentT)})`, App.help('Mean of the daily P50 forecast of the average programme TVR over the horizon.', 'The audience level to plan on for an average airing.'))}
-        ${kpiTile('Guaranteed minimum TVR (P10)', f2(gTVR), `9 in 10 days should land above this. Upside P90 ${f2(upTVR)}`, App.help('Mean of the daily P10 quantile: the forecast engine expects actuals to fall below it only about 10% of the time.', 'A safe number for audience guarantees and GRP commitments.'))}
-        ${kpiTile('Projected reach %', fR ? fmt.pct(avg(fR.p50), 1) : 'n/a', fR ? `Range ${fmt.pct(avg(fR.p10), 1)} to ${fmt.pct(avg(fR.p90), 1)}` : 'Reach % is not in the sheet', App.help('Mean of the daily P50 forecast of average Reach % per airing.', 'How much of the audience an average airing is expected to touch.'))}
+        ${kpiTile('Projected average TVR', f2(pTVR), `${signed(pct(pTVR, recentT), 1)} vs last 4 weeks (${f2(recentT)})`, App.help('Mean of the daily most likely forecast of the average programme TVR over the horizon.', 'The audience level to plan on for an average airing.'))}
+        ${kpiTile('Guaranteed minimum TVR (low case)', f2(gTVR), `9 in 10 days should land above this. Upside high case ${f2(upTVR)}`, App.help('Mean of the daily low case estimate: the forecast engine expects actuals to fall below it only about 10% of the time.', 'A safe number for audience guarantees and GRP commitments.'))}
+        ${kpiTile('Projected reach %', fR ? fmt.pct(avg(fR.p50), 1) : 'n/a', fR ? `Range ${fmt.pct(avg(fR.p10), 1)} to ${fmt.pct(avg(fR.p90), 1)}` : 'Reach % is not in the sheet', App.help('Mean of the daily most likely forecast of average Reach % per airing.', 'How much of the audience an average airing is expected to touch.'))}
         ${kpiTile('Top growing category', growing[0] ? esc(growing[0].name) : 'n/a', growing[0] ? `${growing[0].shift >= 0 ? '+' : ''}${f1(growing[0].shift)} pts of TVR share` : '', App.help('Each category\'s share of total TVR is forecast; the one gaining the most share points versus the last 4 weeks is shown.', 'Where audience attention is moving, for content and programme selection.'))}
       </div>
-      <div style="margin-top:16px">${C.box('pt-fan', 'TVR fan chart: history and forecast range', 'Solid: actual daily average TVR. Dashed: forecast P50. Band: P10 to P90. Hover a forecast day for guaranteed GRPs and shortfall risk.', { xtall: true, ev: true,
-        help: ['The forecast engine reads up to 1,024 days of the daily average TVR and outputs quantiles for each future day, adjusted for weekday and Sri Lankan holiday and Poya day effects. P10 and P90 bound the range it expects 8 days in 10.', 'A defensible audience plan: P50 for the expected delivery, P10 for guarantees. The tooltip converts it to GRPs for your spots per day and shows the shortfall risk if you sell on P50.'] })}</div>
+      <div style="margin-top:16px">${C.box('pt-fan', 'TVR fan chart: history and forecast range', 'Solid: actual daily average TVR. Dashed: forecast most likely. Band: low case to high case. Hover a forecast day for guaranteed GRPs and shortfall risk.', { xtall: true, ev: true,
+        help: ['The forecast engine reads up to 1,024 days of the daily average TVR and outputs estimates for each future day, adjusted for weekday and Sri Lankan holiday and Poya day effects. Low case and high case bound the range it expects 8 days in 10.', 'A defensible audience plan: most likely for the expected delivery, low case for guarantees. The tooltip converts it to GRPs for your spots per day and shows the shortfall risk if you sell on most likely.'] })}</div>
       <div class="grid g2" style="margin-top:16px">
         ${C.box('pt-heat', M ? 'Daypart by month heatmap' : 'Daypart and day-of-week heatmap', `Forecast ${pc.heat_metric === 'share' ? 'TVR share %' : 'average TVR'} by start hour and ${M ? 'month' : 'weekday'}, next ${SPAN}`, { html: '', ev: true,
           help: [M ? 'One series per start hour is forecast month by month; each row is a forecast month and each column a start hour.' : 'One series per start hour is forecast; each forecast day is placed in its weekday column and averaged. Weekdays missing from a short horizon stay empty.', 'The strongest hour and day combinations to book, and weak belts to avoid or buy cheaply.'] })}
@@ -166,35 +167,34 @@
           help: ['Each channel\'s share of total TVR is forecast month by month (or day by day). Bars compare the forecast share with the recent share; the change in share points is written beside each channel.', 'Which stations are winning or losing audience share, so you can move weight before rate cards change.'] })}
       </div>
       <div class="grid g2" style="margin-top:16px">
-        ${C.box('pt-chan', 'Channel momentum', `Projected change in average TVR, next ${SPAN} vs last 4 weeks`, { ev: true,
-          help: ['The average TVR of each channel is forecast; bars compare the forecast mean with the last 4 weeks. Whiskers in the tooltip show the P10 to P90 range.', 'Channels gaining or losing audience momentum before the ratings show it.'] })}
-        ${C.box('pt-risk', 'Programme risk map', 'Recurring slots: forecast TVR vs uncertainty (P90 minus P10 as % of P50)', { ev: true,
+        ${C.box('pt-risk', 'Programme risk map', 'Recurring programme slots: expected TVR against how wide the range is. Low and to the right is the safest bet.', { ev: true,
           help: ['Each recurring programme slot (same programme, channel, weekday and start) is forecast weekly. X is the expected TVR, Y the width of its forecast range. Low and to the right is a safe bet.', 'Separate dependable programmes for guarantees from volatile ones to buy only at a discount.'] })}
+        ${C.box('pt-chdp', 'Channel by daypart: forecast TVR', `Average TVR each channel is expected to deliver in each daypart, next ${SPAN}`, { html: '', ev: true,
+          help: ['Each channel and daypart pair is forecast separately and averaged over the horizon. Brighter cells mean higher expected ratings.', 'Where to buy: the strongest channel and daypart combinations, and weak spots to avoid or buy cheaply.'] })}
       </div>
       <div class="grid g2" style="margin-top:16px">
         ${C.box('pt-cat', 'Category audience share', `Each genre's share of all TVR: last 4 weeks vs next ${SPAN}`, { tall: true, ev: true,
           help: ['Each category\'s share of total TVR is forecast separately. Bars compare the forecast share with the recent share; the change in share points is written beside each category.', 'Which genres are gaining or losing audience, to steer programme and sponsorship choices.'] })}
-        ${C.box('pt-chdp', 'Channel by daypart: forecast TVR', `Average TVR each channel is expected to deliver in each daypart, next ${SPAN}`, { html: '', ev: true,
-          help: ['Each channel and daypart pair is forecast separately and averaged over the horizon. Brighter cells mean higher expected ratings.', 'Where to buy: the strongest channel and daypart combinations, and weak spots to avoid or buy cheaply.'] })}
-      </div>
-      ${fR ? `<div style="margin-top:16px">${C.box('pt-reach', 'Reach % outlook', 'Average Reach % per airing: actual and forecast range', { ev: true, help: ['The same the forecast engine fan forecast applied to the daily average Reach %.', 'Expected breadth of audience per airing, useful for reach-led campaigns.'] })}</div>` : ''}`);
+        ${fR ? `${C.box('pt-reach', 'Reach % outlook', 'Average Reach % per airing: actual and forecast range', { ev: true, help: ['The same the forecast engine fan forecast applied to the daily average Reach %.', 'Expected breadth of audience per airing, useful for reach-led campaigns.'] })}` : ''}
+      </div>`);
     wireRerun(p, key, () => tvrTab(p, ctx));
     markForecast(p, { R, H, M });
+    p.querySelectorAll('[data-intro]').forEach((b) => { b.onclick = () => App.loadIntro().then(() => App.intro.open(true)); });
     const spd = $('#spd', p); spd.onchange = () => { App.store.set('spots-per-day', Math.max(1, +spd.value || 1)); tvrTab(p, ctx); };
     const ev = {};
 
     // 1. fan chart with guaranteed GRP tooltip
-    fan('pt-fan', tot, H, { lowLabel: 'P10 (guaranteed)', afterBody: (k) => {
+    fan('pt-fan', tot, H, { lowLabel: 'Low case (safe floor)', afterBody: (k) => {
       if (k < 0 || k >= fT.dates.length) return [];
       const g = fT.p10[k] * spotsPerDay, e = fT.p50[k] * spotsPerDay, risk = fT.p50[k] > 0 ? ((fT.p50[k] - fT.p10[k]) / fT.p50[k]) * 100 : 0;
-      return ['', `Guaranteed GRPs (${spotsPerDay} spots, P10): ${f1(g)}`, `Expected GRPs (P50): ${f1(e)}`, `Shortfall risk if sold on P50: up to ${risk.toFixed(0)}%`];
+      return ['', `Guaranteed GRPs (${spotsPerDay} spots, low case): ${f1(g)}`, `Expected GRPs (most likely): ${f1(e)}`, `Shortfall risk if sold on most likely: up to ${risk.toFixed(0)}%`];
     } });
     const riskPct = pTVR > 0 ? ((pTVR - gTVR) / pTVR) * 100 : null;
     ev.fan = [
-      `Average TVR is expected at ${f2(pTVR)} over the next ${SPAN} (P10 floor ${f2(gTVR)}, P90 upside ${f2(upTVR)}), ${signed(pct(pTVR, recentT), 1)} versus the last 4 weeks.`,
-      `For ${spotsPerDay} spots a day that is about ${f1(gTVR * spotsPerDay)} guaranteed GRPs a day (P10) and ${f1(pTVR * spotsPerDay)} expected (P50).`,
+      `Average TVR is expected at ${f2(pTVR)} over the next ${SPAN} (low-case floor ${f2(gTVR)}, high-case upside ${f2(upTVR)}), ${signed(pct(pTVR, recentT), 1)} versus the last 4 weeks.`,
+      `For ${spotsPerDay} spots a day that is about ${f1(gTVR * spotsPerDay)} guaranteed GRPs a day (low case) and ${f1(pTVR * spotsPerDay)} expected (most likely).`,
       tot.reliability ? `Forecast reliability is ${tot.reliability.level}${tot.backtest && tot.backtest.model.smape != null ? `; in the last ${tot.backtest.holdout} ${M ? 'months' : 'days'} the model was off by ${f1(tot.backtest.model.smape)}% on average` : ''}.` : null,
-      { rec: true, text: riskPct != null && riskPct > 30 ? `The range is wide (up to ${riskPct.toFixed(0)}% below P50 on weak days). Sell audience guarantees on the P10 value, or spread spots across more programmes.` : `The range is tight. Guarantees can be set close to P50 with a small buffer (about ${(riskPct || 0).toFixed(0)}%).` },
+      { rec: true, text: riskPct != null && riskPct > 30 ? `The range is wide (up to ${riskPct.toFixed(0)}% below most likely on weak days). Sell audience guarantees on the low case value, or spread spots across more programmes.` : `The range is tight. Guarantees can be set close to most likely with a small buffer (about ${(riskPct || 0).toFixed(0)}%).` },
     ];
     (tot.peaks && tot.peaks.peaks || []).slice(0, 2).forEach((pk) => { if (pk.date <= fT.dates[fT.dates.length - 1]) ev.fan.push({ rec: true, text: `Audience peak expected around ${pk.date}; have spots live by ${pk.launch_by}.` }); });
     evid('pt-fan', ev.fan);
@@ -229,21 +229,6 @@
       evid('pt-cat', ev.cat);
     }
 
-    // 4. channel momentum
-    const mom = chans.map((r) => { const f = slice(r, H); return { name: r.entity, now: MR.recentMean(r, NOW), next: avg(f.p50), lo: avg(f.p10), hi: avg(f.p90) }; }).map((x) => ({ ...x, chg: pct(x.next, x.now) })).filter((x) => finite(x.chg)).sort((a, b) => b.chg - a.chg);
-    if (mom.length) {
-      C.make('pt-chan', { type: 'bar', data: { labels: mom.map((x) => fmt.title(x.name)), datasets: [{ label: 'Projected change', data: mom.map((x) => x.chg), backgroundColor: mom.map((x) => (x.chg >= 0 ? (C.css('--good') || '#22f5a6') + 'cc' : (C.css('--bad') || '#ff5d7a') + 'cc')), borderRadius: 6, maxBarThickness: 34 }] },
-        options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `Change: ${signed(c.parsed.x, 1)}`, afterLabel: (c) => { const x = mom[c.dataIndex]; return `TVR ${f2(x.now)} now, ${f2(x.next)} forecast (P10 ${f2(x.lo)} to P90 ${f2(x.hi)})`; } } } },
-          scales: { x: { ticks: { callback: (v) => v + '%' } }, y: { grid: { display: false } } } } });
-      const up = mom.filter((x) => x.chg > 3), down = mom.filter((x) => x.chg < -3).reverse();
-      ev.chan = [
-        up.length ? `Gaining: ${up.slice(0, 3).map((x) => `${fmt.title(x.name)} ${signed(x.chg, 1)}`).join(', ')}.` : 'No channel is gaining more than 3%.',
-        down.length ? `Losing: ${down.slice(0, 3).map((x) => `${fmt.title(x.name)} ${signed(x.chg, 1)}`).join(', ')}.` : 'No channel is losing more than 3%.',
-        { rec: true, text: up.length ? `Negotiate volume on ${fmt.title(up[0].name)} now, before rate cards catch up with its audience.` : 'Hold channel weights steady; momentum is flat.' },
-      ];
-    } else ev.chan = ['Not enough channel history.'];
-    evid('pt-chan', ev.chan);
-
     // 5. programme risk map
     const pts = progs.map((r) => { const f = slice(r, H); const m = avg(f.p50); return { name: r.entity, x: m, y: m > 0 ? (avg(f.p90) - avg(f.p10)) / m * 100 : null }; }).filter((q) => finite(q.x) && finite(q.y));
     if (pts.length) {
@@ -251,7 +236,7 @@
       C.make('pt-risk', { type: 'scatter', data: { datasets: [{ label: 'Programme slots', data: pts, pointRadius: 7, pointHoverRadius: 10,
         backgroundColor: pts.map((q) => (q.x >= mx && q.y <= my ? (C.css('--good') || '#22f5a6') : q.y > my * 1.3 ? (C.css('--bad') || '#ff5d7a') : C.PALETTE[1])) }] },
         options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => { const q = pts[c.dataIndex]; return [short(q.name, 60), `Forecast TVR ${f2(q.x)}, range width ${q.y.toFixed(0)}%`]; } } } },
-          scales: { x: { title: { display: true, text: 'Forecast TVR (P50)' } }, y: { title: { display: true, text: 'Uncertainty (% of P50)' }, ticks: { callback: (v) => v + '%' } } } } });
+          scales: { x: { title: { display: true, text: 'Expected TVR (most likely)' } }, y: { title: { display: true, text: 'How wide the range is (% of the most likely value)' }, ticks: { callback: (v) => v + '%' } } } } });
       const safe = pts.filter((q) => q.x >= mx && q.y <= my).sort((a, b) => b.x - a.x), risky = pts.filter((q) => q.y > my * 1.3).sort((a, b) => b.y - a.y);
       const nm = (q) => q.name.split(' | ').slice(0, 3).join(', ');
       ev.risk = [
@@ -295,12 +280,12 @@
 
     // 6. reach
     if (fR) {
-      fan('pt-reach', reach, H, { color: C.PALETTE[1], vf: (v) => fmt.pct(v, 1) });
-      ev.reach = [`Average reach per airing is expected at ${fmt.pct(avg(fR.p50), 1)} (P10 ${fmt.pct(avg(fR.p10), 1)}), ${signed(pct(avg(fR.p50), MR.recentMean(reach, NOW)), 1)} versus the last 4 weeks.`];
+      fan('pt-reach', reach, H, { color: C.PALETTE[1], vf: (v) => fmt.pct(v, 2) });
+      ev.reach = [`Average reach per airing is expected at ${fmt.pct(avg(fR.p50), 1)} (low case ${fmt.pct(avg(fR.p10), 1)}), ${signed(pct(avg(fR.p50), MR.recentMean(reach, NOW)), 1)} versus the last 4 weeks.`];
       evid('pt-reach', ev.reach);
     }
     App.predictEvidence.tv = { title: 'TVR & Audience Forecast', horizon: H, span: SPAN, lines: flatten(ev).map(w),
-      kpis: [['Projected average TVR', f2(pTVR)], ['Guaranteed minimum TVR (P10)', f2(gTVR)], ['Projected reach %', fR ? fmt.pct(avg(fR.p50), 1) : 'n/a'], ['Top growing category', growing[0] ? growing[0].name : 'n/a']],
+      kpis: [['Projected average TVR', f2(pTVR)], ['Guaranteed minimum TVR (low case)', f2(gTVR)], ['Projected reach %', fR ? fmt.pct(avg(fR.p50), 1) : 'n/a'], ['Top growing category', growing[0] ? growing[0].name : 'n/a']],
       result: subset(pr.res, R, ['tvr_total', 'channel_tvr', 'reach_total']) };
   }
 
@@ -341,12 +326,12 @@
     p.innerHTML = w(`${headCard('Market & Competitor Forecast', `${pc.product_group}: next ${SPAN} from ${pc.date_max}, ${fmt.num(pc.group_rows)} spots in the group.`, spots, groupSel)}
       ${forecastKey(M)}${M ? monthNote(pc) : ''}${(pr.payload.notes || []).filter((n) => !/interpolation/.test(n)).map((n) => `<div class="banner info"><span>${esc(n)}</span></div>`).join('')}
       <div class="kpis">
-        ${kpiTile('Predicted competitor spend', fmt.lkrc(rivalNext), `${signed(pct(rivalNext, rivalPrev), 0)} vs the previous ${SPAN}. Range ${fmt.lkrc(total(rivals.map((x) => x.lo)))} to ${fmt.lkrc(total(rivals.map((x) => x.hi)))}`, App.help('Sum of the daily P50 spend forecasts for the top competitors in the product group (your brand excluded).', 'How much pressure to expect from rivals, for budget defence.'))}
-        ${kpiTile('Predicted spot volume', fS ? fmt.num(total(fS.p50)) : 'n/a', fS ? `About ${fmt.num(avg(fS.p50), 0)} spots a day in ${esc(pc.product_group)}` : '', App.help('P50 forecast of daily spot counts for the whole product group, summed over the horizon.', 'Category clutter in the period: more spots means each one works harder to stand out.'))}
+        ${kpiTile('Predicted competitor spend', fmt.lkrc(rivalNext), `${signed(pct(rivalNext, rivalPrev), 0)} vs the previous ${SPAN}. Range ${fmt.lkrc(total(rivals.map((x) => x.lo)))} to ${fmt.lkrc(total(rivals.map((x) => x.hi)))}`, App.help('Sum of the daily most likely spend forecasts for the top competitors in the product group (your brand excluded).', 'How much pressure to expect from rivals, for budget defence.'))}
+        ${kpiTile('Predicted spot volume', fS ? fmt.num(total(fS.p50)) : 'n/a', fS ? `About ${fmt.num(avg(fS.p50), 0)} spots a day in ${esc(pc.product_group)}` : '', App.help('Most likely forecast of daily spot counts for the whole product group, summed over the horizon.', 'Category clutter in the period: more spots means each one works harder to stand out.'))}
         ${kpiTile('High-clutter alert', worst ? `${fmt.num(worst.next, 1)} ads/break` : 'n/a', worst ? `${esc(short(worst.name, 40))}${worst.rising ? ' (rising)' : ''}` : 'AdsinBrk not available', App.help('Average AdsinBrk is forecast for the programmes this group buys; the highest expected break length is flagged.', 'Breaks to avoid, or to buy only in first position.'), worst && worst.rising ? 'alert-kpi' : '')}
         ${kpiTile('Best estimated CPRP slot', zone && zone.best ? fmt.lkrc(zone.best.cprp) : 'n/a', zone && zone.best ? esc(short(zone.best.name, 42)) : 'Load the TVR sheet to rate slots', App.help('Cost per rating point = forecast average spot cost divided by forecast spot rating (matched programme TVR), for the most-used slots.', 'The cheapest rating points to buy next, inside the optimal buying zone where possible.'))}
       </div>
-      <div style="margin-top:16px">${C.box('pm-spend', 'Competitor spend and next move', `${M ? 'Spend' : '7-day average of daily spend'} per advertiser in ${pc.product_group}. Solid: actual. Dashed: forecast P50. Triangles: predicted campaign bursts.`, { xtall: true, ev: true,
+      <div style="margin-top:16px">${C.box('pm-spend', 'Competitor spend and next move', `${M ? 'Spend' : '7-day average of daily spend'} per advertiser in ${pc.product_group}. Solid: actual. Dashed: forecast most likely. Triangles: predicted campaign bursts.`, { xtall: true, ev: true,
         help: ['Each advertiser\'s daily spend is forecast with the forecast engine. A forecast day more than 25% above that advertiser\'s trailing 7-day average is flagged as a Predicted Competitor Campaign Burst.', 'Early warning of rival launches and bursts, so you can defend share of voice or book inventory before prices rise.'] })}</div>
       <div class="grid g2" style="margin-top:16px">
         ${C.box('pm-clutter', 'Break clutter and position', 'Bars: forecast average ads per break (red = rising). Line: average position in break.', { tall: true, ev: true,
@@ -370,12 +355,13 @@
         ${C.box('pm-sog', 'Share of audience delivered: now vs forecast', `Share of GRPs (rating points) by advertiser: last 4 weeks vs next ${SPAN}`, { tall: true, ev: true,
           help: ['Each spot is matched to the programme airing at that time and given its rating. Each advertiser\'s share of all rating points is forecast and compared with the recent share.', 'Share of audience is a truer share of voice than share of spend: it shows who is actually reaching viewers.'] })}
         ${C.box('pm-cprp', 'Cost per rating point outlook', 'Average cost to buy one rating point in the group: actual and forecast range', { tall: true, ev: true,
-          help: ['Spend divided by rating points delivered is forecast as a fan with P10 to P90.', 'Whether audience is getting more or less expensive, to time bookings and negotiate rates.'] })}
+          help: ['Spend divided by rating points delivered is forecast as a fan with low case to high case.', 'Whether audience is getting more or less expensive, to time bookings and negotiate rates.'] })}
       </div>` : ''}
       ${cps ? `<div style="margin-top:16px">${C.box('pm-cps', 'Cost inflation outlook', 'Average cost per second in the group: actual and forecast range', { ev: true,
-        help: ['Total spend divided by total seconds per day, forecast as a fan with P10 to P90.', 'Whether media costs are drifting up, to time bookings and negotiate rates.'] })}</div>` : ''}`);
+        help: ['Total spend divided by total seconds per day, forecast as a fan with low case to high case.', 'Whether media costs are drifting up, to time bookings and negotiate rates.'] })}</div>` : ''}`);
     wireRerun(p, key, () => marketTab(p, ctx));
     markForecast(p, { R, H, M });
+    p.querySelectorAll('[data-intro]').forEach((b) => { b.onclick = () => App.loadIntro().then(() => App.intro.open(true)); });
     $('#mk-group', p).onchange = (e) => { App.store.set('mk-group:' + App.clientId(), e.target.value); marketTab(p, ctx); };
     $('#mk-brand', p).onchange = (e) => { ctx.setPersp({ my_brand: e.target.value }); marketTab(p, ctx); };
     const ev = {};
@@ -557,15 +543,15 @@
     return rs.length ? { ...res, results: rs } : null;
   }
   /** Which forecast groups stand behind each chart. */
-  const NUMS = { 'pt-fan': ['tvr_total'], 'pt-reach': ['reach_total'], 'pt-chan': ['channel_tvr'], 'pt-chshare': ['channel_share'], 'pt-chdp': ['chan_daypart'], 'pt-cat': ['cat_share'], 'pt-heat': ['hour_share'], 'pt-risk': ['program_tvr'],
+  const NUMS = { 'pt-fan': ['tvr_total'], 'pt-reach': ['reach_total'], 'pt-chshare': ['channel_share'], 'pt-chdp': ['chan_daypart'], 'pt-cat': ['cat_share'], 'pt-heat': ['hour_share'], 'pt-risk': ['program_tvr'],
     'pm-spend': ['comp_spend'], 'pm-sov': ['sov'], 'pm-dp': ['daypart_spend'], 'pm-cps': ['cps_total'], 'pm-chmix': ['chan_mix'], 'pm-advch': ['adv_channel'], 'pm-sog': ['sog'], 'pm-cprp': ['cprp_total'],
     'pm-clutter': ['clutter', 'posinbrk'], 'pm-bubble': ['slot_rating', 'slot_cost'] };
   const valFmt = (u) => ({ currency: (v) => fmt.num(v, 0), percent: (v) => fmt.num(v, 2), rating: (v) => fmt.num(v, 3) }[u] || ((v) => fmt.num(v, 2)));
-  /** Modal with the exact numbers behind a chart: actual history, forecast P10/P50/P90, and how well the model did on recent periods. */
+  /** Modal with the exact numbers behind a chart: actual history, forecast low case/most likely/high case, and how well the model did on recent periods. */
   function numbersModal(title, results, H, M) {
     if (!results.length) { App.toast('No numbers for this chart yet.', 'info'); return; }
     const pick = results.length > 1 ? `<div class="field" style="max-width:420px;margin-bottom:12px"><label for="nm-sel">Series</label><select id="nm-sel">${results.map((r, i) => `<option value="${i}">${esc(r.entity)}</option>`).join('')}</select></div>` : '';
-    const m = App.modal(`Numbers behind: ${title}`, `<div class="banner info"><span>Rows marked <b>FORECAST</b> have not happened yet. They are estimates: P50 is the most likely value, P10 a low case and P90 a high case. Rows marked actual are recorded data.</span></div>${pick}<div id="nm-acc"></div><div id="nm-tbl"></div>`);
+    const m = App.modal(`Numbers behind: ${title}`, `<div class="banner info"><span>Rows marked <b>FORECAST</b> have not happened yet. They are estimates: most likely is the most likely value, low case a low case and high case a high case. Rows marked actual are recorded data.</span></div>${pick}<div id="nm-acc"></div><div id="nm-tbl"></div>`);
     const draw = (i) => {
       const r = results[i], f = slice(r, H), vf = valFmt(r.unit), keep = M ? 24 : 30;
       const hist = r.history.dates.slice(-keep).map((d, k) => { const j = r.history.dates.length - Math.min(keep, r.history.dates.length) + k; return { period: d, kind: 'actual', p10: null, p50: r.history.values[j], p90: null }; });
@@ -573,12 +559,12 @@
       const bt = r.backtest, rel = r.reliability;
       $('#nm-acc', m).innerHTML = `<div class="card" style="margin-bottom:12px"><h3>How much can I trust this?</h3><div class="small" style="margin-top:8px">
         Reliability: <span class="badge ${relCls[rel.level]}">${rel.level}</span> ${esc(rel.reasons.join(' '))}
-        ${bt && bt.model ? `<div style="margin-top:6px">Accuracy check: the engine was tested on the last ${bt.holdout} ${r.granularity === 'monthly' ? 'months' : r.granularity === 'weekly' ? 'weeks' : 'days'} of recorded data, which it had not seen. It was off by <b>${bt.model.smape == null ? 'n/a' : fmt.num(bt.model.smape, 1) + '%'}</b> on average (a simple repeat-last-pattern guess was off by ${bt.baseline.smape == null ? 'n/a' : fmt.num(bt.baseline.smape, 1) + '%'}), and ${bt.model.coverage == null ? 'n/a' : fmt.num(bt.model.coverage, 0) + '%'} of actual values fell inside the P10 to P90 range (about 80% is ideal).</div>` : '<div style="margin-top:6px">There is not enough history for an accuracy test on this series.</div>'}</div></div>`;
+        ${bt && bt.model ? `<div style="margin-top:6px">Accuracy check: the engine was tested on the last ${bt.holdout} ${r.granularity === 'monthly' ? 'months' : r.granularity === 'weekly' ? 'weeks' : 'days'} of recorded data, which it had not seen. It was off by <b>${bt.model.smape == null ? 'n/a' : fmt.num(bt.model.smape, 1) + '%'}</b> on average (a simple repeat-last-pattern guess was off by ${bt.baseline.smape == null ? 'n/a' : fmt.num(bt.baseline.smape, 1) + '%'}), and ${bt.model.coverage == null ? 'n/a' : fmt.num(bt.model.coverage, 0) + '%'} of actual values fell inside the low case to high case range (about 80% is ideal).</div>` : '<div style="margin-top:6px">There is not enough history for an accuracy test on this series.</div>'}</div></div>`;
       const box = $('#nm-tbl', m);
       App.tables.create(box, { csv: 'numbers_' + title.replace(/\W+/g, '_').toLowerCase() + '_' + r.entity.replace(/\W+/g, '_').toLowerCase(), search: false, pageSize: 40, defaultSort: { key: 'period', desc: false },
         rows: hist.concat(fc), columns: [{ key: 'period', label: r.granularity === 'monthly' ? 'Month' : r.granularity === 'weekly' ? 'Week starting' : 'Date' },
           { key: 'kind', label: 'Type', html: (v) => (v === 'FORECAST' ? '<span class="fc-pill" style="margin:0">Forecast</span>' : '<span class="badge">actual</span>') },
-          { key: 'p10', label: 'P10 (low case)', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p50', label: 'Value / P50 (most likely)', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p90', label: 'P90 (high case)', num: true, fmt: (v) => (v == null ? '' : vf(v)) }] });
+          { key: 'p10', label: 'Low case', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p50', label: 'Value / Most likely', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p90', label: 'High case (high case)', num: true, fmt: (v) => (v == null ? '' : vf(v)) }] });
     };
     const sel = $('#nm-sel', m); if (sel) sel.onchange = () => draw(+sel.value);
     draw(0);

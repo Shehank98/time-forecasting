@@ -5,7 +5,7 @@
   const SHOW_KPI = false;   // Client KPI Forecast is hidden for now (page still exists at /kpi.html)
   const ALL_CARDS = [
     { kind: 'tv', href: '/tv.html', cls: 'c1', tag: 'Card 01', title: 'TVR Audience Behaviour Prediction',
-      text: 'Forecast ratings with P10 to P90 ranges, guaranteed audiences and GRPs, reach, daypart and weekday strength, genre share shifts and programme risk.',
+      text: 'Forecast ratings with low case to high case ranges, guaranteed audiences and GRPs, reach, daypart and weekday strength, genre share shifts and programme risk.',
       icon: '<path d="M2 12a10 10 0 0120 0"/><path d="M6 12a6 6 0 0112 0"/><path d="M12 12l5-5"/><circle cx="12" cy="12" r="1.6"/><path d="M4 18h16"/>' },
     { kind: 'lmrb', href: '/lmrb.html', cls: 'c2', tag: 'Card 02', title: 'Market Prediction',
       text: 'Predict competitor spend and campaign bursts, spot volume, break clutter and position, share of voice and the cheapest rating points to buy.',
@@ -49,6 +49,8 @@
         <div class="card"><div class="card-head"><div><h3>Saved forecasts</h3><div class="sub">Forecasts, scenario plans and pacing checks saved for ${esc(c.name)}</div></div></div><div id="h-fc">${App.skeleton(1)}</div></div>
         <div class="card"><div class="card-head"><div><h3>Client reports</h3><div class="sub">Every PDF, PowerPoint and Excel report generated for ${esc(c.name)}</div></div></div><div id="h-rep">${App.skeleton(1)}</div></div></div>
       <div class="card" style="margin-top:16px" id="h-data"></div>`;
+    // right after sign-in: play the intro film unless the planner chose not to see it again
+    try { if (sessionStorage.getItem('intro:pending') === '1') { sessionStorage.removeItem('intro:pending'); App.loadIntro().then(() => App.intro.open(false)); } } catch (e) { /* ignore */ }
     root.querySelectorAll('.home-card').forEach((a) => { a.onclick = (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); launch(CARDS[+a.dataset.i]); }; });
     App.data.status().then((st) => {
       CARDS.forEach((k) => { const el = root.querySelector(`[data-st="${k.kind}"]`); if (el) el.innerHTML = status(k.kind, st); });

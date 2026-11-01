@@ -33,9 +33,9 @@
     p10[nh - 1] = p50[nh - 1] = p90[nh - 1] = last;
     const col = C.PALETTE[0], vf = unitFmt(r.unit);
     const ds = [
-      { label: 'P90', data: p90, borderColor: 'transparent', backgroundColor: col + '30', fill: '+1', pointRadius: 0, order: 5 },
-      { label: 'P10', data: p10, borderColor: 'transparent', backgroundColor: col + '30', fill: false, pointRadius: 0, order: 5 },
-      { label: 'Forecast (P50)', data: p50, borderColor: col, borderDash: [6, 4], pointRadius: 0, order: 2 },
+      { label: 'High case', data: p90, borderColor: 'transparent', backgroundColor: col + '30', fill: '+1', pointRadius: 0, order: 5 },
+      { label: 'Low case', data: p10, borderColor: 'transparent', backgroundColor: col + '30', fill: false, pointRadius: 0, order: 5 },
+      { label: 'Most likely forecast', data: p50, borderColor: col, borderDash: [6, 4], pointRadius: 0, order: 2 },
       { label: 'Actual', data: r.history.values.concat(Array(fd.length).fill(null)), borderColor: C.css('--text') || '#222', backgroundColor: C.css('--text') || '#222', pointRadius: nh > 60 ? 0 : 2, order: 1 },
     ];
     if (r.backtest) {
@@ -52,7 +52,7 @@
     const ch = C.line({ id, labels, datasets: ds, valueFmt: vf });
     if (ch) {
       ch.options.plugins.cp = { lines: r.change_points.map((c) => ({ index: labels.indexOf(c.date) })).filter((l) => l.index >= 0) };
-      const hide = ['P10', 'P90', 'lo'];
+      const hide = ['Low case', 'High case', 'lo'];
       ch.options.plugins.legend.labels.filter = (i) => !hide.includes(i.text);
       ch.options.plugins.tooltip.filter = (i) => !hide.includes(i.dataset.label);
       ch.options.plugins.nowLine = { index: nh - 1 }; ch.config.plugins = [cpPlugin, C.nowLine]; ch.update();
@@ -67,7 +67,7 @@
       <div class="row" style="margin-bottom:12px"><h3>${esc(r.entity)}: ${esc(r.metric_label)}</h3><span class="badge ${relCls[rel.level]}" title="${esc(rel.reasons.join(' '))}">Forecast reliability: ${rel.level}</span>
         <span class="badge info">${r.n_points} ${r.granularity} points</span><span class="badge ${res.backend === 'timesfm' ? 'good' : 'warn'}">${res.backend === 'timesfm' ? 'Forecast engine' : 'Fallback model'}</span></div>
       <ul class="muted small" style="margin:0 0 12px;padding-left:18px">${rel.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}${r.warnings.map((x) => `<li><b>Warning:</b> ${esc(x)}</li>`).join('')}</ul>
-      ${C.box('c-fc', 'Actuals and forecast', 'Solid line: actual data. Dashed line and hatched area: forecast. Blue band: likely range (P10 to P90). Orange band: the range expected for the most recent periods. Red triangles: alerts. Dashed red lines: level shifts.', { tall: true, pill: 'Actual + forecast' })}
+      ${C.box('c-fc', 'Actuals and forecast', 'Solid line: actual data. Dashed line and hatched area: forecast. Blue band: likely range (low case to high case). Orange band: the range expected for the most recent periods. Red triangles: alerts. Dashed red lines: level shifts.', { tall: true, pill: 'Actual + forecast' })}
       <div class="grid g2" style="margin-top:16px">
         <div class="card"><h3>Outlook</h3><div class="stack" style="gap:8px;margin-top:10px">
           <div>Trend: <span class="badge ${o.trend === 'rising' ? 'good' : o.trend === 'falling' ? 'bad' : 'info'}">${esc(o.trend)}</span> ${o.trend_change_pct != null ? fmt.delta(o.trend_change_pct) + ' vs recent' : ''}</div>
@@ -82,7 +82,7 @@
           <tr><td>sMAPE</td><td class="num">${m.smape == null ? 'n/a' : fmt.num(m.smape, 1) + '%'}</td><td class="num">${b.smape == null ? 'n/a' : fmt.num(b.smape, 1) + '%'}</td></tr>
           <tr><td>MAE</td><td class="num">${fmt.compact(m.mae)}</td><td class="num">${fmt.compact(b.mae)}</td></tr>
           <tr><td>MASE</td><td class="num">${m.mase == null ? 'n/a' : fmt.num(m.mase, 2)}</td><td class="num">${b.mase == null ? 'n/a' : fmt.num(b.mase, 2)}</td></tr>
-          <tr><td>Inside P10 to P90</td><td class="num">${m.coverage == null ? 'n/a' : fmt.num(m.coverage, 0) + '%'}</td><td class="num muted">target about 80%</td></tr></tbody></table>
+          <tr><td>Inside low case to high case</td><td class="num">${m.coverage == null ? 'n/a' : fmt.num(m.coverage, 0) + '%'}</td><td class="num muted">target about 80%</td></tr></tbody></table>
           <div class="muted small" style="margin-top:6px">${m.mae <= b.mae ? 'The forecast beat the baseline on MAE.' : 'The baseline was at least as accurate on MAE.'}</div>` : '<div class="muted" style="margin-top:8px">History is too short for a backtest.</div>'}</div>
         <div class="card"><h3>Monitoring alerts</h3><div class="small" style="margin-top:8px">${(r.band_breaches || []).length ? r.band_breaches.map((x) => `<div style="margin-bottom:4px"><span class="badge ${x.severity === 'high' ? 'bad' : 'warn'}">${x.direction}</span> ${esc(x.text)} (actual ${vf(x.actual)}, expected ${vf(x.p10)} to ${vf(x.p90)})</div>`).join('')
           : '<div class="muted">Recent actuals stayed inside the expected band.</div>'}
@@ -92,7 +92,7 @@
     drawChart('c-fc', r);
     T.create(box.querySelector('#fc-table'), { csv: 'forecast_' + r.entity.replace(/\W+/g, '_'), pageSize: 14, defaultSort: { key: 'date', desc: false },
       rows: r.forecast.dates.map((d, i) => ({ date: d, p10: r.forecast.p10[i], p50: r.forecast.p50[i], p90: r.forecast.p90[i] })),
-      columns: [{ key: 'date', label: r.granularity === 'daily' ? 'Date' : r.granularity === 'weekly' ? 'Week starting' : 'Month' }, { key: 'p10', label: 'P10', num: true, fmt: (v) => fmt.num(v, 2) }, { key: 'p50', label: 'P50', num: true, fmt: (v) => fmt.num(v, 2) }, { key: 'p90', label: 'P90', num: true, fmt: (v) => fmt.num(v, 2) }] });
+      columns: [{ key: 'date', label: r.granularity === 'daily' ? 'Date' : r.granularity === 'weekly' ? 'Week starting' : 'Month' }, { key: 'p10', label: 'Low case', num: true, fmt: (v) => fmt.num(v, 2) }, { key: 'p50', label: 'Most likely', num: true, fmt: (v) => fmt.num(v, 2) }, { key: 'p90', label: 'High case', num: true, fmt: (v) => fmt.num(v, 2) }] });
   }
 
   function forecastResults(root, res, ctx, params, savedNote) {
@@ -137,12 +137,12 @@
         ${res.driver_effect ? ` In history, each extra unit of the driver went with ${fmt.num(res.driver_effect.slope, 4)} more results (fit R2 ${fmt.num(res.driver_effect.r2, 2)}).` : ''}
         ${hist != null ? ` Historical ${esc(ratioLabel)}: <b>${fmt.lkr(hist)}</b>.` : ''}</span></div>
       ${rec ? `<div class="banner" style="background:var(--good-soft);border-color:var(--good)"><span><b>Suggested plan: ${esc(rec.scenario)}.</b> Expected ${vfK(rec.kpi_p50)} results for ${vfD(rec.driver_total)}, with each extra result costing about ${fmt.lkr(rec.marginal_ratio)} (within 1.5x the historical average).</span></div>` : ''}
-      <div class="card"><div class="card-head"><div><h3>Scenario comparison</h3><div class="sub">Next ${res.params.horizon_points} ${esc(res.params.granularity)} periods. Ranges are P10 to P90.</div></div><button class="btn sm" id="sc-save" type="button">Save to client</button></div><div id="sc-table"></div></div>
-      <div class="grid g2" style="margin-top:16px">${C.box('c-sc', 'Expected results by scenario', 'All values are forecasts. Bars: P50. Whiskers in the tooltip: P10 to P90.', { pill: 'Forecast' })}${C.box('c-sc2', 'Results over the horizon', 'Forecast P50 per period', { pill: 'Forecast' })}</div>`;
+      <div class="card"><div class="card-head"><div><h3>Scenario comparison</h3><div class="sub">Next ${res.params.horizon_points} ${esc(res.params.granularity)} periods. Ranges are low case to high case.</div></div><button class="btn sm" id="sc-save" type="button">Save to client</button></div><div id="sc-table"></div></div>
+      <div class="grid g2" style="margin-top:16px">${C.box('c-sc', 'Expected results by scenario', 'All values are forecasts. Bars: most likely. Whiskers in the tooltip: low case to high case.', { pill: 'Forecast' })}${C.box('c-sc2', 'Results over the horizon', 'Most likely forecast per period', { pill: 'Forecast' })}</div>`;
     T.create(root.querySelector('#sc-table'), { csv: 'scenarios', search: false, rows: s.map((x) => ({ ...x })), columns: [
       { key: 'scenario', label: 'Scenario' }, { key: 'driver_total', label: 'Planned ' + (params.driver_label || 'driver'), num: true, fmt: vfD },
-      { key: 'kpi_p50', label: 'Expected results (P50)', num: true, fmt: vfK }, { key: 'kpi_p10', label: 'P10', num: true, fmt: vfK }, { key: 'kpi_p90', label: 'P90', num: true, fmt: vfK },
-      { key: 'ratio_p50', label: ratioLabel + ' (P50)', num: true, fmt: (v) => fmt.lkr(v) }, { key: 'ratio_best', label: 'Best case', num: true, fmt: (v) => fmt.lkr(v) }, { key: 'ratio_worst', label: 'Worst case', num: true, fmt: (v) => fmt.lkr(v) },
+      { key: 'kpi_p50', label: 'Expected results (most likely)', num: true, fmt: vfK }, { key: 'kpi_p10', label: 'Low case', num: true, fmt: vfK }, { key: 'kpi_p90', label: 'High case', num: true, fmt: vfK },
+      { key: 'ratio_p50', label: ratioLabel + ' (most likely)', num: true, fmt: (v) => fmt.lkr(v) }, { key: 'ratio_best', label: 'Best case', num: true, fmt: (v) => fmt.lkr(v) }, { key: 'ratio_worst', label: 'Worst case', num: true, fmt: (v) => fmt.lkr(v) },
       { key: 'incremental_kpi', label: 'Extra results vs current', num: true, fmt: (v) => (v == null ? '' : fmt.num(v, 0)) }, { key: 'marginal_ratio', label: 'Cost per extra result', num: true, fmt: (v) => (v == null ? '' : fmt.lkr(v)) }] });
     C.bar({ id: 'c-sc', labels: s.map((x) => x.scenario), valueFmt: vfK, datasets: [{ label: 'Expected results', data: s.map((x) => x.kpi_p50), backgroundColor: s.map((x, i) => C.PALETTE[i % 12]) }] });
     C.line({ id: 'c-sc2', labels: s[0].series.dates, valueFmt: vfK, datasets: s.map((x, i) => ({ label: x.scenario, data: x.series.p50, borderColor: C.PALETTE[i % 12], backgroundColor: C.PALETTE[i % 12] })) });
@@ -155,22 +155,22 @@
     const vf = unitFmt(params.unit || 'number');
     const cls = { 'On track': 'good', 'Under pacing': 'bad', 'Over pacing': 'warn' }[res.status];
     root.innerHTML = `<div class="kpis">
-        <div class="kpi fc"><span class="fc-pill tile">Forecast</span><div class="k-lbl">Status</div><div class="k-val"><span class="badge ${cls}" style="font-size:15px">${esc(res.status)}</span></div><div class="k-sub">${res.target_reached_in_band ? 'Target is inside the P10 to P90 range' : 'Target is outside the likely range'}</div></div>
+        <div class="kpi fc"><span class="fc-pill tile">Forecast</span><div class="k-lbl">Status</div><div class="k-val"><span class="badge ${cls}" style="font-size:15px">${esc(res.status)}</span></div><div class="k-sub">${res.target_reached_in_band ? 'Target is inside the low case to high case range' : 'Target is outside the likely range'}</div></div>
         <div class="kpi"><div class="k-lbl">Actual to date</div><div class="k-val">${vf(res.actual_to_date)}</div><div class="k-sub">${fmt.pct(res.pct_of_target, 0)} of target, ${fmt.pct(res.time_elapsed_pct, 0)} of time gone</div></div>
-        <div class="kpi fc"><span class="fc-pill tile">Forecast</span><div class="k-lbl">Projected end total (P50)</div><div class="k-val">${vf(res.projected_p50)}</div><div class="k-sub">Range ${vf(res.projected_p10)} to ${vf(res.projected_p90)}</div></div>
+        <div class="kpi fc"><span class="fc-pill tile">Forecast</span><div class="k-lbl">Projected end total (most likely)</div><div class="k-val">${vf(res.projected_p50)}</div><div class="k-sub">Range ${vf(res.projected_p10)} to ${vf(res.projected_p90)}</div></div>
         <div class="kpi fc"><span class="fc-pill tile">Forecast</span><div class="k-lbl">Versus target</div><div class="k-val">${fmt.delta(res.projected_vs_target_pct)}</div><div class="k-sub">Target ${vf(res.target)}</div></div>
         <div class="kpi"><div class="k-lbl">Needed per day</div><div class="k-val">${res.required_per_day == null ? 'n/a' : res.required_per_day <= 0 ? 'Target reached' : vf(res.required_per_day)}</div><div class="k-sub">Recent run rate ${vf(res.recent_run_rate)} per day, ${res.remaining_days} days left</div></div></div>
       ${res.notes.map((n) => `<div class="banner info" style="margin-top:12px"><span>${esc(n)}</span></div>`).join('')}
-      <div style="margin-top:16px">${C.box('c-pace', `Cumulative ${esc(res.metric_label)} against target`, `${esc(res.entity)}, flight ${esc(res.start)} to ${esc(res.end)}. Band: P10 to P90 projection.`, { tall: true, pill: 'Actual + forecast', extra: '<button class="btn sm" id="pc-save" type="button">Save to client</button>' })}</div>`;
+      <div style="margin-top:16px">${C.box('c-pace', `Cumulative ${esc(res.metric_label)} against target`, `${esc(res.entity)}, flight ${esc(res.start)} to ${esc(res.end)}. Band: low case to high case projection.`, { tall: true, pill: 'Actual + forecast', extra: '<button class="btn sm" id="pc-save" type="button">Save to client</button>' })}</div>`;
     const labels = res.cumulative.dates.concat(res.projection.dates), n = res.cumulative.dates.length;
     const pad = (a) => Array(n - 1).fill(null).concat([res.cumulative.values[n - 1]], a);
     C.line({ id: 'c-pace', labels, valueFmt: vf, datasets: [
-      { label: 'P90', data: pad(res.projection.p90), borderColor: 'transparent', backgroundColor: C.PALETTE[0] + '30', fill: '+1', pointRadius: 0 },
-      { label: 'P10', data: pad(res.projection.p10), borderColor: 'transparent', fill: false, pointRadius: 0 },
-      { label: 'Projection (P50)', data: pad(res.projection.p50), borderColor: C.PALETTE[0], borderDash: [6, 4], pointRadius: 0 },
+      { label: 'High case', data: pad(res.projection.p90), borderColor: 'transparent', backgroundColor: C.PALETTE[0] + '30', fill: '+1', pointRadius: 0 },
+      { label: 'Low case', data: pad(res.projection.p10), borderColor: 'transparent', fill: false, pointRadius: 0 },
+      { label: 'Most likely projection', data: pad(res.projection.p50), borderColor: C.PALETTE[0], borderDash: [6, 4], pointRadius: 0 },
       { label: 'Actual to date', data: res.cumulative.values.concat(Array(res.projection.dates.length).fill(null)), borderColor: C.css('--text'), pointRadius: 0 },
       { label: 'Target', data: labels.map(() => res.target), borderColor: C.css('--bad'), borderDash: [3, 3], pointRadius: 0 }] });
-    const ch = Chart.getChart('c-pace'); if (ch) { ch.options.plugins.legend.labels.filter = (i) => !['P10', 'P90'].includes(i.text); ch.options.plugins.nowLine = { index: n - 1 }; ch.config.plugins = [C.nowLine]; ch.update(); }
+    const ch = Chart.getChart('c-pace'); if (ch) { ch.options.plugins.legend.labels.filter = (i) => !['Low case', 'High case'].includes(i.text); ch.options.plugins.nowLine = { index: n - 1 }; ch.config.plugins = [C.nowLine]; ch.update(); }
     root.querySelector('#pc-save').onclick = () => saveToClient(ctx, 'pacing', params, res);
   }
 
@@ -305,7 +305,7 @@
       const d0 = ps.start || today.slice(0, 8) + '01';
       const end = ps.end || new Date(new Date(today).getFullYear(), new Date(today).getMonth() + 1, 0).toISOString().slice(0, 10);
       const pEnts = kind === 'lmrb' ? ['advertiser', 'total'] : ents;
-      form.innerHTML = `<p class="muted small" style="margin-top:0">Will the flight hit its target? Actual to date plus the forecast for the remaining days, with a P10 to P90 range.</p>
+      form.innerHTML = `<p class="muted small" style="margin-top:0">Will the flight hit its target? Actual to date plus the forecast for the remaining days, with a low case to high case range.</p>
         <div class="filter-grid">
         <div class="field"><label for="p-metric">Metric</label><select id="p-metric">${opt(aOpts, ps.metric)}</select></div>
         <div class="field"><label for="p-et">For</label><select id="p-et">${entOpts(ps.entity_type || pEnts[0], pEnts)}</select></div>

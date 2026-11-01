@@ -179,7 +179,7 @@ def story(rep: Any) -> dict:
 
 METHODOLOGY = [
     "Forecasts use the Media Radar forecast engine, an advanced time-series model that forecasts without being trained on each client's data.",
-    "The model returns a probabilistic forecast: P50 is the central estimate, and P10 to P90 is the range expected to contain the outcome about 8 times in 10.",
+    "The model returns a probabilistic forecast: the most likely value (P50) is the central estimate, the low case (P10) is a safe floor and the high case (P90) is the upside. The range between the low and high case is expected to contain the outcome about 8 times in 10. All forecast numbers are estimates, not recorded data.",
     "Weekday, Poya days, Sinhala and Tamil New Year, Vesak, Christmas and school holidays enter as calendar covariates where history allows.",
     "Every series is backtested: the last periods are hidden, forecast, and scored with sMAPE, MAE and MASE against a seasonal naive baseline.",
     "Reliability is High when history is long enough and the backtest beats the baseline clearly, Medium when it is acceptable, and Low when history is thin or errors are large.",

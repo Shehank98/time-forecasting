@@ -101,7 +101,7 @@
 
   const SECTION_ICON = '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/>';
   const SECTION_INFO = {
-    'p-tvr': { text: 'Forecast ratings with guaranteed P10 floors, daypart heatmap, genre shifts and programme risk.', icon: '<path d="M2 12a10 10 0 0120 0"/><path d="M6 12a6 6 0 0112 0"/><path d="M12 12l5-5"/><circle cx="12" cy="12" r="1.6"/>' },
+    'p-tvr': { text: 'Forecast ratings with guaranteed low-case floors, daypart heatmap, genre shifts and programme risk.', icon: '<path d="M2 12a10 10 0 0120 0"/><path d="M6 12a6 6 0 0112 0"/><path d="M12 12l5-5"/><circle cx="12" cy="12" r="1.6"/>' },
     'p-market': { text: 'Predict competitor spend and bursts, break clutter, share of voice and the cheapest rating points.', icon: '<path d="M3 20h18"/><path d="M5 16l4-5 4 3 6-8"/><path d="M15 6h4v4"/>' },
     overview: { text: 'Headline numbers and trends for the current filters.', icon: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>' },
     programmes: { text: 'Every programme ranked by audience, reach and share.', icon: '<path d="M4 6h16M4 12h16M4 18h10"/>' },
@@ -182,7 +182,7 @@
           <span class="muted small" style="margin-left:auto;text-transform:none;letter-spacing:0">${st.quota ? `Browser storage ${mb(st.usage)} of ${mb(st.quota)}` : ''}</span></div>
           ${st.quota ? `<div class="storage-meter" title="${pct.toFixed(1)}% used"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}
           <div class="uploads ${kind === 'tv' ? 'one' : ''}">${kind === 'tv' ? slotHtml('tv') : slotHtml('lmrb') + slotHtml('tv')}</div></div>
-        <div class="cb-section"><div class="cb-title">Forecast horizon ${App.help('Months view: The forecast engine forecasts monthly totals and averages up to 12 months ahead, with P10, P50 and P90 ranges and Sri Lankan holiday effects. It needs at least 12 months of history (24 or more is best) and gives the clearest picture for planning. Days view: the next 60 days, day by day.',
+        <div class="cb-section"><div class="cb-title">Forecast horizon ${App.help('Months view: The forecast engine forecasts monthly totals and averages up to 12 months ahead, with low case, most likely and high case ranges and Sri Lankan holiday effects. It needs at least 12 months of history (24 or more is best) and gives the clearest picture for planning. Days view: the next 60 days, day by day.',
           'Use months for budget and strategy decisions (3, 6 or 12 months) and days for tactical weekly planning. Changing the horizon inside a view is instant; switching between days and months runs a new forecast.')}</div>
           <div class="row" style="gap:12px"><div class="seg" id="hz-mode" role="group" aria-label="Forecast view"><button type="button" data-m="monthly" aria-pressed="${hmode === 'monthly'}">Months</button><button type="button" data-m="daily" aria-pressed="${hmode !== 'monthly'}">Days</button></div></div>
           <div class="horizon" id="hz-box"></div>

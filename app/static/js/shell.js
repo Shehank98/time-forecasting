@@ -11,6 +11,7 @@
     moon: '<path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>',
     side: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
     out: '<path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
+    film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/>',
   };
   const svg = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${I[k]}</svg>`;
   const isDark = () => (document.documentElement.dataset.theme || 'dark') === 'dark';
@@ -71,6 +72,8 @@
     },
   };
   App.loader = loader;
+  /** The intro film is loaded only when needed. */
+  App.loadIntro = () => (App.intro ? Promise.resolve() : new Promise((res, rej) => { const s = document.createElement('script'); s.src = '/js/intro.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); }));
 
   /** "?" icon with a hover/focus explanation: how the chart predicts and what the planner gets from it. */
   App.help = function (how, get, opts = {}) {
@@ -119,6 +122,7 @@
         </nav>
         <div class="side-foot nav">
           <div class="model-pill" id="model-pill"><span class="dot"></span><span class="txt">Checking model</span></div>
+          <button id="intro-btn" type="button">${svg('film')}<span class="txt">Watch intro</span></button>
           <button id="theme-btn" type="button"></button>
           <button id="collapse-btn" type="button" aria-label="Collapse sidebar">${svg('side')}<span class="txt">Collapse</span></button>
           <button id="signout-btn" type="button" title="${esc(me.user.email)}">${svg('out')}<span class="txt">Sign out <span class="small" style="opacity:.6">${esc(me.user.email)}</span></span></button>
@@ -126,6 +130,7 @@
       const sel = document.getElementById('client-sel');
       if (sel) sel.onchange = () => { setClient(sel.value); App.loader.show('Switching client', 'Loading this client\'s data from your browser'); location.reload(); };
       try { if (localStorage.getItem('side') === '1') document.body.classList.add('side-collapsed'); } catch (e) { /* ignore */ }
+      document.getElementById('intro-btn').onclick = () => App.loadIntro().then(() => App.intro.open(true));
       document.getElementById('theme-btn').onclick = () => setTheme(isDark() ? 'light' : 'dark');
       document.getElementById('collapse-btn').onclick = () => {
         const c = document.body.classList.toggle('side-collapsed');

@@ -208,7 +208,7 @@ def forecast_tables(fc: dict) -> list[Table]:
     for r in rs:
         for i, d in enumerate(r["forecast"]["dates"]):
             vals.append({"Entity": r["entity"], "Date": d, "P10": r["forecast"]["p10"][i], "P50": r["forecast"]["p50"][i], "P90": r["forecast"]["p90"][i], "Reliability": r["reliability"]["level"]})
-    out.append(Table("Forecast values", pd.DataFrame(vals), {"P10": "dec2", "P50": "dec2", "P90": "dec2"}, "P10, P50 and P90 are the 10th, 50th and 90th percentile forecasts."))
+    out.append(Table("Forecast values", pd.DataFrame(vals), {"P10": "dec2", "P50": "dec2", "P90": "dec2"}, "P10 is the low case (a safe floor), P50 the most likely value and P90 the high case (the upside). Values marked forecast have not happened yet."))
     for n, r in enumerate(rs[:3]):
         h, f = r["history"], r["forecast"]
         keep = min(len(h["dates"]), 60)

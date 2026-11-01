@@ -133,7 +133,7 @@ def chart_forecast(r: dict) -> Image:
     hx = list(range(keep)); fx = list(range(keep, keep + len(f["dates"])))
     fig, ax = plt.subplots(figsize=(8, 3.2))
     ax.plot(hx, h["values"][-keep:], color="#1b1d36", lw=1.6, label="History")
-    ax.fill_between([hx[-1]] + fx, [h["values"][-1]] + f["p10"], [h["values"][-1]] + f["p90"], color="#5b5ce6", alpha=0.18, label="P10 to P90")
+    ax.fill_between([hx[-1]] + fx, [h["values"][-1]] + f["p10"], [h["values"][-1]] + f["p90"], color="#5b5ce6", alpha=0.18, label="Low case to high case")
     ax.plot([hx[-1]] + fx, [h["values"][-1]] + f["p50"], color="#5b5ce6", ls="--", lw=1.6, label="Forecast (P50)")
     bt = r.get("backtest")
     if bt:
@@ -182,7 +182,7 @@ def chart_lines(title: str, labels: list[str], series: list[tuple[str, list, str
     fig, ax = plt.subplots(figsize=(8, 3.2))
     x = list(range(len(labels)))
     if band:
-        ax.fill_between(x[band_from:band_from + len(band[0])], band[0], band[1], color="#5b5ce6", alpha=0.18, label="P10 to P90")
+        ax.fill_between(x[band_from:band_from + len(band[0])], band[0], band[1], color="#5b5ce6", alpha=0.18, label="Low case to high case")
     for lab, vals, col, ls in series:
         xs = [i for i, v in zip(x, vals) if v is not None]
         ys = [v for v in vals if v is not None]
@@ -205,7 +205,7 @@ def chart_scenarios(sc: dict) -> Image:
     for i, r in enumerate(rows):
         if r.get("ratio_p50"):
             ax.text(i, r["kpi_p90"], f"\n{sc['params'].get('ratio_label', 'Cost per result')}\nLKR {r['ratio_p50']:,.0f}", ha="center", va="bottom", fontsize=6.5)
-    ax.set_title("Expected results by budget scenario (P50, whiskers P10 to P90)", fontsize=10, loc="left"); _style_ax(ax); ax.tick_params(labelsize=7)
+    ax.set_title("Expected results by budget scenario (most likely; whiskers show low to high case)", fontsize=10, loc="left"); _style_ax(ax); ax.tick_params(labelsize=7)
     ax.margins(y=0.3)
     return _img(fig)
 
@@ -311,7 +311,7 @@ def build_pdf(rep: Report) -> bytes:
         p = fc["params"]
         el += [Paragraph("Forecast outlook", h2),
                Paragraph(safe(f"{fc['results'][0].get('metric_label', p.get('metric'))} by {p.get('entity_type')}, {p.get('granularity')} data, {p.get('horizon_days')}-day horizon. "
-                              "Shaded bands show the P10 to P90 range."), body)]
+                              "Shaded bands show the range from the low case to the high case."), body)]
         t = by.get("Forecast summary")
         if t is not None and len(t.df):
             cols = [c for c in ("Entity", "Reliability", "Trend", "Change vs recent", "Expected next weeks", "Burst windows", "sMAPE") if c in t.df.columns]

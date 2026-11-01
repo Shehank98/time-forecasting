@@ -8,7 +8,7 @@
     <div class="hero-copy">
       <div class="eyebrow">Predictive TV intelligence</div>
       <h1>See tomorrow's <span class="grad-text">audience</span> today.</h1>
-      <p>The Media Radar forecast engine projects ratings, competitor spend and costs up to 60 days ahead, with honest P10 to P90 ranges and plain-language advice for every chart.</p>
+      <p>The Media Radar forecast engine projects ratings, competitor spend and costs up to 60 days ahead, with honest low case to high case ranges and plain-language advice for every chart.</p>
     </div>
     <div class="radar" aria-hidden="true">
       <svg viewBox="0 0 320 320">
@@ -72,6 +72,7 @@ document.getElementById('login-form').onsubmit = async (e) => {
   btn.disabled = true; btn.classList.add('busy'); btn.firstElementChild.textContent = 'Signing in';
   try {
     await App.api.post('/api/auth/login', { email, password: pw.value });
+    try { sessionStorage.setItem('intro:pending', '1'); } catch (e) { /* ignore */ }
     const next = new URLSearchParams(location.search).get('next');
     App.loader.show('Access granted', 'Opening mission control');
     setTimeout(() => { location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/'; }, 650);
