@@ -45,7 +45,8 @@ class Report:
     saved: list[dict] = field(default_factory=list)
     dataset_meta: dict = field(default_factory=dict)
     dataset_name: str = ""
-    logos: dict = field(default_factory=dict)       # {"agency": (bytes, type), "client": (bytes, type)}
+    logos: dict = field(default_factory=dict)
+    evidence: list[str] = field(default_factory=list)   # Planner's Evidence statements from the forecast tabs       # {"agency": (bytes, type), "client": (bytes, type)}
 
 
 def _df(rows: list[dict], cols: dict[str, str]) -> pd.DataFrame:

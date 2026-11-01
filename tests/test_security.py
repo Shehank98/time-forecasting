@@ -21,9 +21,11 @@ def evil_lmrb():
 
 
 def test_excel_report_never_stores_uploaded_text_as_a_formula():
+    from app.services import analytics_lmrb, ingest
+    from app.services.util import jsonable
+    df = ingest.parse(synth.to_csv_bytes(evil_lmrb()), "e.csv", "lmrb").df
     c = api()
-    c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(evil_lmrb()))})
-    r = c.post("/api/export", json={"kind": "lmrb", "format": "xlsx"})
+    r = c.post("/api/export", json={"kind": "lmrb", "format": "xlsx", "dash": jsonable(analytics_lmrb.dashboard(df, None, None, None)), "files": [EVIL]})
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
     seen = 0
     for ws in wb.worksheets:
@@ -33,13 +35,6 @@ def test_excel_report_never_stores_uploaded_text_as_a_formula():
                     seen += 1
                     assert cell.data_type != "f", f"formula injected on {ws.title}!{cell.coordinate}"
     assert seen > 0   # the hostile text really was carried through as plain text
-
-
-def test_csv_download_neutralises_formulas():
-    c = api()
-    c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(evil_lmrb()))})
-    text = c.post("/api/lmrb/rows/csv", json={}).text
-    assert "'=HYPERLINK" in text and ",=HYPERLINK" not in text
 
 
 @pytest.fixture()
@@ -64,9 +59,8 @@ def test_bad_config_is_rejected_and_file_untouched(cfg_dir, name, body):
 
 
 def test_unhandled_errors_do_not_leak_details(monkeypatch):
-    from app import core
-    monkeypatch.setattr(core.analytics_lmrb, "dashboard", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("secret internals")))
+    from app.routers import forecasting
+    monkeypatch.setattr(forecasting.repo, "list_forecasts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("secret internals")))
     c = api(raise_server_exceptions=False)
-    c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb(days=10)))})
-    r = c.post("/api/lmrb/dashboard", json={})
+    r = c.get("/api/workspace/summary")
     assert r.status_code == 500 and "secret internals" not in r.text

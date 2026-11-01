@@ -162,7 +162,7 @@ def story(rep: Any) -> dict:
     f2, a2, w2 = scenario_points(rep.scenarios)
     f3, a3, w3 = pacing_points(rep.pacing)
     f4, a4 = workspace_points(rep.kind, rep.dash)
-    findings = f1 + f3 + f2 + f4
+    findings = list(getattr(rep, "evidence", []) or [])[:4] + f1 + f3 + f2 + f4
     actions = a1 + a2 + a3 + a4
     watch = w1 + w2 + w3
     if rep.ai:

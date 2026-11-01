@@ -81,18 +81,27 @@ def test_no_em_dashes_in_generated_text(lm_report):
         assert "\u2014" not in t.note and "\u2014" not in " ".join(map(str, t.df.astype(str).values.ravel()))
 
 
+def _lmrb_summary(channel=None):
+    from app.services import filters as flt
+    from app.services.util import jsonable
+    df = ingest.parse(synth.to_csv_bytes(synth.make_lmrb()), "a.csv", "lmrb").df
+    f = {"channel": [channel]} if channel else {}
+    dash = A.dashboard(flt.apply_filters(df, "lmrb", f), None, None, "Nestle Lanka Ltd")
+    return jsonable(dash), {"filtered_rows": 1, "chips": flt.describe_filters("lmrb", f)}
+
+
 def test_export_endpoint_streams_and_cleans_up(monkeypatch):
+    from helpers import series_payload, wait_job
     before = set(os.listdir(tempfile.gettempdir()))
     c = api()
-    c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb()))})
-    body = {"kind": "lmrb", "filters": {"channel": ["DERANA"]}, "options": {"my_brand": "Nestle Lanka Ltd"},
-            "forecast": {"metric": "spend", "entity_type": "advertiser", "granularity": "weekly", "horizon_days": 28}, "include_ai": True, "ai": AI}
+    dash, meta = _lmrb_summary("DERANA")
+    fc = wait_job(c, c.post("/api/forecast/run", json={"series": series_payload(gran="weekly"), "params": {"granularity": "weekly", "horizon_days": 28}}).json()["job_id"])["result"]
+    body = {"kind": "lmrb", "dash": dash, "meta": meta, "files": ["a.csv"], "forecast": fc, "include_ai": True, "ai": AI}
     r = c.post("/api/export", json={**body, "format": "xlsx"})
     assert r.status_code == 200 and "attachment" in r.headers["content-disposition"] and r.headers["content-disposition"].count(".xlsx") == 1
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
     cover = " ".join(str(c.value) for row in wb["Cover"].iter_rows() for c in row if c.value)
-    assert "Channel: DERANA" in cover and "a.csv" in cover and "AI insights" in wb.sheetnames
-    # filters are respected: only DERANA appears in the channel table
+    assert "Channel: DERANA" in cover and "a.csv" in cover and "AI insights" in wb.sheetnames and "Forecast summary" in wb.sheetnames
     chans = [row[0].value for row in wb["Spend by channel"].iter_rows(min_row=5, min_col=2, max_col=2) if row[0].value]
     assert chans == ["DERANA"]
     r2 = c.post("/api/export", json={**body, "format": "pdf"})
@@ -104,16 +113,18 @@ def test_export_endpoint_streams_and_cleans_up(monkeypatch):
 def test_export_without_ai_when_gemini_unavailable_adds_note(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     c = api()
-    c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb(days=10)))})
-    r = c.post("/api/export", json={"kind": "lmrb", "format": "xlsx", "include_ai": True})
+    dash, meta = _lmrb_summary()
+    r = c.post("/api/export", json={"kind": "lmrb", "format": "xlsx", "include_ai": True, "dash": dash, "meta": meta, "evidence": ["Clutter rising on Derana prime."]})
     assert r.status_code == 200
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
-    assert "AI insights" not in wb.sheetnames and "summary not included" in " ".join(str(c.value) for row in wb["Cover"].iter_rows() for c in row if c.value)
+    text = " ".join(str(c.value) for row in wb["Cover"].iter_rows() for c in row if c.value)
+    assert "AI insights" not in wb.sheetnames and "summary not included" in text and "Clutter rising on Derana prime." in text
 
 
 def test_export_errors_are_clear():
     c = api()
-    c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb(days=10)))})
-    assert c.post("/api/export", json={"kind": "lmrb", "format": "docx"}).status_code == 422
-    r = c.post("/api/export", json={"kind": "lmrb", "format": "pdf", "filters": {"advertiser": ["Nobody"]}})
+    dash, meta = _lmrb_summary()
+    assert c.post("/api/export", json={"kind": "lmrb", "format": "docx", "dash": dash}).status_code == 422
+    r = c.post("/api/export", json={"kind": "lmrb", "format": "pdf", "dash": {"empty": True}})
     assert r.status_code == 422 and "nothing to export" in r.json()["detail"]
+    assert c.post("/api/export", json={"kind": "lmrb", "format": "pdf", "dash": {"kpis": {}}}).status_code == 422

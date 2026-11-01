@@ -31,6 +31,9 @@ RUN if [ "$PREFETCH_MODEL" = "1" ]; then \
       || echo "WARNING: checkpoint prefetch failed; it will be downloaded on first start"; \
     fi
 
+# Run fully offline once the weights are baked in: the loader reads them from the cache folder.
+ENV HF_HUB_OFFLINE=${PREFETCH_MODEL}
+
 COPY app ./app
 
 RUN useradd --create-home --uid 10001 appuser && mkdir -p /data /opt/hf && chown -R appuser /srv /opt/hf /data

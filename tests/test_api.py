@@ -5,21 +5,20 @@ from fastapi.testclient import TestClient
 
 import synth
 from app.main import app
-from app.routers import data as data_router
-from helpers import ADMIN, api, login, new_client, up
+from helpers import ADMIN, api, login, new_client, series_payload, summary, wait_job
 
 
 def test_health_and_static_pages():
     c = TestClient(app)
     assert c.get("/health").json()["status"] == "ok"
-    for page in ("/", "/login.html", "/tv.html", "/lmrb.html", "/kpi.html", "/admin.html", "/css/app.css", "/js/charts.js"):
+    for page in ("/", "/login.html", "/tv.html", "/lmrb.html", "/kpi.html", "/admin.html", "/css/app.css", "/js/charts.js", "/js/engine/core.js", "/js/data-worker.js"):
         assert c.get(page).status_code == 200, page
 
 
 def test_api_requires_sign_in_and_csrf_header():
     anon = TestClient(app, headers={"X-Requested-With": "fetch"})
     assert anon.get("/api/auth/me").status_code == 401
-    assert anon.post("/api/lmrb/dashboard", json={}).status_code == 401
+    assert anon.post("/api/forecast/run", json={"series": []}).status_code == 401
     raw = TestClient(app)          # no X-Requested-With header: blocked before auth
     assert raw.post("/api/auth/login", json={"email": ADMIN[0], "password": ADMIN[1]}).status_code == 403
 
@@ -41,89 +40,12 @@ def test_me_logout_and_cookie_flags():
     assert c.post("/api/auth/logout").json()["ok"] and c.get("/api/auth/me").status_code == 401
 
 
-def test_workspace_needs_a_client():
-    c = login()
-    assert c.post("/api/lmrb/dashboard", json={}).status_code == 409
-    c.headers["X-Client-Id"] = "999999"
-    assert c.post("/api/lmrb/dashboard", json={}).status_code == 403 or c.post("/api/lmrb/dashboard", json={}).status_code == 404
-
-
-def test_upload_report_state_and_persistence():
-    c = api()
-    r = up(c, "lmrb", synth.make_lmrb())
-    assert r.status_code == 200 and r.json()["report"]["rows_kept"] > 0 and "advertiser" in r.json()["options"]
-    from app.services import store
-    store.cache.clear()                                      # force a reload from the database
-    st = c.get("/api/lmrb/state").json()
-    assert st["loaded"] is True and st["report"]["rows_kept"] == r.json()["report"]["rows_kept"]
-    s = c.get("/api/workspace/summary").json()
-    assert s["datasets"][0]["kind"] == "lmrb" and s["uploads"][0]["file_name"] == "a.csv"
-    assert c.delete("/api/lmrb").json() == {"loaded": False} and c.get("/api/lmrb/state").json()["loaded"] is False
-
-
-def test_validation_errors_are_friendly():
-    c = api()
-    assert c.post("/api/lmrb/upload", files={"file": ("x.pdf", b"abc")}).status_code == 415
-    r = c.post("/api/lmrb/upload", files={"file": ("x.csv", b"foo,bar\n1,2\n")})
-    assert r.status_code == 422 and "header" in r.json()["detail"].lower()
-    r = c.post("/api/tv/upload", files={"file": ("x.csv", b"Channel,Date,TVR\nA,2026/09/01,1\n")})
-    assert r.status_code == 422 and "Missing required columns" in r.json()["detail"]
-    assert c.post("/api/nope/upload", files={"file": ("x.csv", b"a")}).status_code == 404
-    assert c.post("/api/lmrb/dashboard", json={}).status_code == 409
-
-
-def test_upload_size_limit(monkeypatch):
-    monkeypatch.setattr(data_router, "MAX_UPLOAD_MB", 1)
-    c = api()
-    r = c.post("/api/lmrb/upload", files={"file": ("big.csv", b"a" * (1024 * 1024 + 10))})
-    assert r.status_code == 413 and "limit" in r.json()["detail"]
-
-
-def test_append_merges_and_dedupes():
-    c = api()
-    full = synth.make_lmrb(days=30)
-    r1 = up(c, "lmrb", full[full["Mn"] == 8]).json()["report"]["rows_kept"]
-    r = up(c, "lmrb", full, "b.csv", "append").json()
-    assert r["report"]["appended"] and r["report"]["rows_skipped_as_duplicates"] == r1 and r["files"] == ["a.csv", "b.csv"]
-    assert r["report"]["rows_total_after_merge"] == r["report"]["rows_added"] + r1
-
-
-def test_clients_are_isolated_and_planners_need_access():
-    admin = login()
-    a, b = new_client(admin), new_client(admin)
-    admin.headers["X-Client-Id"] = str(a)
-    up(admin, "lmrb", synth.make_lmrb(days=10))
-    admin.headers["X-Client-Id"] = str(b)
-    assert admin.get("/api/lmrb/state").json()["loaded"] is False          # client B does not see client A's data
-    email = f"planner{uuid.uuid4().hex[:6]}@agency.lk"
-    uid = admin.post("/api/users", json={"email": email, "password": "planner-pass-1", "role": "planner", "client_ids": [b]}).json()["id"]
-    p = login(email, "planner-pass-1")
-    assert [x["id"] for x in p.get("/api/clients").json()] == [b]
-    p.headers["X-Client-Id"] = str(a)
-    assert p.get("/api/lmrb/state").status_code == 403
-    assert p.post("/api/clients", json={"name": "Nope"}).status_code == 403 and p.get("/api/users").status_code == 403
-    admin.put(f"/api/users/{uid}", json={"active": False})
-    assert p.get("/api/auth/me").status_code == 401                         # deactivation ends sessions
-
-
 def test_cannot_remove_the_last_admin():
     c = login()
     me = c.get("/api/auth/me").json()["user"]
     from app.services import repo
     if repo.count_admins() == 1:
         assert c.put(f"/api/users/{me['id']}", json={"role": "planner"}).status_code == 422
-
-
-def test_client_delete_needs_exact_name_and_cascades():
-    c = login()
-    name = f"Delete Me {uuid.uuid4().hex[:5]}"
-    cid = new_client(c, name)
-    c.headers["X-Client-Id"] = str(cid)
-    up(c, "lmrb", synth.make_lmrb(days=8))
-    assert c.delete(f"/api/clients/{cid}?confirm=wrong").status_code == 422
-    assert c.delete(f"/api/clients/{cid}", params={"confirm": name}).json()["deleted"]
-    from app.services import repo
-    assert repo.list_datasets(cid) == []
 
 
 def test_logo_upload_validation():
@@ -144,38 +66,6 @@ def test_branding_round_trip():
     assert TestClient(app).get("/api/branding/public").json()["agency_name"] == "Media Mind LK"
 
 
-def test_dashboard_filters_counter_and_empty():
-    c = api()
-    up(c, "lmrb", synth.make_lmrb())
-    d = c.post("/api/lmrb/dashboard", json={"filters": {"channel": ["DERANA"], "daypart": ["Prime"]}, "options": {"my_brand": "Nestle Lanka Ltd"}}).json()
-    assert d["meta"]["filtered_rows"] < d["meta"]["total_rows"] and {x["key"] for x in d["meta"]["chips"]} == {"channel", "daypart"}
-    assert d["data"]["kpis"]["active_channels"] == 1
-    e = c.post("/api/lmrb/dashboard", json={"filters": {"advertiser": ["Nobody"]}}).json()
-    assert e["data"]["empty"] is True and e["meta"]["filtered_rows"] == 0
-
-
-def test_tv_and_lmrb_together_give_opportunity_and_grps():
-    c = api()
-    up(c, "tv", synth.make_tv())
-    assert c.post("/api/tv/dashboard", json={}).json()["data"]["opportunity"] is None
-    up(c, "lmrb", synth.make_lmrb())
-    assert c.post("/api/tv/dashboard", json={}).json()["data"]["opportunity"] is not None
-    d = c.post("/api/lmrb/dashboard", json={"options": {"my_brand": "Nestle Lanka Ltd"}}).json()
-    assert d["data"]["grp"]["total_grps"] > 0 and d["meta"]["grp_stats"]["matched_spots"] > 0
-
-
-def test_rows_endpoint_paginates_sorts_and_searches():
-    c = api()
-    up(c, "lmrb", synth.make_lmrb())
-    r = c.post("/api/lmrb/rows", json={"page": 2, "page_size": 10, "sort": "cost", "desc": True}).json()
-    assert len(r["rows"]) == 10 and r["total"] > 100 and r["page"] == 2
-    s = c.post("/api/lmrb/rows", json={"search": "ceylon foods"}).json()
-    assert 0 < s["total"] < r["total"]
-    csv = c.post("/api/lmrb/rows/csv", json={"filters": {"channel": ["HIRU"]}})
-    assert csv.status_code == 200 and csv.text.splitlines()[0].startswith("date,") and "HIRU" in csv.text
-    assert c.post("/api/lmrb/rows", json={"page_size": 100000}).json()["page_size"] == 200
-
-
 def test_config_is_admin_only_and_applies(tmp_path, monkeypatch):
     import shutil
     from app.services import normalise as nz
@@ -191,17 +81,6 @@ def test_config_is_admin_only_and_applies(tmp_path, monkeypatch):
     c.post("/api/users", json={"email": email, "password": "planner-pass-1"})
     assert login(email, "planner-pass-1").put("/api/config/channel_aliases", json=cfg).status_code == 403
     nz._cache.clear()
-
-
-def test_forecast_jobs_are_private_to_their_user():
-    c = api()
-    up(c, "lmrb", synth.make_lmrb())
-    jid = c.post("/api/forecast/start", json={"kind": "lmrb", "params": {"metric": "spend", "entity_type": "total", "granularity": "weekly", "horizon_days": 28}}).json()["job_id"]
-    email = f"p{uuid.uuid4().hex[:6]}@agency.lk"
-    login().post("/api/users", json={"email": email, "password": "planner-pass-1", "client_ids": [int(c.headers["X-Client-Id"])]})
-    other = login(email, "planner-pass-1")
-    other.headers["X-Client-Id"] = c.headers["X-Client-Id"]
-    assert other.get(f"/api/forecast/job/{jid}").status_code == 404
 
 
 def test_short_admin_password_does_not_stop_startup(monkeypatch, tmp_path):
@@ -222,3 +101,93 @@ def test_short_admin_password_does_not_stop_startup(monkeypatch, tmp_path):
         db.reset_engine()
         monkeypatch.undo()
         db.engine()
+
+
+def test_workspace_needs_a_client_and_access():
+    c = login()
+    assert c.post("/api/forecast/run", json={"series": series_payload(), "params": {}}).status_code == 409
+    c.headers["X-Client-Id"] = "999999"
+    assert c.post("/api/forecast/run", json={"series": series_payload(), "params": {}}).status_code in (403, 404)
+
+
+def test_planner_access_and_job_privacy():
+    admin = login()
+    a, b = new_client(admin), new_client(admin)
+    email = f"planner{uuid.uuid4().hex[:6]}@agency.lk"
+    uid = admin.post("/api/users", json={"email": email, "password": "planner-pass-1", "role": "planner", "client_ids": [b]}).json()["id"]
+    p = login(email, "planner-pass-1")
+    assert [x["id"] for x in p.get("/api/clients").json()] == [b]
+    p.headers["X-Client-Id"] = str(a)
+    assert p.post("/api/forecast/run", json={"series": series_payload(), "params": {}}).status_code == 403
+    assert p.post("/api/clients", json={"name": "Nope"}).status_code == 403 and p.get("/api/users").status_code == 403
+    admin.headers["X-Client-Id"] = str(b)
+    jid = admin.post("/api/forecast/run", json={"series": series_payload(), "params": {"granularity": "daily", "horizon_days": 7}}).json()["job_id"]
+    p.headers["X-Client-Id"] = str(b)
+    assert p.get(f"/api/forecast/job/{jid}").status_code == 404           # jobs are private to the user who started them
+    admin.put(f"/api/users/{uid}", json={"active": False})
+    assert p.get("/api/auth/me").status_code == 401
+
+
+def test_forecast_run_from_browser_series():
+    c = api()
+    payload = series_payload(n=3) + series_payload("tv", "tvr", "channel", n=2)
+    for s in payload[3:]:
+        s["group"] = "tv"
+    j = wait_job(c, c.post("/api/forecast/run", json={"kind": "mixed", "series": payload, "params": {"granularity": "daily", "horizon_days": 21, "lead_days": 7}}).json()["job_id"])
+    res = j["result"]
+    assert j["status"] == "done" and res["ok"] and len(res["results"]) == 5
+    assert {r["group"] for r in res["results"]} == {"g1", "tv"} and len(res["results"][0]["forecast"]["p50"]) == 21
+    assert res["results"][0]["reliability"]["level"] in ("High", "Medium", "Low") and "peaks" in res["results"][0]
+    again = wait_job(c, c.post("/api/forecast/run", json={"kind": "mixed", "series": payload, "params": {"granularity": "daily", "horizon_days": 21, "lead_days": 7}}).json()["job_id"])
+    assert again["result"]["cached"] is True
+
+
+@pytest.mark.parametrize("bad,msg", [
+    ({"dates": ["2026-01-01", "2026-01-03"], "values": [1, 2]}, "regularly spaced"),
+    ({"dates": ["2026-01-01"], "values": [1, 2]}, "same, non-zero length"),
+    ({"dates": ["nope"], "values": [1]}, "invalid dates")])
+def test_forecast_payload_validation(bad, msg):
+    c = api()
+    r = c.post("/api/forecast/run", json={"series": [{"entity": "x", **bad}], "params": {"granularity": "daily"}})
+    assert r.status_code == 422 and msg in r.json()["detail"]
+    assert c.post("/api/forecast/run", json={"series": series_payload(), "params": {"horizon_days": 9999}}).status_code == 422
+
+
+def test_request_size_guard():
+    c = api()
+    r = c.post("/api/forecast/run", content=b"{}", headers={"Content-Type": "application/json", "Content-Length": str(500 * 1024 * 1024)})
+    assert r.status_code == 413
+
+
+def test_scenarios_and_pacing_from_series():
+    c = api()
+    spend = series_payload(metric="spend", entity_type="total", gran="weekly")[0]
+    spots = series_payload(metric="spots", entity_type="total", gran="weekly")[0]
+    j = wait_job(c, c.post("/api/scenarios/run", json={"target": spots, "driver": spend, "params": {"granularity": "weekly", "horizon_days": 28, "multipliers": [0.8, 1, 1.2]}}).json()["job_id"])
+    assert j["result"]["ok"] and [s["scenario"] for s in j["result"]["scenarios"]] == ["Budget -20%", "Current pace", "Budget +20%"]
+    assert c.post("/api/scenarios/run", json={"target": spots, "driver": spend, "params": {"multipliers": [9]}}).status_code == 422
+    daily = series_payload(metric="spend", entity_type="total", gran="daily")[0]
+    p = c.post("/api/pacing/run", json={"series": daily, "params": {"start": daily["dates"][-20], "end": "2026-09-30", "target": 5e7, "entity": "Market"}}).json()
+    assert p["ok"] and p["entity"] == "Market" and p["status"] in ("On track", "Under pacing", "Over pacing")
+    assert c.post("/api/pacing/run", json={"series": daily, "params": {"start": "2026-09-01", "end": "2026-09-30", "target": -1}}).status_code == 422
+
+
+def test_saved_forecasts_and_summary():
+    c = api()
+    sid = c.post("/api/saved-forecasts", json={"title": "Q4 plan", "ftype": "outlook", "request": {"kind": "tv"}, "result": {"ok": True}}).json()["id"]
+    assert any(f["id"] == sid for f in c.get("/api/workspace/summary").json()["forecasts"])
+    assert c.post("/api/saved-forecasts", json={"title": "x", "ftype": "nope", "request": {}, "result": {}}).status_code == 422
+    other = api()
+    assert other.get(f"/api/saved-forecasts/{sid}").status_code == 404
+
+
+def test_client_delete_needs_exact_name():
+    c = login()
+    name = f"Delete Me {uuid.uuid4().hex[:5]}"
+    cid = new_client(c, name)
+    c.headers["X-Client-Id"] = str(cid)
+    c.post("/api/saved-forecasts", json={"title": "t", "request": {}, "result": {}})
+    assert c.delete(f"/api/clients/{cid}?confirm=wrong").status_code == 422
+    assert c.delete(f"/api/clients/{cid}", params={"confirm": name}).json()["deleted"]
+    from app.services import repo
+    assert repo.list_forecasts(cid) == []

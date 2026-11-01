@@ -3,7 +3,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from helpers import api, login, new_client, up as up_helper
+from helpers import api, login, new_client, summary, wait_job, series_payload
 
 import synth
 from app.main import app
@@ -127,22 +127,24 @@ def test_endpoints_never_leak_key_or_raw_rows(monkeypatch):
         return GOOD if schema is G.Insights else json.dumps({"answer": "ok", "confidence": "low", "evidence": []})
     monkeypatch.setattr(G.GeminiService, "_call", fake_call)
     c = api()
-    c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb()))})
-    r = c.post("/api/insights", json={"kind": "lmrb", "options": {"my_brand": "Nestle Lanka Ltd"}, "forecast": {"metric": "spend", "entity_type": "advertiser", "granularity": "weekly", "horizon_days": 28}})
+    dash, meta = summary("lmrb")
+    fc = wait_job(c, c.post("/api/forecast/run", json={"series": series_payload(), "params": {"granularity": "daily", "horizon_days": 14}}).json()["job_id"])["result"]
+    r = c.post("/api/insights", json={"kind": "lmrb", "dash": dash, "meta": meta, "forecast": fc, "evidence": ["Derana prime clutter rises to 38 ads per break."]})
     assert r.status_code == 200, r.text
     body = r.json()
     assert "SECRET-KEY-123" not in r.text and body["insights"]["executive_summary"]["statement"]
-    assert "Forecast" in seen["prompt"] and len(seen["prompt"]) < 20000 and "Advt_time" not in seen["prompt"]
+    assert "Forecast" in seen["prompt"] and len(seen["prompt"]) < 20000 and "Advt_time" not in seen["prompt"] and "38 ads per break" in seen["prompt"]
     assert any("reliability" in x.lower() for x in body["insights"]["data_caveats"]) or body["insights"]["data_caveats"]
-    r2 = c.post("/api/chat", json={"kind": "lmrb", "question": "Who is biggest?"})
+    r2 = c.post("/api/chat", json={"kind": "lmrb", "dash": dash, "meta": meta, "question": "Who is biggest?"})
     assert r2.status_code == 200 and r2.json()["answer"] == "ok"
-    assert c.post("/api/chat", json={"kind": "lmrb", "question": " "}).status_code == 422
+    assert c.post("/api/chat", json={"kind": "lmrb", "dash": dash, "question": " "}).status_code == 422
+    assert c.post("/api/insights", json={"kind": "lmrb", "dash": {"kpis": {}}, "refresh": True}).status_code == 422     # incomplete summary
     assert c.get("/api/ai-status").json() == {"configured": True, "model": "gemini-2.5-flash"}
 
 
 def test_endpoint_maps_gemini_errors(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     c = api()
-    c.post("/api/lmrb/upload", files={"file": ("a.csv", synth.to_csv_bytes(synth.make_lmrb(days=10)))})
-    r = c.post("/api/insights", json={"kind": "lmrb", "refresh": True})
+    dash, meta = summary("lmrb")
+    r = c.post("/api/insights", json={"kind": "lmrb", "dash": dash, "meta": meta, "refresh": True})
     assert r.status_code == 503 and "GEMINI_API_KEY" in r.json()["detail"]

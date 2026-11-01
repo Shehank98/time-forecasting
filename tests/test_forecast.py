@@ -229,3 +229,25 @@ def test_calendar_features_cover_event_types():
     assert f["is_new_year"].sum() == 2 and "is_poya" in f
     w = S.calendar_features(pd.DatetimeIndex(["2026-04-13"]), "weekly")
     assert w["is_new_year"][0] == 2
+
+
+def test_local_checkpoint_discovery(tmp_path, monkeypatch):
+    snap = tmp_path / "hub" / "models--google--timesfm-2.5-200m-pytorch" / "snapshots" / "abc"
+    snap.mkdir(parents=True)
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    monkeypatch.delenv("TIMESFM_LOCAL_DIR", raising=False)
+    assert F.local_checkpoint() is None
+    (snap / "model.safetensors").write_bytes(b"x")
+    assert F.local_checkpoint() == str(snap)
+    own = tmp_path / "weights"; own.mkdir(); (own / "model.safetensors").write_bytes(b"x")
+    monkeypatch.setenv("TIMESFM_LOCAL_DIR", str(own))
+    assert F.local_checkpoint() == str(own)
+
+
+def test_offline_without_weights_falls_back_with_clear_reason(monkeypatch, tmp_path):
+    m = F.ModelService()
+    monkeypatch.delenv("FORCE_FALLBACK", raising=False)
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    monkeypatch.delenv("TIMESFM_LOCAL_DIR", raising=False)
+    assert m.load() is False and "no saved checkpoint" in m.status()["error"]

@@ -1,12 +1,10 @@
 """Data access for clients, users, datasets, saved forecasts, reports and agency branding."""
 from __future__ import annotations
 
-import io
 import json
 import logging
 from typing import Any
 
-import pandas as pd
 from sqlalchemy import delete, func, insert, select, update
 
 from . import db
@@ -97,7 +95,7 @@ def _check_logo(data: bytes, ctype: str) -> None:
 
 def delete_client(cid: int) -> None:
     with db.engine().begin() as c:
-        for t in (db.datasets, db.uploads, db.saved_forecasts, db.reports, db.user_clients):
+        for t in (db.datasets, db.uploads, db.saved_forecasts, db.reports, db.user_clients):   # datasets/uploads: legacy tables
             c.execute(delete(t).where(t.c.client_id == cid))
         c.execute(delete(db.clients).where(db.clients.c.id == cid))
 
@@ -139,73 +137,6 @@ def update_user(uid: int, name: str | None = None, role: str | None = None, acti
 def count_admins() -> int:
     with db.engine().connect() as c:
         return int(c.execute(select(func.count()).select_from(db.users).where(db.users.c.role == "admin", db.users.c.active.is_(True))).scalar())
-
-
-# ---------------------------------------------------------------- datasets
-def df_to_bytes(df: pd.DataFrame) -> bytes:
-    buf = io.BytesIO()
-    df.to_parquet(buf, index=False)
-    return buf.getvalue()
-
-
-def bytes_to_df(b: bytes) -> pd.DataFrame:
-    return pd.read_parquet(io.BytesIO(b))
-
-
-def save_dataset(client_id: int, kind: str, name: str, df: pd.DataFrame, report: dict, meta: dict, files: list[str], hashes: list[str], user_id: int | None) -> None:
-    vals = dict(data=df_to_bytes(df), report=json.dumps(report, default=str), meta=json.dumps(meta, default=str), files=json.dumps(files),
-                hashes=json.dumps(hashes), rows=len(df), updated_by=user_id, updated_at=func.now())
-    with db.engine().begin() as c:
-        exists = c.execute(select(db.datasets.c.id).where(db.datasets.c.client_id == client_id, db.datasets.c.kind == kind, db.datasets.c.name == name)).first()
-        if exists:
-            c.execute(update(db.datasets).where(db.datasets.c.id == exists[0]).values(**vals))
-        else:
-            c.execute(insert(db.datasets).values(client_id=client_id, kind=kind, name=name, **vals))
-
-
-def load_dataset(client_id: int, kind: str, name: str) -> dict | None:
-    with db.engine().connect() as c:
-        r = c.execute(select(db.datasets).where(db.datasets.c.client_id == client_id, db.datasets.c.kind == kind, db.datasets.c.name == name)).mappings().first()
-    if not r:
-        return None
-    return {"df": bytes_to_df(r["data"]), "report": json.loads(r["report"]), "meta": json.loads(r["meta"]), "files": json.loads(r["files"]),
-            "hashes": json.loads(r["hashes"]), "updated_at": r["updated_at"]}
-
-
-def dataset_stamp(client_id: int, kind: str, name: str) -> Any:
-    with db.engine().connect() as c:
-        r = c.execute(select(db.datasets.c.updated_at, db.datasets.c.rows).where(db.datasets.c.client_id == client_id, db.datasets.c.kind == kind, db.datasets.c.name == name)).first()
-    return (str(r[0]), r[1]) if r else None
-
-
-def list_datasets(client_id: int) -> list[dict]:
-    with db.engine().connect() as c:
-        rows = c.execute(select(db.datasets.c.kind, db.datasets.c.name, db.datasets.c.rows, db.datasets.c.files, db.datasets.c.report, db.datasets.c.updated_at)
-                         .where(db.datasets.c.client_id == client_id).order_by(db.datasets.c.kind, db.datasets.c.name)).mappings().all()
-    out = []
-    for r in rows:
-        rep = json.loads(r["report"])
-        out.append({"kind": r["kind"], "name": r["name"], "rows": r["rows"], "files": json.loads(r["files"]), "date_min": rep.get("date_min"),
-                    "date_max": rep.get("date_max"), "updated_at": _iso(r["updated_at"])})
-    return out
-
-
-def delete_dataset(client_id: int, kind: str, name: str) -> None:
-    with db.engine().begin() as c:
-        c.execute(delete(db.datasets).where(db.datasets.c.client_id == client_id, db.datasets.c.kind == kind, db.datasets.c.name == name))
-
-
-def log_upload(client_id: int, kind: str, name: str, file_name: str, mode: str, rows_in: int, rows_added: int, user_id: int) -> None:
-    with db.engine().begin() as c:
-        c.execute(insert(db.uploads).values(client_id=client_id, kind=kind, name=name, file_name=file_name, mode=mode, rows_in=rows_in, rows_added=rows_added, user_id=user_id))
-
-
-def upload_history(client_id: int, limit: int = 30) -> list[dict]:
-    with db.engine().connect() as c:
-        rows = c.execute(select(db.uploads, db.users.c.email).join(db.users, db.users.c.id == db.uploads.c.user_id, isouter=True)
-                         .where(db.uploads.c.client_id == client_id).order_by(db.uploads.c.id.desc()).limit(limit)).mappings().all()
-    return [{"kind": r["kind"], "name": r["name"], "file_name": r["file_name"], "mode": r["mode"], "rows_in": r["rows_in"], "rows_added": r["rows_added"],
-             "by": r["email"], "at": _iso(r["created_at"])} for r in rows]
 
 
 # ---------------------------------------------------------------- saved forecasts

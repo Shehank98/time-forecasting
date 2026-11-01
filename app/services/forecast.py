@@ -34,6 +34,25 @@ from .util import jsonable
 log = logging.getLogger(__name__)
 
 CHECKPOINT = os.environ.get("TIMESFM_REPO", "google/timesfm-2.5-200m-pytorch")
+WEIGHTS = "model.safetensors"
+
+
+def local_checkpoint() -> str | None:
+    """A folder holding the saved TimesFM weights, so the model can load fully offline.
+
+    Order: TIMESFM_LOCAL_DIR, TIMESFM_REPO when it is a folder, then the Hugging Face cache (HF_HOME/hub).
+    """
+    from pathlib import Path
+    for cand in (os.environ.get("TIMESFM_LOCAL_DIR"), CHECKPOINT):
+        if cand and Path(cand).is_dir() and (Path(cand) / WEIGHTS).exists():
+            return str(Path(cand))
+    home = Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface")
+    snaps = home / "hub" / ("models--" + CHECKPOINT.replace("/", "--")) / "snapshots"
+    if snaps.is_dir():
+        for d in sorted(snaps.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if (d / WEIGHTS).exists():
+                return str(d)
+    return None
 MAX_CONTEXT = int(os.environ.get("TIMESFM_MAX_CONTEXT", "1024"))
 MAX_HORIZON = 256                 # multiple of the 128 output patch, covers 36 weeks daily
 Q = {"p10": 1, "p50": 5, "p90": 9}  # TimesFM output is [mean, q0.1 ... q0.9]
@@ -52,11 +71,13 @@ class ModelService:
         self.error: str | None = None
         self.load_seconds: float | None = None
         self.xreg_ok: bool | None = None
+        self.source: str | None = None
 
     def status(self) -> dict:
         backend = "timesfm" if self._tfm is not None else ("fallback" if self._failed else "pending")
         return {"backend": backend, "loaded": self._tfm is not None, "error": self.error, "checkpoint": CHECKPOINT, "model": "TimesFM 2.5 (200M)",
-                "max_context": MAX_CONTEXT, "load_seconds": self.load_seconds, "covariates_supported": self.xreg_ok,
+                "max_context": MAX_CONTEXT, "load_seconds": self.load_seconds, "source": self.source,
+                "offline": os.environ.get("HF_HUB_OFFLINE") == "1", "covariates_supported": self.xreg_ok,
                 "note": "Fallback statistical model in use." if self._failed else ("TimesFM loads on first forecast." if self._tfm is None else "")}
 
     def load(self) -> bool:
@@ -71,12 +92,20 @@ class ModelService:
                 return False
             t0 = time.time()
             try:
+                local = local_checkpoint()
+                if local:
+                    os.environ.setdefault("HF_HUB_OFFLINE", "1")      # saved weights: never touch the network
+                    self.source = local
+                elif os.environ.get("HF_HUB_OFFLINE") == "1":
+                    raise RuntimeError(f"HF_HUB_OFFLINE=1 but no saved checkpoint was found for {CHECKPOINT}. Set TIMESFM_LOCAL_DIR or prefetch the weights.")
+                else:
+                    self.source = CHECKPOINT
                 import timesfm  # type: ignore
                 import torch  # type: ignore
 
                 torch.set_float32_matmul_precision("high")
                 # torch_compile=False: torch.compile needs a C compiler that the slim image does not ship.
-                tfm = timesfm.TimesFM_2p5_200M_torch.from_pretrained(CHECKPOINT, torch_compile=False)
+                tfm = timesfm.TimesFM_2p5_200M_torch.from_pretrained(local or CHECKPOINT, torch_compile=False)
                 tfm.compile(timesfm.ForecastConfig(
                     max_context=MAX_CONTEXT, max_horizon=MAX_HORIZON, normalize_inputs=True, use_continuous_quantile_head=True,
                     force_flip_invariance=True, infer_is_positive=True, fix_quantile_crossing=True, return_backcast=True, per_core_batch_size=32))
@@ -415,15 +444,67 @@ def _apply_covariates(specs: list[S.SeriesSpec], contexts: list[np.ndarray], H: 
 
 
 def run(df: pd.DataFrame, kind: str, params: dict, progress: Progress | None = None, meta: dict | None = None) -> dict:
-    """Batched forecast for all selected entities. Returns a JSON-safe result."""
-    prog = progress or (lambda p, m: None)
+    """Batched forecast for all selected entities of a frame (server-side reference path)."""
     gran = params.get("granularity", "weekly")
-    metric = params["metric"]
-    prog(0.05, "Preparing series")
-    specs, notes = S.build_series(df, kind, params.get("entity_type", "total"), metric, gran, params.get("entities") or None,
+    specs, notes = S.build_series(df, kind, params.get("entity_type", "total"), params["metric"], gran, params.get("entities") or None,
                                   params.get("history_days") or None, int(params.get("max_entities", 8)), meta)
     if not specs:
         return {"ok": False, "message": notes[0] if notes else "No series could be built.", "notes": notes}
+    return run_specs(specs, notes, kind, params, progress)
+
+
+MAX_SERIES = 300
+MAX_POINTS = 6000
+
+
+def specs_from_payload(items: list[dict], gran: str) -> tuple[list[S.SeriesSpec], list[str]]:
+    """Series built in the browser: [{entity, group, metric, label, unit, agg, zero_fill, dates, values}].
+
+    The browser keeps the raw data; only these compact, regularly spaced series reach the server.
+    """
+    if gran not in S.GRANULARITIES:
+        raise ValueError("granularity must be daily, weekly or monthly")
+    if not items:
+        raise ValueError("No series were sent.")
+    if len(items) > MAX_SERIES:
+        raise ValueError(f"At most {MAX_SERIES} series per request.")
+    specs, notes = [], []
+    for it in items:
+        dates = pd.DatetimeIndex(pd.to_datetime(it.get("dates") or [], errors="coerce"))
+        vals = np.array([np.nan if v is None else float(v) for v in (it.get("values") or [])], dtype=float)
+        if len(dates) != len(vals) or len(dates) == 0:
+            raise ValueError(f"Series {it.get('entity')!r}: dates and values must have the same, non-zero length.")
+        if len(dates) > MAX_POINTS:
+            raise ValueError(f"Series {it.get('entity')!r} has more than {MAX_POINTS} points.")
+        if dates.isna().any():
+            raise ValueError(f"Series {it.get('entity')!r} has invalid dates.")
+        expected = pd.date_range(dates[0], periods=len(dates), freq=S.STEP[gran])
+        if not dates.equals(expected):
+            raise ValueError(f"Series {it.get('entity')!r} is not regularly spaced at {gran} granularity.")
+        agg = it.get("agg") if it.get("agg") in ("sum", "count", "mean", "ratio", "share") else "mean"
+        zero_fill = bool(it.get("zero_fill", agg in ("sum", "count", "share")))
+        mdef = S.MetricDef(str(it.get("metric") or "value"), str(it.get("label") or it.get("metric") or "Value")[:120], agg,
+                           zero_fill=zero_fill, unit=it.get("unit") if it.get("unit") in ("number", "currency", "percent", "rating") else "number")
+        n_obs = int(np.isfinite(vals).sum())
+        if n_obs == 0:
+            notes.append(f"{it.get('entity')}: no data in the selected window, skipped.")
+            continue
+        s = pd.Series(vals, index=dates)
+        s = s.fillna(0.0) if zero_fill else s.interpolate(limit_direction="both")
+        v = s.to_numpy(dtype=float)
+        sp = S.SeriesSpec(entity=str(it.get("entity") or "All")[:160], dates=dates, values=v, metric=mdef.key, gran=gran, mdef=mdef,
+                          n_active=int((v != 0).sum()), n_observed=len(v) if zero_fill else n_obs)
+        sp.group = str(it.get("group") or "")[:60]
+        specs.append(sp)
+    return specs, notes
+
+
+def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: dict, progress: Progress | None = None) -> dict:
+    """Forecast prepared series in one batched TimesFM call. Returns a JSON-safe result."""
+    prog = progress or (lambda p, m: None)
+    if not specs:
+        return {"ok": False, "message": notes[0] if notes else "No series could be built.", "notes": notes}
+    prog(0.05, "Preparing series")
     gran = specs[0].gran
     H = S.horizon_points(int(params.get("horizon_days", 28)), gran)
     if H > MAX_HORIZON:
@@ -477,7 +558,7 @@ def run(df: pd.DataFrame, kind: str, params: dict, progress: Progress | None = N
         if all_zero:
             warnings.append("All values are zero. The forecast is flat zero.")
         results.append({
-            "entity": sp.entity, "metric": sp.metric, "metric_label": sp.mdef.label if sp.mdef else sp.metric, "unit": sp.mdef.unit if sp.mdef else "number",
+            "entity": sp.entity, "group": getattr(sp, "group", ""), "metric": sp.metric, "metric_label": sp.mdef.label if sp.mdef else sp.metric, "unit": sp.mdef.unit if sp.mdef else "number",
             "granularity": gran, "n_points": int(len(y)), "n_active": sp.n_active,
             "history": {"dates": [str(d.date()) for d in sp.dates], "values": y},
             "forecast": {"dates": [str(d.date()) for d in fd], "p10": p10, "p50": p50, "p90": p90},
@@ -527,19 +608,28 @@ def run_scenarios(df: pd.DataFrame, kind: str, params: dict, meta: dict | None =
     params: target (KPI metric), driver (spend-like metric), granularity, horizon_days, entity_type, entity,
             multipliers (list of floats) and/or budgets (list of totals for the horizon), ratio_label.
     """
-    prog = progress or (lambda p, m: None)
     gran = params.get("granularity", "weekly")
     et, ent = params.get("entity_type", "total"), params.get("entity")
-    prog(0.1, "Preparing target and driver series")
     ys, notes = S.build_series(df, kind, et, params["target"], gran, [ent] if ent else None, params.get("history_days"), 1, meta)
     xs, _ = S.build_series(df, kind, et, params["driver"], gran, [ent] if ent else None, params.get("history_days"), 1, meta)
     if not ys or not xs:
         return {"ok": False, "message": (notes or ["Target or driver series could not be built."])[0]}
     ysp, xsp = ys[0], xs[0]
     common = ysp.dates.intersection(xsp.dates)
-    y = pd.Series(ysp.values, index=ysp.dates).reindex(common).to_numpy(dtype=float)[-MAX_CONTEXT:]
-    x = pd.Series(xsp.values, index=xsp.dates).reindex(common).to_numpy(dtype=float)[-MAX_CONTEXT:]
-    dates = common[-len(y):]
+    y = pd.Series(ysp.values, index=ysp.dates).reindex(common).to_numpy(dtype=float)
+    x = pd.Series(xsp.values, index=xsp.dates).reindex(common).to_numpy(dtype=float)
+    return scenarios_core(common, y, x, {**params, "granularity": gran}, notes, progress)
+
+
+def scenarios_core(dates: pd.DatetimeIndex, y: np.ndarray, x: np.ndarray, params: dict, notes: list[str] | None = None, progress: Progress | None = None) -> dict:
+    """Scenario engine on aligned target (y) and driver (x) series."""
+    prog = progress or (lambda p, m: None)
+    gran = params.get("granularity", "weekly")
+    notes = list(notes or [])
+    y, x = np.asarray(y, dtype=float)[-MAX_CONTEXT:], np.asarray(x, dtype=float)[-MAX_CONTEXT:]
+    dates = pd.DatetimeIndex(dates)[-len(y):]
+    if len(y) < 3:
+        return {"ok": False, "message": "Scenarios need at least 3 periods of history."}
     H = min(S.horizon_points(int(params.get("horizon_days", 28)), gran), MAX_HORIZON)
     warnings: list[str] = list(notes)
     if len(y) < min_points(gran):
@@ -607,13 +697,20 @@ def pacing(df: pd.DataFrame, kind: str, params: dict, meta: dict | None = None) 
     params: metric, entity_type, entity, start, end, target, tolerance_pct (default 5).
     """
     et, ent = params.get("entity_type", "total"), params.get("entity")
-    start, end = pd.Timestamp(params["start"]), pd.Timestamp(params["end"])
-    target = float(params["target"])
-    tol = float(params.get("tolerance_pct", 5))
     specs, notes = S.build_series(df, kind, et, params["metric"], "daily", [ent] if ent else None, None, 1, meta)
     if not specs:
         return {"ok": False, "message": (notes or ["No data for pacing."])[0]}
-    sp = specs[0]
+    return pacing_core(specs[0], params, notes)
+
+
+def pacing_core(sp: S.SeriesSpec, params: dict, notes: list[str] | None = None) -> dict:
+    """Pacing on one daily series."""
+    notes = list(notes or [])
+    start, end = pd.Timestamp(params["start"]), pd.Timestamp(params["end"])
+    target = float(params["target"])
+    tol = float(params.get("tolerance_pct", 5))
+    if end < start:
+        return {"ok": False, "message": "The flight end is before its start."}
     if sp.mdef and not sp.mdef.additive:
         return {"ok": False, "message": f"Pacing needs a total-able metric such as spend, spots, leads or GRPs, not {sp.mdef.label}."}
     s = pd.Series(sp.values, index=sp.dates)

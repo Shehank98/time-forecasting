@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import account, ai, data, forecasting, reports
+from .routers import account, ai, forecasting, reports
 from .services import auth, db
 from .services import forecast as fc
 
@@ -20,6 +20,7 @@ log = logging.getLogger("app")
 
 STATIC_DIR = Path(__file__).parent / "static"
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
+MAX_BODY = int(os.environ.get("MAX_BODY_MB", "30")) * 1024 * 1024   # summaries only; raw sheets never come here
 
 
 @asynccontextmanager
@@ -39,6 +40,11 @@ async def guard(request: Request, call_next):
     """CSRF guard (state changes need a header a cross-site form cannot set) plus security headers."""
     if request.url.path.startswith("/api/") and request.method in UNSAFE and request.headers.get("x-requested-with") != "fetch":
         return JSONResponse({"detail": "Missing request header."}, status_code=403)
+    try:
+        if int(request.headers.get("content-length") or 0) > MAX_BODY:
+            return JSONResponse({"detail": "Request too large. Narrow the filters or the number of series."}, status_code=413)
+    except ValueError:
+        return JSONResponse({"detail": "Bad Content-Length."}, status_code=400)
     resp = await call_next(request)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
@@ -53,7 +59,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-for r in (account.router, forecasting.router, ai.router, reports.router, data.router):
+for r in (account.router, forecasting.router, ai.router, reports.router):
     app.include_router(r)
 
 

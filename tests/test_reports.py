@@ -7,7 +7,7 @@ from pptx import Presentation
 import synth
 from app.services import analytics_kpi, analytics_lmrb as A, analytics_tv as T, export_excel as X, export_pdf as P, export_pptx as PP
 from app.services import forecast as F, ingest, ingest_kpi, narrative, report_data as R
-from helpers import api, up
+from helpers import api, series_payload, summary, wait_job
 
 PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff\x89\x99=\x1d\x00\x00\x00\x00IEND\xaeB`\x82", "image/png")
 BRAND = {"agency_name": "Media Mind LK", "primary_color": "#112233", "report_footer": "Confidential", "disclaimer": "Forecasts are estimates."}
@@ -83,9 +83,11 @@ def test_all_formats_for_tv_and_lmrb(kind):
 
 def test_export_endpoint_all_formats_saved_per_client():
     c = api()
-    up(c, "lmrb", synth.make_lmrb())
-    body = {"kind": "lmrb", "options": {"my_brand": "Nestle Lanka Ltd"}, "forecast": {"metric": "spend", "entity_type": "advertiser", "granularity": "weekly", "horizon_days": 28},
-            "pacing": {"metric": "spend", "entity_type": "advertiser", "entity": "Nestle Lanka Ltd", "start": "2026-09-01", "end": "2026-09-30", "target": 30000000}}
+    dash, meta = summary("lmrb")
+    fc = wait_job(c, c.post("/api/forecast/run", json={"series": series_payload(gran="weekly"), "params": {"granularity": "weekly", "horizon_days": 28}}).json()["job_id"])["result"]
+    daily = series_payload(metric="spend", entity_type="total")[0]
+    pace = c.post("/api/pacing/run", json={"series": daily, "params": {"start": "2026-09-01", "end": "2026-09-30", "target": 3e7}}).json()
+    body = {"kind": "lmrb", "dash": dash, "meta": meta, "forecast": fc, "pacing": pace, "evidence": ["Unilever burst expected next week."]}
     for fmt, magic in (("pdf", b"%PDF-"), ("pptx", b"PK"), ("xlsx", b"PK")):
         r = c.post("/api/export", json={**body, "format": fmt, "title": "Monthly competitor review"})
         assert r.status_code == 200 and r.content[:len(magic)] == magic and r.headers["x-report-id"]
@@ -95,3 +97,11 @@ def test_export_endpoint_all_formats_saved_per_client():
     assert dl.status_code == 200 and dl.content[:2] == b"PK"
     other = api()
     assert other.get(f"/api/reports/{reps[0]['id']}/download").status_code == 404     # another client cannot fetch it
+
+
+@pytest.mark.parametrize("kind", ["tv", "kpi"])
+def test_export_endpoint_tv_and_kpi(kind):
+    c = api()
+    dash, meta = summary(kind)
+    r = c.post("/api/export", json={"kind": kind, "format": "pptx", "dash": dash, "meta": meta, "dataset": "Leads" if kind == "kpi" else ""})
+    assert r.status_code == 200 and r.content[:2] == b"PK"
