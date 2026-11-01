@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-CARD_NAMES = {"tv": "TV Programme Analysis", "lmrb": "LMRB Ad Monitoring", "kpi": "Client KPI Forecast"}
+CARD_NAMES = {"tv": "TVR Audience Behaviour Prediction", "lmrb": "Market Prediction", "kpi": "Client KPI Forecast"}
 
 
 @dataclass

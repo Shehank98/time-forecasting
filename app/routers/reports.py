@@ -45,7 +45,12 @@ def _safe_name(s: str) -> str:
 
 
 def _ok(x: dict | None) -> dict | None:
-    return x if isinstance(x, dict) and x.get("ok") else None
+    """A usable result: it must say ok, and a forecast must contain at least one series."""
+    if not isinstance(x, dict) or not x.get("ok"):
+        return None
+    if "results" in x and not x["results"]:
+        return None
+    return x
 
 
 def build_report(ws: Workspace, req: ExportReq) -> tuple[report_data.Report, list[str]]:
@@ -70,6 +75,9 @@ def build_report(ws: Workspace, req: ExportReq) -> tuple[report_data.Report, lis
                 notes.append(f"Gemini summary not included ({exc}). A rule-based summary was written instead.")
             except (KeyError, TypeError, ValueError, IndexError):
                 notes.append("Gemini summary not included because the summary was incomplete.")
+            except Exception:  # noqa: BLE001 - an AI problem must never stop the report
+                log.exception("AI summary failed while building a report")
+                notes.append("Gemini summary not included because the AI service had a problem. A rule-based summary was written instead.")
     chips = [f"{c.get('label')}: {c.get('value')}" for c in meta.get("chips", []) if isinstance(c, dict)]
     try:
         rep = report_data.build(req.kind, req.dash, meta, [str(f)[:200] for f in req.files][:50] or ["Browser upload"], fcres, ai, chips,

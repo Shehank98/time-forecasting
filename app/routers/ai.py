@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +16,7 @@ from ..services.store import Workspace
 from ..services.util import jsonable
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 _insight_cache: dict[str, dict] = {}
 KINDS = ("tv", "lmrb", "kpi")
 
@@ -57,6 +59,9 @@ def insights(req: AiReq, ws: Workspace = Depends(workspace)) -> dict:
         out = gem.service.insights(facts, req.kind, gem.standing_caveats(req.forecast, req.dash, req.meta))
     except gem.GeminiError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Insights failed")
+        raise HTTPException(502, "The AI service had a problem. Please try again in a moment.") from exc
     res = jsonable({"insights": out, "model": gem.service.model_name, "fact_count": len(facts.items), "cached": False})
     _insight_cache[key] = res
     if len(_insight_cache) > 100:
@@ -74,6 +79,9 @@ def chat(req: AiReq, ws: Workspace = Depends(workspace)) -> dict:
         return jsonable(gem.service.chat(facts, req.question, req.history))
     except gem.GeminiError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Chat failed")
+        raise HTTPException(502, "The AI service had a problem. Please try again in a moment.") from exc
 
 
 @router.get("/api/ai-status")

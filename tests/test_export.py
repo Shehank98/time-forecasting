@@ -47,7 +47,7 @@ def test_excel_structure_formats_and_native_charts(lm_report):
     assert len(wb["SOV weekly"]._charts) == 1 and len(wb["Spend by channel"]._charts) == 1 and len(wb["FC chart 1"]._charts) == 1
     assert wb["Channel mix"].conditional_formatting
     cover = " ".join(str(c.value) for c in wb["Cover"]["B"])
-    assert "LMRB Ad Monitoring" in cover and "DERANA" in cover and "Executive summary" in " ".join(str(c.value) for c in wb["Cover"]["A"])
+    assert "Market Prediction" in cover and "DERANA" in cover and "Executive summary" in " ".join(str(c.value) for c in wb["Cover"]["A"])
     assert wb["Spend by advertiser"].column_dimensions["B"].width > 8
     sh = wb["Forecast summary"]
     assert [c.value for c in sh[4]][:3] == ["Entity", "Reliability", "History points"]
@@ -128,3 +128,37 @@ def test_export_errors_are_clear():
     r = c.post("/api/export", json={"kind": "lmrb", "format": "pdf", "dash": {"empty": True}})
     assert r.status_code == 422 and "nothing to export" in r.json()["detail"]
     assert c.post("/api/export", json={"kind": "lmrb", "format": "pdf", "dash": {"kpis": {}}}).status_code == 422
+
+
+def test_export_with_prediction_style_forecasts_in_every_format():
+    """Forecast results from the prediction tabs hold many groups; every format must build, in days and months."""
+    from helpers import series_payload, wait_job
+    c = api()
+    dash, meta = _lmrb_summary()
+    for gran, days in (("daily", 28), ("monthly", 180)):
+        items = series_payload(gran="daily" if gran == "daily" else "weekly", n=5)
+        for i, it in enumerate(items):
+            it["group"] = ("comp_spend", "sov")[i % 2]
+        fc = wait_job(c, c.post("/api/forecast/run", json={"kind": "lmrb", "series": items, "params": {"granularity": "daily" if gran == "daily" else "weekly", "horizon_days": days}}).json()["job_id"])["result"]
+        assert fc["ok"] and {r["group"] for r in fc["results"]} == {"comp_spend", "sov"}
+        for fmt in ("pdf", "pptx", "xlsx"):
+            r = c.post("/api/export", json={"kind": "lmrb", "format": fmt, "dash": dash, "meta": meta, "forecast": fc, "evidence": ["FORECAST: expected spend rises 12% - “quoted” <b> & සිංහල"], "title": "Q4 – plan"})
+            assert r.status_code == 200, (gran, fmt, r.text[:200])
+
+
+def test_export_ignores_a_forecast_with_no_series():
+    c = api()
+    dash, meta = _lmrb_summary()
+    for fmt in ("pdf", "pptx", "xlsx"):
+        r = c.post("/api/export", json={"kind": "lmrb", "format": fmt, "dash": dash, "meta": meta, "forecast": {"ok": True, "results": [], "params": {}, "backend": "fallback"}})
+        assert r.status_code == 200, (fmt, r.text[:200])
+
+
+def test_export_survives_an_ai_service_crash(monkeypatch):
+    from app.services import gemini_client as gem
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setattr(gem.service, "insights", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    c = api()
+    dash, meta = _lmrb_summary()
+    r = c.post("/api/export", json={"kind": "lmrb", "format": "xlsx", "include_ai": True, "dash": dash, "meta": meta})
+    assert r.status_code == 200
