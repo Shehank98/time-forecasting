@@ -271,6 +271,10 @@ const OPS = {
     const T = table('tv'), idx = MR.applyFilters(T, 'tv', filters || {});
     return MR.tvrPayload(T, idx, mode);
   },
+  coldStart({ filters, request }) {
+    const T = table('tv');
+    return MR.coldStart(T, { ...request, filters: filters || {} });
+  },
   predictMarket({ filters, options }) {
     table('lmrb');
     const L = marketBase(options), idx = MR.applyFilters(L, 'lmrb', filters || {});

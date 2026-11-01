@@ -29,6 +29,7 @@ import pandas as pd
 
 from . import normalise as nz
 from . import series as S
+from . import sl_media_calendar as CAL
 from .util import jsonable
 
 log = logging.getLogger(__name__)
@@ -406,14 +407,22 @@ def reliability(n_points: int, n_observed: int, gran: str, bt: dict | None, all_
 
 
 # =============================================================== orchestration
-def _cov_arrays(dates: pd.DatetimeIndex, n_hist: int, gran: str) -> tuple[dict, dict]:
-    """Calendar covariates covering context plus horizon (dates already include the horizon)."""
-    feats = S.calendar_features(dates, gran)
+# these legacy event columns are now covered by the Sri Lanka media calendar's own features
+_LEGACY_EVENT_COLUMNS = {"is_poya", "is_new_year", "is_vesak", "is_christmas"}
+
+
+def _cov_arrays(dates: pd.DatetimeIndex, n_hist: int, gran: str, events: list[dict] | None = None) -> tuple[dict, dict]:
+    """Calendar covariates covering context plus horizon (dates already include the horizon).
+
+    Poya day, festival window, salary week, weekend and user-flagged major events come from sl_media_calendar;
+    public and school holidays still come from the editable holidays file.
+    """
+    feats = {k: v for k, v in S.calendar_features(dates, gran).items() if k not in _LEGACY_EVENT_COLUMNS}
+    feats.update(CAL.covariates(dates, gran, events))
     num = {k: v for k, v in feats.items() if np.ptp(v) > 0 and np.ptp(v[:n_hist]) > 0}
     cat = {}
     if gran == "daily":
         cat["day_of_week"] = np.array([d.day_of_week for d in dates])
-        cat["is_weekend"] = np.array([int(d.day_of_week >= 5) for d in dates])
     if gran == "weekly" and n_hist >= 104:
         cat["week_of_year"] = np.array([int(d.isocalendar().week) for d in dates])
     if gran == "monthly" and n_hist >= 24:
@@ -421,25 +430,38 @@ def _cov_arrays(dates: pd.DatetimeIndex, n_hist: int, gran: str) -> tuple[dict, 
     return num, cat
 
 
-def _apply_covariates(specs: list[S.SeriesSpec], contexts: list[np.ndarray], H: int, gran: str, q: np.ndarray) -> tuple[list[str], str | None]:
+def _apply_covariates(specs: list[S.SeriesSpec], contexts: list[np.ndarray], H: int, gran: str, q: np.ndarray, events: list[dict] | None = None,
+                      rows: list[int] | None = None, horizons: list[int] | None = None, cut: list[int] | None = None) -> tuple[list[str], str | None]:
+    """Replace the plain quantiles in q with covariate-aware ones.
+
+    rows[i] is the row of q for context i (default: i). horizons[i] is how many future points to keep (default H).
+    cut[i] is how many points were removed from the end of the full history (used for backtest contexts).
+    """
+    rows = rows if rows is not None else list(range(len(contexts)))
+    horizons = horizons if horizons is not None else [H] * len(contexts)
+    cut = cut if cut is not None else [0] * len(contexts)
     min_cov = {"daily": 28, "weekly": 12, "monthly": 12}[gran]
     elig = [i for i, sp in enumerate(specs) if len(contexts[i]) >= min_cov]
     if not elig:
         return [], f"Covariates need at least {min_cov} {gran} points; skipped for thin history."
+    Hm = max(horizons[i] for i in elig)
     arrs = {}
     for i in elig:
-        alld = specs[i].dates[-len(contexts[i]):].append(S.future_dates(specs[i].dates[-1], H, gran))
-        arrs[i] = _cov_arrays(alld, len(contexts[i]), gran)
+        hist_dates = specs[i].dates[-(len(contexts[i]) + cut[i]):]
+        hist_dates = hist_dates[:len(hist_dates) - cut[i]] if cut[i] else hist_dates
+        alld = hist_dates.append(S.future_dates(hist_dates[-1], Hm, gran))
+        arrs[i] = _cov_arrays(alld, len(contexts[i]), gran, events)
     names_num = sorted(set.intersection(*[set(arrs[i][0]) for i in elig]))
     names_cat = sorted(set.intersection(*[set(arrs[i][1]) for i in elig]))
     if not (names_num or names_cat):
         return [], "No calendar event varies across the history, so covariates were skipped."
-    adj = model.predict_covariates([contexts[i] for i in elig], H, {n: [arrs[i][0][n] for i in elig] for n in names_num},
+    adj = model.predict_covariates([contexts[i] for i in elig], Hm, {n: [arrs[i][0][n] for i in elig] for n in names_num},
                                    {n: [arrs[i][1][n] for i in elig] for n in names_cat})
     if adj is None:
         return [], "Covariates could not be applied in this environment, so the plain forecast is shown."
     for j, i in enumerate(elig):
-        q[i, :H, :] = adj[j]
+        h = horizons[i]
+        q[rows[i], :h, :] = adj[j][:h]
     return names_num + names_cat, None
 
 
@@ -526,7 +548,12 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
     prog(0.65, "Applying calendar covariates")
     cov_used, cov_msg = ([], None)
     if params.get("covariates", True) and backend == "timesfm":
-        cov_used, cov_msg = _apply_covariates(specs, contexts, H, gran, q)
+        ev = params.get("major_events")
+        cov_used, cov_msg = _apply_covariates(specs, contexts, H, gran, q, ev)
+        if bt_idx and cov_msg is None:      # the accuracy check must use the same covariate-aware model as the forecast
+            bt_specs = [specs[i] for i in bt_idx]
+            _apply_covariates(bt_specs, [contexts[i][:-holds[i]] for i in bt_idx], H, gran, q, ev, rows=[len(specs) + k for k in range(len(bt_idx))],
+                              horizons=[holds[i] for i in bt_idx], cut=[holds[i] for i in bt_idx])
     results = []
     bt_pos = {i: len(specs) + k for k, i in enumerate(bt_idx)}
     for i, sp in enumerate(specs):

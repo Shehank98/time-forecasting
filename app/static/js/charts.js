@@ -4,6 +4,7 @@
   const PALETTE = (App.skins ? App.skins.palette() : ['#3de0ff', '#8b5cf6', '#ff4fd8', '#22f5a6', '#ffb547', '#4f8bff', '#ff6b6b', '#a3e635', '#f472b6', '#2dd4bf', '#facc15', '#94a3b8']).slice();
   const registry = new Map();
   const charts = new Map();
+  const backs = new Map();   // chart id -> () => html shown at the top of the flip-card back (for example negotiation guidance)
   const only = new Set();   // charts whose popup shows only the custom detail, not the raw dataset values
   const details = new Map();   // chart id -> (index, datasetIndex) => html, extra lines in the click popup
   const setDetail = (id, fn) => { if (fn) details.set(id, fn); else details.delete(id); };
@@ -37,6 +38,12 @@
     defaults();
     if (charts.has(id)) charts.get(id).destroy();
     cfg.options = cfg.options || {};
+    if (cfg.options.plugins && cfg.options.plugins.eventPins) {
+      cfg.plugins = (cfg.plugins || []).concat(eventPins);
+      const tt = (cfg.options.plugins.tooltip = cfg.options.plugins.tooltip || {}); tt.callbacks = tt.callbacks || {};
+      const prev = tt.callbacks.afterBody;
+      tt.callbacks.afterBody = function (items) { const base = prev ? prev.call(this, items) || [] : []; const extra = items.length ? pinsAt(this.chart || items[0].chart, items[0].dataIndex) : []; return extra.length ? base.concat(['', ...extra]) : base; };
+    }
     if (!cfg.options.onClick && cfg.type !== 'doughnut' && !cfg.noDetail) {
       cfg.options.onClick = (evt, els, chart) => pointDetail(id, chart, evt);
       cfg.options.onHover = (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
@@ -54,7 +61,7 @@
     const pill = opts.pill ? `<span class="fc-pill">${esc(opts.pill)}</span>` : '';
     const how = opts.help ? `<p class="fb-how">${esc(opts.help[0])}</p>${opts.help[1] ? `<p class="fb-use"><b>Use it for:</b> ${esc(opts.help[1])}</p>` : ''}` : '';
     const back = `<div class="fb" data-back="${id}" hidden><div class="fb-head"><h3>How these numbers came</h3><button class="btn sm" type="button" data-flip-back>Back to chart</button></div>
-      <ol class="fb-flow"><li><b>1</b>Your sheet<small>read in this browser</small></li><li><b>2</b>Compact series<small>daily or monthly totals</small></li><li><b>3</b>Forecast engine<small>low, likely, high</small></li><li><b>4</b>This chart<small>${esc(title)}</small></li></ol>
+      <ol class="fb-flow"><li><b>1</b>Your sheet<small>read in this browser</small></li><li><b>2</b>Compact series<small>one value per period</small></li><li><b>3</b>Forecast engine<small>low, likely, high</small></li><li><b>4</b>This chart<small>${esc(title)}</small></li></ol>
       ${how}<div class="fb-data" data-fbdata="${id}"></div></div>`;
     return `<div class="card flipcard ${opts.glow ? 'glow' : ''} ${opts.pill ? 'fc' : ''}" data-chart="${id}"><div class="ff"><div class="card-head"><div><h3>${pill}${esc(title)} ${help}</h3>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
       <div class="row">${opts.extra || ''}<button class="btn sm ghost" type="button" data-flip="${id}" title="Flip to see how the numbers were built" aria-label="Flip ${esc(title)} to see how the numbers were built">Flip</button>${opts.html != null ? '' : `<button class="btn sm ghost" type="button" data-png="${id}" aria-label="Download ${esc(title)} as PNG">PNG</button>`}</div></div>
@@ -81,6 +88,20 @@
       ctx.fillStyle = css('--surface-solid') || '#0d1430'; ctx.strokeStyle = col; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px + 6, ar.top + 6, w, 20, 10) : ctx.rect(px + 6, ar.top + 6, w, 20); ctx.fill(); ctx.stroke();
       ctx.fillStyle = col; ctx.fillText(label, px + 14, ar.top + 20, w - 12); ctx.restore();
     } };
+  /** Emoji pins along the bottom of a time chart (Poya, salary window, festivals, major events). options.plugins.eventPins = {on, pins:[{index, emoji, label}]}. */
+  const eventPins = { id: 'eventPins',
+    afterDatasetsDraw(chart, a, o) {
+      if (!o || !o.on || !o.pins || !o.pins.length) return;
+      const { ctx, chartArea: ar, scales: { x } } = chart, used = new Map();
+      ctx.save(); ctx.font = '14px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      o.pins.forEach((p) => {
+        const px = x.getPixelForValue(p.index); if (!(px >= ar.left - 2 && px <= ar.right + 2)) return;
+        const k = Math.round(px / 16), n = used.get(k) || 0; used.set(k, n + 1);
+        if (n < 3) ctx.fillText(p.emoji, px, ar.bottom - 5 - n * 16);
+      });
+      ctx.restore();
+    } };
+  const pinsAt = (chart, i) => { const o = chart.options.plugins && chart.options.plugins.eventPins; return o && o.on && o.pins ? o.pins.filter((p) => p.index === i).map((p) => `${p.emoji} ${p.label}`) : []; };
   /** Tooltip title that says whether the hovered point is actual or forecast. */
   const fcTitle = (firstForecastIndex) => (items) => `${items[0].label}  \u00b7  ${items[0].dataIndex >= firstForecastIndex ? 'FORECAST' : 'actual'}`;
   /* ---------------- click a point: detail popup ---------------- */
@@ -141,7 +162,7 @@
   function flipTo(card, back) {
     const id = card.dataset.chart, ff = card.querySelector('.ff'), fb = card.querySelector('.fb');
     if (!fb || card.classList.contains('turning')) return;
-    if (back) { card.style.minHeight = card.offsetHeight + 'px'; backTable(id); }
+    if (back) { card.style.minHeight = card.offsetHeight + 'px'; backTable(id); const fn = backs.get(id), host = card.querySelector('[data-fbdata]'); if (fn && host) host.insertAdjacentHTML('afterbegin', fn()); }
     card.classList.add('turning');
     setTimeout(() => {
       ff.hidden = !!back; fb.hidden = !back; card.classList.toggle('is-back', !!back);
@@ -221,5 +242,5 @@
       `<td title="${esc(r)} ${dates[j]}: ${v} spots" style="background:${v ? `color-mix(in srgb, ${colorFor(r)} ${20 + 80 * v / mx}%, transparent)` : 'var(--surface-2)'}">${v}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   document.addEventListener('themechange', () => { if (App.skins) { PALETTE.splice(0, PALETTE.length, ...App.skins.palette()); registry.clear(); } defaults(); });
-  App.charts = { detailOnly: (id) => only.add(id), setDetail, detail, pointDetail, nowLine, fcTitle, colorFor, register, make, box, evidence, bar, line, doughnut, heat, calendar, destroyAll, css, PALETTE };
+  App.charts = { setBack: (id, fn) => { if (fn) backs.set(id, fn); else backs.delete(id); }, detailOnly: (id) => only.add(id), setDetail, detail, pointDetail, nowLine, fcTitle, colorFor, register, make, box, evidence, bar, line, doughnut, heat, calendar, destroyAll, css, PALETTE };
 })(window.App);

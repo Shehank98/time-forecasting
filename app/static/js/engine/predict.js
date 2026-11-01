@@ -41,6 +41,8 @@
     { const lvl = new Map(), days = new Set(); const lo8 = hi - 55;
       for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (T.cols.date[i] < lo8 || T.cols.start[i] < 0 || !Number.isFinite(T.cols.tvr[i])) continue; const h = MR.hourBand(T.cols.start[i]); lvl.set(h, (lvl.get(h) || 0) + T.cols.tvr[i]); days.add(T.cols.date[i]); }
       ctx.hour_level = Object.fromEntries([...lvl.entries()].map(([h, v]) => [h, v / Math.max(1, days.size)])); }
+    { const cc = new Map(), kc = new Map(); for (let k = 0; k < idx.length; k++) { const i = idx[k]; cc.set(S(T, 'channel', i), (cc.get(S(T, 'channel', i)) || 0) + 1); const g = S(T, 'category', i); if (g) kc.set(g, (kc.get(g) || 0) + 1); }
+      ctx.channels = [...cc.entries()].sort((a, b) => b[1] - a[1]).map((e) => e[0]); ctx.categories = [...kc.entries()].sort((a, b) => b[1] - a[1]).map((e) => e[0]); }
     ctx.months_of_history = Math.round((hi - lo) / 30.4);
     notes.push(...wk.notes.filter((n) => !/recur weekly/.test(n)));
     return { daily, weekly, notes, ctx, gran: G };
@@ -225,6 +227,96 @@
     return out;
   }
 
+
+  /* ---------------- New programme (cold start) estimator ---------------- */
+  /**
+   * A programme with no history of its own is estimated from three signals in the TVR sheet:
+   *  1. the target channel's own audience in that exact slot, plus what the programme just before it hands over (lead-in),
+   *  2. how loyal the rival channels' audiences are in the same slot (stickiness, viewing time, steadiness) which caps the upside
+   *     and shows how much audience can be stolen, and
+   *  3. how earlier launches of the same category grew or faded in their first 4 weeks.
+   * No forecasting model is involved (there is nothing to forecast from), so the result is labelled an estimate.
+   */
+  function coldStart(T, o) {
+    const notes = [], Z = 1.2816;
+    const idx = MR.applyFilters(T, 'tv', o.filters || {});
+    const s0 = MR.parseTime(o.start), s1raw = MR.parseTime(o.end);
+    if (s0 < 0 || s1raw < 0) return { ok: false, message: 'Enter the start and end time, for example 20:00 and 20:30.' };
+    const s1 = s1raw <= s0 ? s1raw + 86400 : s1raw, span = s1 - s0, days = new Set((o.days && o.days.length ? o.days : [0, 1, 2, 3, 4, 5, 6]).map(Number));
+    if (!idx.length) return { ok: false, message: 'No TVR rows match the current filters.' };
+    const [dmin, dmax] = MR.minMax(T.cols.date, idx), recent = dmax - 55;
+    const D = T.cols.date, ST = T.cols.start, EN = T.cols.end, TV = T.cols.tvr;
+    const endOf = (i) => { let e = EN[i]; if (e < 0) e = ST[i] + (Number.isFinite(T.cols.duration[i]) ? T.cols.duration[i] : 30) * 60; if (e <= ST[i]) e += 86400; return e; };
+    const num = (col, i) => { const c = T.cols[col]; if (!c) return NaN; const v = c[i]; return Number.isFinite(v) && v >= 0 ? v : NaN; };
+    const mean = (a) => { const v = a.filter(Number.isFinite); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null; };
+    const sd = (a) => { const v = a.filter(Number.isFinite), m = mean(v); return v.length > 1 ? Math.sqrt(v.reduce((x, y) => x + (y - m) ** 2, 0) / (v.length - 1)) : null; };
+    const med = (a) => { const v = a.filter(Number.isFinite).sort((x, y) => x - y); if (!v.length) return null; const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+    const chName = (i) => S(T, 'channel', i);
+    // rows that fill the slot: on the chosen weekdays, with at least half of the window covered
+    const inSlot = (i, from) => ST[i] >= 0 && days.has(MR.dowMon(D[i])) && D[i] >= from && Math.min(endOf(i), s1) - Math.max(ST[i], s0) >= span * 0.5 && Number.isFinite(TV[i]);
+    const slotRows = new Map();
+    for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (!inSlot(i, recent)) continue; const c = chName(i); if (!slotRows.has(c)) slotRows.set(c, []); slotRows.get(c).push(i); }
+    const target = o.channel, mine = slotRows.get(target) || [];
+    // 1. baseline and lead-in
+    const vals = mine.map((i) => TV[i]), b0 = mean(vals), sdb = sd(vals);
+    // hand-over: programmes that finish within 5 minutes before the slot on the target channel, and how much of the previous programme's audience the next one keeps
+    const pairs = [];
+    const byDay = new Map();
+    for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (chName(i) !== target || ST[i] < 0 || !Number.isFinite(TV[i]) || TV[i] <= 0) continue; const key = D[i]; if (!byDay.has(key)) byDay.set(key, []); byDay.get(key).push(i); }
+    for (const arr of byDay.values()) { arr.sort((a, b) => ST[a] - ST[b]); for (let j = 1; j < arr.length; j++) if (Math.abs(ST[arr[j]] - endOf(arr[j - 1])) <= 600) pairs.push(TV[arr[j]] / TV[arr[j - 1]]); }
+    const rho = pairs.length >= 5 ? Math.min(1.3, Math.max(0.5, med(pairs))) : 0.9;
+    const lead = [];
+    for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (chName(i) !== target || D[i] < recent || ST[i] < 0 || !days.has(MR.dowMon(D[i])) || !Number.isFinite(TV[i])) continue; const e = endOf(i); if (e <= s0 + 300 && e >= s0 - 600 && ST[i] < s0) lead.push(i); }
+    const L = mean(lead.map((i) => TV[i])), leadName = lead.length ? S(T, 'program', lead[0]) : null, leadEst = L != null ? L * rho : null;
+    let base = null, basis = 'none';
+    if (b0 != null && leadEst != null) { base = 0.5 * b0 + 0.5 * leadEst; basis = 'slot history and lead-in'; }
+    else if (b0 != null) { base = b0; basis = 'slot history'; }
+    else if (leadEst != null) { base = leadEst; basis = 'lead-in only'; }
+    else { const all = idx.filter((i) => chName(i) === target && D[i] >= recent && Number.isFinite(TV[i]) && ST[i] >= 0 && Math.abs(ST[i] - s0) <= 7200).map((i) => TV[i]); base = mean(all); basis = base != null ? 'channel at nearby hours' : 'none'; }
+    if (base == null) return { ok: false, message: `${target} has no recorded airings near ${o.start}. Pick a channel that is in the TVR sheet.` };
+    if (b0 == null) notes.push('Nothing airs in this exact slot in the last 8 weeks, so the estimate leans on the lead-in and nearby hours and is less certain.');
+    // 2. rival loyalty in the same slot
+    const rivals = [];
+    for (const [c, rows] of slotRows) {
+      if (c === target) continue;
+      const t = rows.map((i) => TV[i]), tm = mean(t), r = mean(rows.map((i) => num('reach_pct', i))), a = mean(rows.map((i) => num('avg_time', i))), d = mean(rows.map((i) => { const x = T.cols.duration[i]; return Number.isFinite(x) ? x : (endOf(i) - ST[i]) / 60; }));
+      const half = Math.floor(rows.length / 2), sorted = rows.slice().sort((x, y) => D[x] - D[y]), recentHalf = mean(sorted.slice(half).map((i) => TV[i])), earlyHalf = mean(sorted.slice(0, half).map((i) => TV[i]));
+      rivals.push({ channel: c, tvr: tm, reach: r, stickiness: r > 0 ? tm / r : null, retention: a != null && d > 0 ? Math.min(1, a / d) : null, volatility: tm > 0 && t.length > 2 ? sd(t) / tm : null,
+        trend: earlyHalf > 0 && rows.length >= 6 ? recentHalf / earlyHalf - 1 : null, airings: rows.length });
+    }
+    const stickRank = (v) => { const all = rivals.map((x) => x.stickiness).filter(Number.isFinite).sort((x, y) => x - y); return all.length > 1 && Number.isFinite(v) ? all.filter((x) => x < v).length / (all.length - 1) : null; };
+    rivals.forEach((x) => { const parts = [stickRank(x.stickiness), x.retention, x.volatility != null ? 1 - Math.min(1, x.volatility) : null].filter(Number.isFinite); x.loyalty = parts.length ? mean(parts) : null; });
+    const medT = med(rivals.map((x) => x.tvr)) || 0, CAPTURE = 0.15;
+    rivals.forEach((x) => { x.zapping = x.loyalty != null && (x.loyalty < 0.4 || (x.trend != null && x.trend <= -0.05)); x.stealable = x.loyalty != null ? CAPTURE * x.tvr * (1 - x.loyalty) : 0; });
+    rivals.sort((a, b) => b.stealable - a.stealable);
+    const strong = rivals.filter((x) => x.loyalty != null && x.tvr >= medT * 0.5).sort((a, b) => b.loyalty - a.loyalty)[0] || null;
+    const capFactor = strong ? 1.15 + 0.35 * (1 - strong.loyalty) : 1.35, pool = rivals.reduce((s2, x) => s2 + x.stealable, 0), uplift = Math.min(pool, base * 0.25);
+    // 3. category launch curve
+    const first = new Map();
+    for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (!Number.isFinite(TV[i])) continue; const key = chName(i) + '\u0001' + S(T, 'program', i); const f = first.get(key); if (!f || D[i] < f.d) first.set(key, { d: D[i], ch: chName(i), cat: o.category && T.cols.category ? S(T, 'category', i) : null }); }
+    const wk = new Map();
+    for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (!Number.isFinite(TV[i])) continue; const key = chName(i) + '\u0001' + S(T, 'program', i), f = first.get(key); const w = Math.floor((D[i] - f.d) / 7); if (w > 3) continue; const m = wk.get(key) || [[], [], [], []]; m[w].push(TV[i]); wk.set(key, m); }
+    const curves = (sameChannel) => { const out = []; for (const [key, m] of wk) { const f = first.get(key); if (!f || f.d < dmin + 28 || m.some((x) => x.length < 2)) continue; if (o.category && f.cat !== o.category) continue; if (sameChannel && f.ch !== target) continue; const w = m.map(mean); if (w[0] > 0) out.push({ title: key.split('\u0001')[1], ch: f.ch, c: w.map((x) => x / w[0]) }); } return out; };
+    let cv = curves(true), cbasis = 'launches of this category on this channel';
+    if (cv.length < 2) { cv = curves(false); cbasis = 'launches of this category on all channels'; }
+    if (!cv.length) { cbasis = 'none'; notes.push('No earlier launch of this category was found in the sheet, so a flat launch curve is used and the range is wider.'); }
+    const curve = [0, 1, 2, 3].map((k) => (cv.length ? Math.max(0.3, med(cv.map((x) => x.c[k]))) : 1));
+    const curveSd = [0, 1, 2, 3].map((k) => (cv.length >= 3 ? Math.min(0.5, sd(cv.map((x) => x.c[k])) || 0.1) : 0.12 + 0.04 * k));
+    // trajectory: the median level is the baseline times the curve, with the stealable audience phased in from week 2
+    const relB = sdb != null && b0 > 0 ? sdb / b0 : 0.15, weeks = [];
+    for (let k = 0; k < 4; k++) {
+      const p50 = base * curve[k] + uplift * [0.4, 0.8, 1, 1][k];
+      const sig = p50 * Math.sqrt(relB ** 2 + curveSd[k] ** 2 + 0.15 ** 2);
+      weeks.push({ week: k + 1, p10: Math.max(0, p50 - Z * sig), p50, p90: Math.min(p50 + Z * sig, p50 * capFactor), curve: curve[k] });
+    }
+    const avg = (key) => mean(weeks.map((w) => w[key]));
+    return { ok: true, notes, inputs: { channel: target, days: [...days], start: o.start, end: o.end, category: o.category || null },
+      baseline: { slot_tvr: b0, slot_sd: sdb, slot_airings: mine.length, lead_in: leadName, lead_in_tvr: L, retention: rho, lead_estimate: leadEst, estimate: base, basis },
+      rivals: rivals.slice(0, 8), strongest_rival: strong ? { channel: strong.channel, loyalty: strong.loyalty } : null, cap_factor: capFactor, stealable_pool: pool, uplift,
+      curve: { basis: cbasis, launches: cv.length, titles: cv.slice(0, 5).map((x) => `${x.title} (${x.ch})`), weeks: curve },
+      weeks, verdict: { p50: avg('p50'), p10: avg('p10'), p90: avg('p90'), biggest_loser: rivals[0] && rivals[0].stealable > 0 ? rivals[0].channel : null, loser_share: rivals[0] ? rivals[0].stealable : 0 } };
+  }
+
   /* ---------------- helpers for results ---------------- */
   /** First H points of a forecast (daily H, or the matching number of weekly points). */
   function sliceForecast(r, horizonDays) {
@@ -293,5 +385,5 @@
     };
   }
 
-  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, seasonalBursts, radarProb, themeLifecycle, sliceForecast, bursts, dowHourMatrix, monthHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
+  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, seasonalBursts, radarProb, themeLifecycle, coldStart, sliceForecast, bursts, dowHourMatrix, monthHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
 })(typeof self !== 'undefined' ? self : globalThis);

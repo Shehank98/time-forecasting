@@ -29,9 +29,45 @@
   }
 
   /* ---------------- shared runner ---------------- */
+  /* ---- Sri Lanka calendar: major events (per client, saved on this computer) and chart pins ---- */
+  let MAJOR = [], PINLIST = [], PINS_ON = true;
+  const evKey = () => 'mr:major-events:' + App.clientId();
+  const readEvents = () => { try { const v = JSON.parse(localStorage.getItem(evKey()) || '[]'); return Array.isArray(v) ? v.filter((e) => e && e.start) : []; } catch (e) { return []; } };
+  const writeEvents = (v) => { try { localStorage.setItem(evKey(), JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
+  async function loadPins(dates, forecastDates) {
+    try {
+      const start = dates[0], end = forecastDates[forecastDates.length - 1];
+      const r = await App.api.post('/api/calendar/pins', { start, end, major_events: MAJOR });
+      PINLIST = r.pins || [];
+    } catch (e) { PINLIST = []; }
+  }
+  /** Pins that fall on the given chart labels (days, weeks or month starts). */
+  function eventOpt(labels) {
+    const L = labels.map((l) => String(l).slice(0, 10)), n = L.length, out = [];
+    if (n < 2) return { on: PINS_ON, pins: [] };
+    const step = (Date.parse(L[1]) - Date.parse(L[0])) / 86400000;
+    for (const p of PINLIST) {
+      const t = Date.parse(p.date); if (t < Date.parse(L[0]) || t >= Date.parse(L[n - 1]) + step * 86400000) continue;
+      let i = n - 1; while (i > 0 && Date.parse(L[i]) > t) i--;
+      out.push({ index: i, emoji: p.emoji, label: p.label });
+    }
+    return { on: PINS_ON, pins: out };
+  }
+  function eventsEditor(onSave) {
+    const rows = readEvents();
+    const m = App.modal('Major events', `<p class="small muted">Flag cricket tournaments, elections or special broadcasts. The forecast engine learns from past events and expects the same lift or dip in future ones. Events are saved on this computer for this client.</p>
+      <div id="me-rows" class="stack"></div><div class="row" style="margin-top:12px"><button class="btn sm" type="button" id="me-add">Add event</button><button class="btn primary" type="button" id="me-save">Save and refresh</button></div>`);
+    const draw = () => { m.querySelector('#me-rows').innerHTML = rows.map((e, i) => `<div class="row" data-i="${i}"><input class="me-name" placeholder="Event name" value="${esc(e.name || '')}" style="min-width:200px"><input class="me-a" type="date" value="${esc(e.start || '')}"><span class="muted small">to</span><input class="me-b" type="date" value="${esc(e.end || e.start || '')}"><button class="btn sm ghost me-x" type="button">Remove</button></div>`).join('') || '<div class="muted small">No events yet.</div>';
+      m.querySelectorAll('.me-x').forEach((b) => { b.onclick = () => { rows.splice(+b.closest('[data-i]').dataset.i, 1); draw(); }; }); };
+    const sync = () => m.querySelectorAll('[data-i]').forEach((r) => { const e = rows[+r.dataset.i]; e.name = r.querySelector('.me-name').value; e.start = r.querySelector('.me-a').value; e.end = r.querySelector('.me-b').value || e.start; });
+    m.querySelector('#me-add').onclick = () => { sync(); rows.push({ name: '', start: '', end: '' }); draw(); };
+    m.querySelector('#me-save').onclick = () => { sync(); writeEvents(rows.filter((e) => e.start && e.end >= e.start)); m.querySelectorAll('[data-x]').forEach((x) => x.click()); onSave(); };
+    draw();
+  }
   async function forecastBatch(kind, items, gran, onProgress) {
     if (!items.length) return null;
-    return App.runJob('/api/forecast/run', { kind, series: items, params: { granularity: gran, horizon_days: gran === 'weekly' ? HMAX + 6 : gran === 'monthly' ? 360 : HMAX, covariates: true, entity_type: 'prediction', metric: 'prediction' } }, onProgress);
+    return App.runJob('/api/forecast/run', { kind, series: items, params: { granularity: gran, horizon_days: gran === 'weekly' ? HMAX + 6 : gran === 'monthly' ? 360 : HMAX, covariates: true, entity_type: 'prediction', metric: 'prediction',
+      holdout: gran === 'monthly' ? 3 : gran === 'weekly' ? 4 : 30, major_events: MAJOR } }, onProgress);
   }
   async function getPrediction(key, build, kind, onProgress) {
     if (cache.has(key)) return cache.get(key);
@@ -113,10 +149,30 @@
   function needData(p, sheet) {
     p.innerHTML = App.emptyState(`Load the ${sheet} to unlock this prediction`, 'Use the data sources panel above. Files are read once and stay in this browser.');
   }
+  /* ---- Trust meter: accuracy on days the engine had not seen (100 minus sMAPE) ---- */
+  const trustOf = (r) => { const b = r && r.backtest; return b && b.model && b.model.smape != null ? Math.max(0, Math.min(100, 100 - b.model.smape)) : null; };
+  const trustLvl = (t) => (t == null ? ['n/a', 'warn'] : t >= 90 ? ['High', 'good'] : t >= 75 ? ['Medium', 'warn'] : ['Low', 'bad']);
+  const trustTip = (r) => { const b = r && r.backtest; return b ? `Tested on the last ${b.holdout} ${r.granularity === 'monthly' ? 'months' : r.granularity === 'weekly' ? 'weeks' : 'days'} of recorded data that the engine had not seen. Accuracy = 100 minus the average percentage error (sMAPE).` : 'Not enough history for an accuracy test.'; };
+  function trustBadge(results) {
+    const ts = results.map(trustOf).filter(finite); if (!ts.length) return '<span class="badge warn" title="Not enough history for an accuracy test.">Trust: not tested</span>';
+    const t = ts.reduce((a, b) => a + b, 0) / ts.length, [lvl, cls] = trustLvl(t), r0 = results.find((x) => trustOf(x) != null);
+    return `<span class="badge ${cls}" title="${esc(trustTip(r0))}">Trust ${t.toFixed(0)}% (${lvl})</span>`;
+  }
+  /* ---- Quantile risk: Volatility Index = (high case - low case) / most likely ---- */
+  const volIdx = (lo, mid, hi) => (finite(lo) && finite(hi) && finite(mid) && mid > 0 ? (hi - lo) / mid : null);
+  const volLvl = (v) => (v == null ? ['n/a', ''] : v < 0.25 ? ['Stable', 'good'] : v < 0.5 ? ['Moderate', 'warn'] : ['Volatile', 'bad']);
+  const guidance = (v) => (v == null ? 'Not enough history.' : v < 0.25 ? 'Guarantee at the floor and price at expected.' : v < 0.5 ? 'Guarantee only the floor; ask for make-goods above it.' : 'No guarantee. Buy at a discount or only as part of a package.');
+  /** Table for the back of a flip card: floor (P10), expected (P50), ceiling (P90), volatility index and what to do about it. */
+  function volTable(rows, label, vf) {
+    const body = rows.filter((x) => x.vi != null).sort((a, b) => b.vi - a.vi).map((x) => { const [lv, cl] = volLvl(x.vi); return `<tr><td>${esc(x.name)}</td><td>${vf(x.lo)}</td><td>${vf(x.mid)}</td><td>${vf(x.hi)}</td><td><span class="badge ${cl}">${x.vi.toFixed(2)} ${lv}</span></td><td>${esc(guidance(x.vi))}</td></tr>`; }).join('');
+    return `<h4>Negotiation guide</h4><p class="fb-how">Volatility Index = (high case − low case) ÷ most likely. Low case is the guaranteed floor (P10), most likely is the expected level (P50), high case is the upside ceiling (P90).</p>
+      <div class="fb-scroll" style="margin-bottom:12px"><table class="dt-table"><thead><tr><th>${esc(label)}</th><th>Floor P10</th><th>Expected P50</th><th>Ceiling P90</th><th>Volatility</th><th>What to do</th></tr></thead><tbody>${body || '<tr><td colspan="6">Not enough history.</td></tr>'}</tbody></table></div>`;
+  }
+  const calendarTools = () => `<label class="row small" title="Show Poya days, salary windows and festivals on the charts"><input type="checkbox" data-pins ${PINS_ON ? 'checked' : ''}> Event pins</label><button class="btn sm" type="button" data-events>Major events${MAJOR.length ? ` (${MAJOR.length})` : ''}</button>`;
   function headCard(title, sub, r, extra = '') {
     const rel = r && r.reliability;
     return `<div class="card glow" style="margin-bottom:16px"><div class="card-head" style="margin:0"><div><div class="eyebrow"><span class="fc-pill">Forecast</span> Estimates of what is likely, not recorded data</div><h2 style="margin-top:4px">${esc(title)}</h2><div class="sub">${esc(sub)}</div></div>
-      <div class="row">${extra}${rel ? `<span class="badge ${relCls[rel.level]}" title="${esc(rel.reasons.join(' '))}">Reliability: ${rel.level}</span>` : ''}<button class="btn sm" type="button" data-rerun>Re-run</button></div></div></div>`;
+      <div class="row">${extra}${calendarTools()}${r ? trustBadge([r]) : ''}${rel ? `<span class="badge ${relCls[rel.level]}" title="${esc(rel.reasons.join(' '))}">Reliability: ${rel.level}</span>` : ''}<button class="btn sm" type="button" data-rerun>Re-run</button></div></div></div>`;
   }
   const kpiTile = (label, value, sub, help, cls = '') => `<div class="kpi fc ${cls}"><span class="fc-pill tile">Forecast</span><div class="k-lbl">${esc(label)} ${help || ''}</div><div class="k-val">${value}</div>${sub ? `<div class="k-sub">${sub}</div>` : ''}</div>`;
 
@@ -134,16 +190,66 @@
   function fan(id, r, H, { color = C.PALETTE[0], histDays = HIST, vf = f2, afterBody, lowLabel = 'Low case' } = {}) {
     const f = slice(r, H), hd = r.history.dates.slice(-histDays), hv = r.history.values.slice(-histDays), nh = hd.length;
     const labels = hd.concat(f.dates), pad = (a) => Array(nh - 1).fill(null).concat([hv[nh - 1]], a);
+    const bt = r.backtest, hold = bt ? Math.min(bt.holdout, nh) : 0;
+    const back = bt ? Array(nh - hold).fill(null).concat(bt.pred.slice(-hold), Array(f.dates.length).fill(null)) : null;
     const ch = C.make(id, { type: 'line', data: { labels, datasets: [
       { label: 'High case', data: pad(f.p90), borderColor: 'transparent', backgroundColor: color + '2e', fill: '+1', pointRadius: 0 },
       { label: lowLabel, data: pad(f.p10), borderColor: color + '88', borderWidth: 1, borderDash: [2, 3], fill: false, pointRadius: 0 },
       { label: 'Most likely forecast', data: pad(f.p50), borderColor: color, borderDash: [7, 5], borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
-      { label: 'Actual', data: hv.concat(Array(f.dates.length).fill(null)), borderColor: C.css('--text') || '#e8eeff', borderWidth: 2, pointRadius: 0, tension: 0.25 }] },
-      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { filter: (i) => i.text !== 'High case' } }, nowLine: { index: nh - 1 },
+      { label: 'Actual', data: hv.concat(Array(f.dates.length).fill(null)), borderColor: C.css('--text') || '#e8eeff', borderWidth: 2, pointRadius: 0, tension: 0.25 }]
+      .concat(back ? [{ label: 'Backtest: what the engine would have said', data: back, borderColor: C.css('--warn') || '#ffb547', borderDash: [3, 3], borderWidth: 2, pointRadius: 3, pointBackgroundColor: C.css('--warn') || '#ffb547', tension: 0.2, hidden: true }] : []) },
+      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { filter: (i) => i.text !== 'High case' } }, nowLine: { index: nh - 1 }, eventPins: eventOpt(labels),
         tooltip: { callbacks: { title: C.fcTitle(nh), label: (c) => (c.parsed.y == null ? null : `${c.dataset.label}: ${vf(c.parsed.y)}`), afterBody: afterBody ? (items) => afterBody(items[0].dataIndex - nh) : undefined } } },
         scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }, y: { beginAtZero: false, ticks: { callback: (v) => vf(v) } } } },
       plugins: [nowLine] });
     return { ch, f, nh };
+  }
+
+
+  /* ---------------- New Programme Estimator ---------------- */
+  function wireColdStart(p, filters, pc) {
+    const host = $('#np-card', p); if (!host) return;
+    const chs = pc.channels || [], cats = pc.categories || [], DAYN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    host.innerHTML = `<div class="card-head"><div><h3><span class="fc-pill">Estimate</span> New Programme Estimator</h3><div class="sub">For a show with no history. The first 4 weeks are estimated from the slot, the lead-in, how loyal rival audiences are and how earlier launches of the same category grew.</div></div></div>
+      <div class="np-form"><label class="field"><span class="small muted">Target channel</span><select id="np-ch">${chs.map((c) => `<option value="${esc(c)}">${esc(fmt.title(c))}</option>`).join('')}</select></label>
+        <div class="field"><span class="small muted">Day(s)</span><div class="np-days">${DAYN.map((d, i) => `<label><input type="checkbox" class="np-day" value="${i}" checked> ${d}</label>`).join('')}</div></div>
+        <label class="field"><span class="small muted">Start</span><input type="time" id="np-st" value="20:30"></label><label class="field"><span class="small muted">End</span><input type="time" id="np-en" value="21:00"></label>
+        <label class="field"><span class="small muted">Category</span><select id="np-cat">${cats.map((c) => `<option>${esc(c)}</option>`).join('')}</select></label>
+        <button class="btn primary" type="button" id="np-go">Estimate launch</button></div><div id="np-out" style="margin-top:16px"></div>`;
+    $('#np-go', host).onclick = async () => {
+      const out = $('#np-out', host), req = { channel: $('#np-ch', host).value, days: [...host.querySelectorAll('.np-day:checked')].map((x) => +x.value), start: $('#np-st', host).value, end: $('#np-en', host).value, category: $('#np-cat', host).value };
+      if (!req.days.length) { out.innerHTML = App.emptyState('Pick at least one day', ''); return; }
+      out.innerHTML = App.skeleton(1);
+      let r; try { r = await App.data.coldStart({ filters, request: req }); } catch (e) { out.innerHTML = App.emptyState('The estimate could not run', e.message); return; }
+      if (!r.ok) { out.innerHTML = App.emptyState('No estimate yet', r.message); return; }
+      renderCold(out, r);
+    };
+  }
+  function renderCold(out, r) {
+    const v = r.verdict, b = r.baseline, wkTxt = ['Week 1', 'Week 2', 'Week 3', 'Week 4'], pc1 = (x) => (x == null ? 'n/a' : (x * 100).toFixed(0) + '%');
+    const loser = v.biggest_loser;
+    const ev = [`Expected launch TVR is ${f2(v.p50)}, with a safe floor of ${f2(v.p10)} and an upside of ${f2(v.p90)} (average of the first 4 weeks).`,
+      r.strongest_rival ? `${fmt.title(r.strongest_rival.channel)} has the most loyal audience in this slot (loyalty ${pc1(r.strongest_rival.loyalty)}), so the upside is capped at x${r.cap_factor.toFixed(2)} of the expected level.` : null,
+      loser ? `${fmt.title(loser)} has the most audience to lose here (about ${f2(v.loser_share)} TVR points can be won from it).` : 'No rival slot shows an audience that is easy to win.',
+      { rec: true, text: `Sell sponsorship on the floor of ${f2(v.p10)}. Re-price after week 2 if the show beats ${f2(r.weeks[1].p50)}.` }, ...r.notes];
+    out.innerHTML = `<div class="kpis">${kpiTile('Expected launch TVR (P50)', f2(v.p50), `Upside ${f2(v.p90)} (P90)`, App.help('The median level over the first 4 weeks, from the slot baseline, lead-in and the category launch curve.', 'What to plan on.'))}
+      ${kpiTile('Safe guaranteed floor (P10)', f2(v.p10), 'Use this for sponsorship price negotiation', App.help('A low case for the first 4 weeks: about 9 launches in 10 should do at least this.', 'A number you can guarantee a sponsor.'))}
+      ${kpiTile('Audience most likely to be won from', loser ? esc(fmt.title(loser)) : 'none', loser ? `About ${f2(v.loser_share)} TVR points` : 'Rivals are loyal here', App.help('Rival channels with low stickiness, short viewing time or a falling trend in this slot have audience that can be won.', 'Where your promotion should be aimed.'))}</div>
+      <div style="margin-top:16px">${C.box('pt-cold', 'Launch trajectory: first 4 weeks', 'Floor, expected and ceiling for each week of the launch.', { pill: 'Estimate', ev: true, help: ['Week by week: the slot baseline times the category launch curve, plus audience that is easy to win from rivals, with a range set by how steady the slot has been and how uncertain launches are. The ceiling is capped by the strongest rival\'s loyalty.', 'A launch plan and a sponsorship floor for a show with no history.'] })}</div>
+      <div class="grid g3 np-signals" style="margin-top:16px">
+        <div class="card"><h3>1. Slot and lead-in</h3><div class="small">Slot TVR (last 8 weeks): <b>${b.slot_tvr != null ? f2(b.slot_tvr) : 'none'}</b> (${b.slot_airings} airings)<br>Lead-in: <b>${esc(b.lead_in || 'none found')}</b>${b.lead_in_tvr != null ? ` at ${f2(b.lead_in_tvr)}` : ''}<br>Hand-over: the next show keeps <b>${pc1(b.retention)}</b> of it<br>Baseline used: <b>${f2(b.estimate)}</b><div class="muted">Based on ${esc(b.basis)}.</div></div></div>
+        <div class="card"><h3>2. Rival loyalty in this slot</h3><div class="fb-scroll"><table class="dt-table"><thead><tr><th>Channel</th><th>TVR</th><th>TVR per reach</th><th>Stays tuned</th><th>Loyalty</th><th></th></tr></thead><tbody>${r.rivals.map((x) => `<tr><td>${esc(fmt.title(x.channel))}</td><td>${f2(x.tvr)}</td><td>${x.stickiness != null ? f2(x.stickiness) : 'n/a'}</td><td>${pc1(x.retention)}</td><td>${pc1(x.loyalty)}</td><td>${x.zapping ? '<span class="badge bad">Zapping</span>' : '<span class="badge good">Loyal</span>'}</td></tr>`).join('') || '<tr><td colspan="6">No rival airs in this slot.</td></tr>'}</tbody></table></div></div>
+        <div class="card"><h3>3. Category launch curve</h3><div class="small">${r.curve.weeks.map((x, k) => `${wkTxt[k]}: <b>${(x * 100).toFixed(0)}%</b>`).join('<br>')}<div class="muted" style="margin-top:6px">From ${r.curve.launches} earlier launch${r.curve.launches === 1 ? '' : 'es'}: ${esc(r.curve.basis)}${r.curve.titles.length ? ` (${esc(r.curve.titles.slice(0, 3).join(', '))})` : ''}.</div></div></div></div>`;
+    out.querySelectorAll('.kpi .fc-pill').forEach((t) => { t.textContent = 'Estimate'; });
+    const labels = wkTxt;
+    C.make('pt-cold', { type: 'line', data: { labels, datasets: [
+      { label: 'Ceiling (high case)', data: r.weeks.map((w) => w.p90), borderColor: 'transparent', backgroundColor: C.PALETTE[0] + '2e', fill: '+1', pointRadius: 0 },
+      { label: 'Safe floor (low case)', data: r.weeks.map((w) => w.p10), borderColor: C.PALETTE[0] + '99', borderDash: [3, 3], pointRadius: 4, fill: false },
+      { label: 'Expected (most likely)', data: r.weeks.map((w) => w.p50), borderColor: C.PALETTE[0], borderWidth: 3, pointRadius: 5, tension: 0.25 }] },
+      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { filter: (i) => i.text !== 'Ceiling (high case)' } }, tooltip: { callbacks: { title: (it) => `${it[0].label}  ·  ESTIMATE`, label: (c) => `${c.dataset.label}: ${f2(c.parsed.y)}` } } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'TVR' } }, x: { grid: { display: false } } } } });
+    C.setBack('pt-cold', () => `<h4>Weekly numbers</h4><table class="dt-table"><thead><tr><th>Week</th><th>Floor P10</th><th>Expected P50</th><th>Ceiling P90</th><th>Launch curve</th></tr></thead><tbody>${r.weeks.map((w) => `<tr><td>${w.week}</td><td>${f2(w.p10)}</td><td>${f2(w.p50)}</td><td>${f2(w.p90)}</td><td>${(w.curve * 100).toFixed(0)}%</td></tr>`).join('')}</tbody></table>
+      <p class="fb-how">Baseline ${f2(b.estimate)} (${esc(b.basis)}) × launch curve, plus up to ${f2(r.uplift)} TVR points won from rivals with weak loyalty. Ceiling capped at x${r.cap_factor.toFixed(2)} by the strongest rival's loyalty. This is an estimate from patterns in your sheet, not a forecast from this programme's own history.</p>`);
+    C.evidence('pt-cold', ev, 'Estimate');
   }
 
   /* ================================================================ TVR & Audience */
@@ -151,7 +257,8 @@
     if (!ctx.has('tv')) return needData(p, 'TVR sheet');
     const filters = ctx.filtersFor('tv');
     const M = ctx.mode() === 'monthly', NM = ctx.months(), H = M ? NM * 30 : ctx.horizon();
-    const key = 'tv|' + (M ? 'm' : 'd') + '|' + ctx.status.tv.sig + '|' + JSON.stringify(filters);
+    MAJOR = readEvents();
+    const key = 'tv|' + (M ? 'm' : 'd') + '|' + ctx.status.tv.sig + '|' + JSON.stringify(filters) + '|' + JSON.stringify(MAJOR);
     const prog = cache.has(key) ? null : scanning(p, 'Forecasting audience behaviour');
     let pr;
     try { pr = await getPrediction(key, () => App.data.predictTvr({ filters, mode: M ? 'monthly' : 'daily' }), 'tv', prog || (() => {})); }
@@ -160,12 +267,14 @@
     if (!p.isConnected) return;
     const R = pr.results, pc = pr.payload.ctx;
     const w = W(M), SPAN = M ? `${NM} month${NM === 1 ? '' : 's'}` : `${H} days`, NOW = M ? 3 : 28, NP = M ? NM : H, NB = M ? 6 : 28, BACK = M ? 24 : 28;
+    const pname = (n) => String(n).split(' | ').slice(0, 3).join(', ');
     HIST = M ? 24 : 56;
     const evid = (id, items) => C.evidence(id, (items || []).map((x) => (typeof x === 'string' ? w(x) : x && x.text ? { ...x, text: w(x.text) } : x)), "Planner's Evidence (forecast)", { note: 'These figures are forecasts: estimates of what is likely, not recorded data.' });
     const tot = one(R, 'tvr_total');
     if (!tot) { p.innerHTML = App.emptyState('Not enough TVR history to forecast', (pr.payload.notes || [])[0] || 'Widen the filters.'); return; }
     const reach = one(R, 'reach_total'), cats = group(R, 'cat_share'), hours = group(R, 'hour_share'), chans = group(R, 'channel_tvr'), progs = group(R, 'program_tvr');
     const fT = slice(tot, H), recentT = MR.recentMean(tot, NOW);
+    await loadPins(tot.history.dates.slice(-HIST), fT.dates);
     const pTVR = avg(fT.p50), gTVR = avg(fT.p10), upTVR = avg(fT.p90);
     const catRows = cats.map((r) => { const f = slice(r, H); return { name: r.entity, now: MR.recentMean(r, NOW), next: avg(f.p50) }; }).map((x) => ({ ...x, shift: finite(x.next) && finite(x.now) ? x.next - x.now : null }));
     const growing = catRows.filter((x) => finite(x.shift)).sort((a, b) => b.shift - a.shift);
@@ -212,7 +321,8 @@
         ${C.box('pt-prog', 'Programme league: expected TVR', 'Bar start is the low case, the colour change is the most likely value, the end is the high case.', { xtall: true, ev: true,
           help: ['Each recurring programme slot (same programme, channel, weekday and start) is forecast. The bar runs from the low case to the high case and the colour changes at the most likely value.', 'Pick programmes that deliver the most audience with a tight range.'] })}
         <div style="margin-top:16px">${C.box('pt-risk', 'Safe or risky?', 'Right and low is the safest bet.', { ev: true,
-          help: ['X is the expected TVR, Y the width of its forecast range. Low and to the right is a safe bet.', 'Separate dependable programmes for guarantees from volatile ones to buy only at a discount.'] })}</div>
+          help: ['X is the expected TVR, Y is the Volatility Index: (high case - low case) divided by most likely. Low and to the right is a safe bet.', 'Separate dependable programmes for guarantees from volatile ones to buy only at a discount. Flip the card for a negotiation guide.'] })}</div>
+        <div class="card" style="margin-top:16px" id="np-card"></div>
       </section>
       <section class="sv" data-sv="when"${svHide('tvr', 'when')}>
         <div class="grid g2">
@@ -224,7 +334,9 @@
         ${fR ? `<div style="margin-top:16px">${C.box('pt-reach', 'Reach outlook', 'Average Reach % per airing', { ev: true, help: ['The same forecast applied to the daily average Reach %.', 'Expected breadth of audience per airing, useful for reach-led campaigns.'] })}</div>` : ''}
       </section>`);
     wireRerun(p, key, () => tvrTab(p, ctx));
+    wireCalendar(p, () => tvrTab(p, ctx));
     wireSv(p, 'tvr');
+    wireColdStart(p, filters, pc);
     p.querySelectorAll('[data-open-sv]').forEach((b) => { b.onclick = () => { const t = p.querySelector(`[data-svb="${b.dataset.openSv}"]`); if (t) t.click(); }; });
     markForecast(p, { R, H, M });
     p.querySelectorAll('[data-intro]').forEach((b) => { b.onclick = () => App.loadIntro().then(() => App.intro.open(true)); });
@@ -277,26 +389,28 @@
       evid('pt-cat', ev.cat);
     }
 
-    // 5. programme risk map
-    const pts = progs.map((r) => { const f = slice(r, H); const m = avg(f.p50); return { name: r.entity, x: m, y: m > 0 ? (avg(f.p90) - avg(f.p10)) / m * 100 : null }; }).filter((q) => finite(q.x) && finite(q.y));
+    // 5. programme risk map: Volatility Index
+    const pts = progs.map((r) => { const f = slice(r, H); const m = avg(f.p50), lo = avg(f.p10), hi = avg(f.p90); return { name: r.entity, x: m, y: volIdx(lo, m, hi), lo, hi }; }).filter((q) => finite(q.x) && finite(q.y));
     if (pts.length) {
       const mx = MR.pmedian(pts.map((q) => q.x)), my = MR.pmedian(pts.map((q) => q.y));
-      C.make('pt-risk', { type: 'scatter', data: { datasets: [{ label: 'Programme slots', data: pts, pointRadius: 7, pointHoverRadius: 10,
+      C.make('pt-risk', { type: 'scatter', data: { datasets: [{ label: 'Programme slots', data: pts.map((q) => ({ x: q.x, y: q.y, q: { programme: pname(q.name), 'expected TVR': q.x, 'floor (low case)': q.lo, 'ceiling (high case)': q.hi, 'volatility index': q.y, advice: guidance(q.y) } })), pointRadius: 7, pointHoverRadius: 10,
         backgroundColor: pts.map((q) => (q.x >= mx && q.y <= my ? (C.css('--good') || '#22f5a6') : q.y > my * 1.3 ? (C.css('--bad') || '#ff5d7a') : C.PALETTE[1])) }] },
-        options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => { const q = pts[c.dataIndex]; return [short(q.name, 60), `Forecast TVR ${f2(q.x)}, range width ${q.y.toFixed(0)}%`]; } } } },
-          scales: { x: { title: { display: true, text: 'Expected TVR (most likely)' } }, y: { title: { display: true, text: 'How wide the range is (% of the most likely value)' }, ticks: { callback: (v) => v + '%' } } } } });
+        options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => { const q = pts[c.dataIndex]; return [short(pname(q.name), 60), `Expected TVR ${f2(q.x)}, volatility index ${q.y.toFixed(2)}`, guidance(q.y)]; } } } },
+          scales: { x: { title: { display: true, text: 'Expected TVR (most likely)' } }, y: { title: { display: true, text: 'Volatility Index = (high − low) ÷ most likely' }, ticks: { callback: (v) => v.toFixed(2) } } } } });
       const safe = pts.filter((q) => q.x >= mx && q.y <= my).sort((a, b) => b.x - a.x), risky = pts.filter((q) => q.y > my * 1.3).sort((a, b) => b.y - a.y);
-      const nm = (q) => q.name.split(' | ').slice(0, 3).join(', ');
+      const nm = (q) => pname(q.name);
       ev.risk = [
-        safe.length ? `Safe bets (high TVR, tight range): ${safe.slice(0, 3).map(nm).join('; ')}.` : 'No slot is both above median TVR and below median uncertainty.',
-        risky.length ? `Volatile: ${risky.slice(0, 2).map(nm).join('; ')}.` : null,
-        { rec: true, text: safe.length ? `Anchor guaranteed packages on ${nm(safe[0])}; buy volatile slots only with make-goods or at a discount.` : 'Keep guarantees conservative across all slots.' },
+        safe.length ? `Safe bets (high TVR, low volatility): ${safe.slice(0, 3).map((q) => `${nm(q)} (index ${q.y.toFixed(2)})`).join('; ')}.` : 'No slot is both above median TVR and below median volatility.',
+        risky.length ? `Volatile: ${risky.slice(0, 2).map((q) => `${nm(q)} (index ${q.y.toFixed(2)})`).join('; ')}.` : null,
+        { rec: true, text: safe.length ? `Anchor guarantees on ${nm(safe[0])}, sold at its floor of ${f2(safe[0].lo)}. Buy volatile slots only with make-goods or at a discount.` : 'Keep guarantees conservative across all slots.' },
       ];
+      C.setBack('pt-risk', () => volTable(pts.map((q) => ({ name: pname(q.name), lo: q.lo, mid: q.x, hi: q.hi, vi: q.y })), 'Programme slot', f2));
     } else ev.risk = [M ? 'Not enough recurring programme history (a slot needs several months of airings).' : 'Not enough recurring programme history (a slot needs several weeks of airings).'];
     evid('pt-risk', ev.risk);
 
     // 5b. channel audience share + channel x daypart heatmap
     {
+      C.setBack('pt-chshare', () => volTable(group(R, 'channel_tvr').map((r) => { const f = slice(r, H), m = avg(f.p50), lo = avg(f.p10), hi = avg(f.p90); return { name: fmt.title(r.entity), lo, mid: m, hi, vi: volIdx(lo, m, hi) }; }), 'Channel', f2));
       const rows = shareRows(group(R, 'channel_share'), H, NOW);
       if (rows.length) {
         shareBars('pt-chshare', rows, { nowLabel: w('Last 4 weeks'), nextLabel: `Next ${SPAN}`, title: fmt.title });
@@ -334,7 +448,6 @@
     }
 
     // 5c. programme league (new) and channel share path (new), then the shortlist
-    const pname = (n) => String(n).split(' | ').slice(0, 3).join(', ');
     const progRows = progs.map((r) => { const f = slice(r, H); return { r, name: r.entity, nm: pname(r.entity), lo: avg(f.p10), mid: avg(f.p50), hi: avg(f.p90), now: MR.recentMean(r, NOW) }; })
       .filter((x) => finite(x.mid) && finite(x.lo) && finite(x.hi)).sort((a, b) => b.mid - a.mid).slice(0, 12);
     if (progRows.length) {
@@ -343,9 +456,10 @@
         { label: 'Low case', data: progRows.map((x) => x.lo), backgroundColor: 'transparent', borderWidth: 0, stack: 's' },
         { label: 'Low to most likely', data: progRows.map((x) => x.mid - x.lo), backgroundColor: C.PALETTE[0] + 'cc', borderRadius: 0, stack: 's', barThickness: 14 },
         { label: 'Most likely to high', data: progRows.map((x) => x.hi - x.mid), backgroundColor: C.PALETTE[0] + '55', borderRadius: 0, stack: 's', barThickness: 14 }] },
-        detailOnly: true, detail: (i) => { const x = progRows[i], bt = x.r.backtest; return `<div class="dt-kpis"><div class="dt-k"><span>Now (recent)</span><b>${f2(x.now)}</b></div><div class="dt-k"><span>Low case</span><b>${f2(x.lo)}</b></div><div class="dt-k"><span>Most likely</span><b>${f2(x.mid)}</b></div><div class="dt-k"><span>High case</span><b>${f2(x.hi)}</b></div><div class="dt-k"><span>Change vs now</span><b>${signed(pct(x.mid, x.now), 0)}</b></div><div class="dt-k"><span>Reliability</span><b>${x.r.reliability ? x.r.reliability.level : 'n/a'}</b></div></div><div class="small muted">${esc(x.name)}${bt && bt.model && bt.model.smape != null ? ` In the last ${bt.holdout} periods the forecast was off by ${f1(bt.model.smape)}% on average.` : ''}</div>`; },
+        detailOnly: true, detail: (i) => { const x = progRows[i], bt = x.r.backtest; return `<div class="dt-kpis"><div class="dt-k"><span>Now (recent)</span><b>${f2(x.now)}</b></div><div class="dt-k"><span>Low case</span><b>${f2(x.lo)}</b></div><div class="dt-k"><span>Most likely</span><b>${f2(x.mid)}</b></div><div class="dt-k"><span>High case</span><b>${f2(x.hi)}</b></div><div class="dt-k"><span>Change vs now</span><b>${signed(pct(x.mid, x.now), 0)}</b></div><div class="dt-k"><span>Volatility index</span><b>${(volIdx(x.lo, x.mid, x.hi) ?? 0).toFixed(2)} ${volLvl(volIdx(x.lo, x.mid, x.hi))[0]}</b></div><div class="dt-k"><span>Reliability</span><b>${x.r.reliability ? x.r.reliability.level : 'n/a'}</b></div></div><div class="small muted">${esc(x.name)}${bt && bt.model && bt.model.smape != null ? ` In the last ${bt.holdout} periods the forecast was off by ${f1(bt.model.smape)}% on average.` : ''}</div>`; },
         options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { filter: (i) => i.datasetIndex > 0, callbacks: { title: (it) => progRows[it[0].dataIndex].name, label: (c) => { const x = progRows[c.dataIndex]; return c.datasetIndex === 1 ? `Low case ${f2(x.lo)}, most likely ${f2(x.mid)}` : `High case ${f2(x.hi)}`; } } } },
           scales: { x: { stacked: true, beginAtZero: false, title: { display: true, text: 'Expected TVR' } }, y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } } } } });
+      C.setBack('pt-prog', () => volTable(progRows.map((x) => ({ name: x.nm, lo: x.lo, mid: x.mid, hi: x.hi, vi: volIdx(x.lo, x.mid, x.hi) })), 'Programme slot', f2));
       const best = progRows[0], tight = progRows.filter((x) => (x.hi - x.lo) / (x.mid || 1) <= med).sort((a, b) => b.mid - a.mid)[0], rise = progRows.map((x) => ({ ...x, chg: pct(x.mid, x.now) })).filter((x) => finite(x.chg)).sort((a, b) => b.chg - a.chg)[0];
       ev.prog = [`${best.nm} is expected to deliver the most audience: TVR ${f2(best.mid)} (range ${f2(best.lo)} to ${f2(best.hi)}).`,
         rise && rise.chg > 3 ? `Rising fastest: ${rise.nm} (${signed(rise.chg, 0)} vs now).` : null,
@@ -359,7 +473,7 @@
       top.forEach((r) => { const col = C.colorFor(r.entity), f = slice(r, H), hv = r.history.values.slice(-HIST);
         ds.push({ label: fmt.title(r.entity), data: hv.concat(Array(fd.length).fill(null)), borderColor: col, backgroundColor: col, borderWidth: 2, pointRadius: 0, tension: 0.25 });
         ds.push({ label: fmt.title(r.entity) + ' (forecast)', data: Array(nh - 1).fill(null).concat([hv[nh - 1]], f.p50), borderColor: col, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, tension: 0.3 }); });
-      C.make('pt-chtraj', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine], options: { interaction: { mode: 'index', intersect: false }, plugins: { nowLine: { index: nh - 1 }, legend: { position: 'bottom', labels: { filter: (i) => !/\(forecast\)$/.test(i.text) } },
+      C.make('pt-chtraj', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine], options: { interaction: { mode: 'index', intersect: false }, plugins: { nowLine: { index: nh - 1 }, eventPins: eventOpt(labels), legend: { position: 'bottom', labels: { filter: (i) => !/\(forecast\)$/.test(i.text) } },
         tooltip: { filter: (i) => i.parsed.y != null && !(i.dataIndex === nh - 1 && /\(forecast\)$/.test(i.dataset.label)), callbacks: { title: C.fcTitle(nh), label: (c) => `${c.dataset.label}: ${fmt.num(c.parsed.y, 1)}%` } } },
         scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }, y: { ticks: { callback: (v) => v + '%' }, title: { display: true, text: 'Share of all TVR' } } } } });
       const up = chRows.slice().sort((a, b) => b.chg - a.chg), dn = up.slice().reverse();
@@ -460,7 +574,8 @@
     const filters = ctx.filtersFor('lmrb'), persp = ctx.persp(), M = ctx.mode() === 'monthly', NM = ctx.months(), H = M ? NM * 30 : ctx.horizon();
     const pg = App.store.get('mk-group:' + App.clientId(), '');
     const opts = { product_group: pg || null, my_brand: persp.my_brand || null, tv_data_set: persp.tv_data_set || null, mode: M ? 'monthly' : 'daily' };
-    const key = 'lm|' + ctx.status.lmrb.sig + '|' + (ctx.status.tv ? ctx.status.tv.sig : '') + '|' + JSON.stringify(filters) + JSON.stringify(opts);
+    MAJOR = readEvents();
+    const key = 'lm|' + JSON.stringify(MAJOR) + ctx.status.lmrb.sig + '|' + (ctx.status.tv ? ctx.status.tv.sig : '') + '|' + JSON.stringify(filters) + JSON.stringify(opts);
     const prog = cache.has(key) ? null : scanning(p, 'Forecasting competitor moves');
     let pr;
     try { pr = await getPrediction(key, () => App.data.predictMarket({ filters, options: opts }), 'lmrb', prog || (() => {})); }
@@ -472,6 +587,7 @@
     HIST = M ? 24 : 56;
     const evid = (id, items) => C.evidence(id, (items || []).map((x) => (typeof x === 'string' ? w(x) : x && x.text ? { ...x, text: w(x.text) } : x)), "Planner's Evidence (forecast)", { note: 'These figures are forecasts: estimates of what is likely, not recorded data.' });
     if (!R.length) { p.innerHTML = App.emptyState('Not enough LMRB history to forecast', (pr.payload.notes || [])[0] || 'Widen the filters.'); return; }
+    { const s0 = one(R, 'spots_total') || R[0]; await loadPins(s0.history.dates.slice(-HIST), slice(s0, H).dates); }
     const comp = group(R, 'comp_spend'), sov = group(R, 'sov'), spots = one(R, 'spots_total'), dps = group(R, 'daypart_spend'), cps = one(R, 'cps_total');
     const clut = group(R, 'clutter'), pos = group(R, 'posinbrk'), rate = group(R, 'slot_rating'), costs = group(R, 'slot_cost');
     const my = pc.my_brand;
@@ -565,6 +681,7 @@
           help: ['Group spend per daypart is forecast and compared with the recent level.', 'Where competitor money is moving, to find quieter, cheaper dayparts.'] })}</div>
       </section>`);
     wireRerun(p, key, () => marketTab(p, ctx));
+    wireCalendar(p, () => marketTab(p, ctx));
     wireSv(p, 'market');
     markForecast(p, { R, H, M });
     p.querySelectorAll('[data-intro]').forEach((b) => { b.onclick = () => App.loadIntro().then(() => App.intro.open(true)); });
@@ -587,7 +704,7 @@
       bursts.forEach((b) => { const i = nh + b.index; const sv = ((compRows.find((q) => q.name === b.name) || {}).fs || [])[b.index]; const yv = finite(sv) ? sv : b.value; if (marks[i] == null || yv > marks[i]) { marks[i] = yv; info[i] = b; } });
       if (bursts.length) ds.push({ label: 'Predicted Competitor Campaign Burst', data: marks, showLine: false, pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 11, borderColor: C.css('--warn') || '#ffb547', backgroundColor: C.css('--warn') || '#ffb547' });
       C.make('pm-spend', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine],
-        options: { interaction: { mode: 'index', intersect: false }, plugins: { nowLine: { index: nh - 1 }, legend: { position: 'bottom', labels: { filter: (i) => !/\(forecast\)$/.test(i.text) } },
+        options: { interaction: { mode: 'index', intersect: false }, plugins: { nowLine: { index: nh - 1 }, eventPins: eventOpt(labels), legend: { position: 'bottom', labels: { filter: (i) => !/\(forecast\)$/.test(i.text) } },
           tooltip: { filter: (i) => i.parsed.y != null && !(i.dataIndex === nh - 1 && /\(forecast\)$/.test(i.dataset.label)), callbacks: { title: C.fcTitle(nh), label: (c) => (c.dataset.label.startsWith('Predicted') ? `Burst: ${info[c.dataIndex].name} ${signed(info[c.dataIndex].lift_pct, 0)} vs 7-day average` : `${c.dataset.label}: ${fmt.lkrc(c.parsed.y)}`) } } },
           scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }, y: { beginAtZero: true, ticks: { callback: (v) => fmt.compact(v) } } } } });
       const top = rivals.slice().sort((a, b) => b.next - a.next)[0];
@@ -885,22 +1002,25 @@
     const m = App.modal(`Numbers behind: ${title}`, `<div class="banner info"><span>Rows marked <b>FORECAST</b> have not happened yet. They are estimates: most likely is the most likely value, low case a low case and high case a high case. Rows marked actual are recorded data.</span></div>${pick}<div id="nm-acc"></div><div id="nm-tbl"></div>`);
     const draw = (i) => {
       const r = results[i], f = slice(r, H), vf = valFmt(r.unit), keep = M ? 24 : 30;
-      const hist = r.history.dates.slice(-keep).map((d, k) => { const j = r.history.dates.length - Math.min(keep, r.history.dates.length) + k; return { period: d, kind: 'actual', p10: null, p50: r.history.values[j], p90: null }; });
-      const fc = f.dates.map((d, k) => ({ period: d, kind: 'FORECAST', p10: f.p10[k], p50: f.p50[k], p90: f.p90[k] }));
+      const bt0 = r.backtest, btm = new Map(bt0 ? bt0.dates.map((d, k) => [d, bt0.pred[k]]) : []);
+      const hist = r.history.dates.slice(-keep).map((d, k) => { const j = r.history.dates.length - Math.min(keep, r.history.dates.length) + k; return { period: d, kind: 'actual', p10: null, p50: r.history.values[j], p90: null, back: btm.has(d) ? btm.get(d) : null }; });
+      const fc = f.dates.map((d, k) => ({ period: d, kind: 'FORECAST', p10: f.p10[k], p50: f.p50[k], p90: f.p90[k], back: null }));
       const bt = r.backtest, rel = r.reliability;
-      $('#nm-acc', m).innerHTML = `<div class="card" style="margin-bottom:12px"><h3>How much can I trust this?</h3><div class="small" style="margin-top:8px">
+      const t = trustOf(r), [lvl, tcls] = trustLvl(t);
+      $('#nm-acc', m).innerHTML = `<div class="card" style="margin-bottom:12px"><h3>How much can I trust this? ${t == null ? '<span class="badge warn">Not tested</span>' : `<span class="badge ${tcls}" style="font-size:15px">Trust ${t.toFixed(0)}% (${lvl})</span>`}</h3><div class="small" style="margin-top:8px">
         Reliability: <span class="badge ${relCls[rel.level]}">${rel.level}</span> ${esc(rel.reasons.join(' '))}
         ${bt && bt.model ? `<div style="margin-top:6px">Accuracy check: the engine was tested on the last ${bt.holdout} ${r.granularity === 'monthly' ? 'months' : r.granularity === 'weekly' ? 'weeks' : 'days'} of recorded data, which it had not seen. It was off by <b>${bt.model.smape == null ? 'n/a' : fmt.num(bt.model.smape, 1) + '%'}</b> on average (a simple repeat-last-pattern guess was off by ${bt.baseline.smape == null ? 'n/a' : fmt.num(bt.baseline.smape, 1) + '%'}), and ${bt.model.coverage == null ? 'n/a' : fmt.num(bt.model.coverage, 0) + '%'} of actual values fell inside the low case to high case range (about 80% is ideal).</div>` : '<div style="margin-top:6px">There is not enough history for an accuracy test on this series.</div>'}</div></div>`;
       const box = $('#nm-tbl', m);
       App.tables.create(box, { csv: 'numbers_' + title.replace(/\W+/g, '_').toLowerCase() + '_' + r.entity.replace(/\W+/g, '_').toLowerCase(), search: false, pageSize: 40, defaultSort: { key: 'period', desc: false },
         rows: hist.concat(fc), columns: [{ key: 'period', label: r.granularity === 'monthly' ? 'Month' : r.granularity === 'weekly' ? 'Week starting' : 'Date' },
           { key: 'kind', label: 'Type', html: (v) => (v === 'FORECAST' ? '<span class="fc-pill" style="margin:0">Forecast</span>' : '<span class="badge">actual</span>') },
-          { key: 'p10', label: 'Low case', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p50', label: 'Value / Most likely', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p90', label: 'High case (high case)', num: true, fmt: (v) => (v == null ? '' : vf(v)) }] });
+          { key: 'p10', label: 'Low case', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p50', label: 'Value / Most likely', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'p90', label: 'High case', num: true, fmt: (v) => (v == null ? '' : vf(v)) }, { key: 'back', label: 'Backtest guess', num: true, fmt: (v) => (v == null ? '' : vf(v)) }] });
     };
     const sel = $('#nm-sel', m); if (sel) sel.onchange = () => draw(+sel.value);
     draw(0);
   }
   /** Puts a FORECAST pill and a Numbers button on every chart card; charts that also show history say so. */
+  const OVERLAY = ['pt-fan', 'pt-reach', 'pm-cps', 'pm-cprp'];
   const HISTORY = { 'pm-radar': 'Pattern from history', 'pm-fatigue': 'Estimate from history' };
   const MIXED = ['pt-fan', 'pt-reach', 'pt-chtraj', 'pm-spend', 'pm-cps', 'pm-cprp'];
   function markForecast(p, nums) {
@@ -911,10 +1031,21 @@
       c.classList.add('fc');
       if (nums && NUMS[id]) {
         const row = c.querySelector('.card-head .row');
+        const mine = nums.R.filter((r) => NUMS[id].includes(r.group));
+        if (row && mine.some((r) => r.backtest)) row.insertAdjacentHTML('afterbegin', trustBadge(mine));
+        if (row && OVERLAY.includes(id) && mine[0] && mine[0].backtest) { row.insertAdjacentHTML('afterbegin', '<button class="btn sm ghost" type="button" data-bt title="Show what the engine would have forecast for the last recorded days, before it saw them">Backtest</button>');
+          row.querySelector('[data-bt]').onclick = (e) => { const ch = window.Chart && Chart.getChart(id); if (!ch) return; const k = ch.data.datasets.findIndex((d) => /^Backtest/.test(d.label)); if (k < 0) return; const on = !ch.isDatasetVisible(k); ch.setDatasetVisibility(k, on); ch.update(); e.currentTarget.setAttribute('aria-pressed', String(on)); e.currentTarget.classList.toggle('primary', on); }; }
         if (row) { row.insertAdjacentHTML('afterbegin', '<button class="btn sm" type="button" data-nums>Numbers</button>');
           row.querySelector('[data-nums]').onclick = () => numbersModal(h.textContent.replace(/Actual \+ forecast|Forecast|\?/g, '').trim(), nums.R.filter((r) => NUMS[id].includes(r.group)), nums.H, nums.M); }
       }
     });
+  }
+  function wireCalendar(p, again) {
+    p.querySelectorAll('[data-pins]').forEach((b) => { b.onchange = () => {
+      PINS_ON = b.checked;
+      p.querySelectorAll('canvas').forEach((c) => { const ch = window.Chart && Chart.getChart(c); const o = ch && ch.options.plugins && ch.options.plugins.eventPins; if (o) { o.on = PINS_ON; ch.update('none'); } });
+    }; });
+    p.querySelectorAll('[data-events]').forEach((b) => { b.onclick = () => eventsEditor(again); });
   }
   function wireRerun(p, key, again) {
     p.querySelectorAll('[data-rerun]').forEach((b) => { b.onclick = () => { cache.delete(key); again(); }; });

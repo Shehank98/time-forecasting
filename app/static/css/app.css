@@ -672,3 +672,6 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .sl-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; }
 @media (max-width: 1300px) { .sl-grid.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } } @media (max-width: 700px) { .sl-grid.four { grid-template-columns: 1fr; } }
 #pb-tvr { margin-bottom: 16px; } .empty-note { padding: 8px 0; }
+
+.np-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; } .np-days { display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.np-signals .card { padding: 14px; } .np-signals h3 { margin: 0 0 8px; }

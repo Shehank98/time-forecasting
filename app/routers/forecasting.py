@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from ..core import workspace
 from ..services import repo, series as S
 from ..services import forecast as fc
+from ..services import sl_media_calendar as CAL
 from ..services.store import Workspace
 from ..services.util import jsonable
 
@@ -55,6 +56,24 @@ class PacingIn(BaseModel):
 @router.get("/api/model-status")
 def model_status() -> dict:
     return fc.model.status()
+
+
+class PinsIn(BaseModel):
+    start: str
+    end: str
+    major_events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@router.post("/api/calendar/pins")
+def calendar_pins(req: PinsIn, ws: Workspace = Depends(workspace)) -> dict:
+    """Event markers (Poya, salary window, festivals, user-flagged events) for a chart timeline."""
+    try:
+        a, b = pd.Timestamp(req.start), pd.Timestamp(req.end)
+    except ValueError as exc:
+        raise HTTPException(422, "Dates must look like 2026-11-01.") from exc
+    if b < a or (b - a).days > 2200:
+        raise HTTPException(422, "Choose a range of up to 6 years.")
+    return {"pins": CAL.pins(str(a.date()), str(b.date()), req.major_events[:20])}
 
 
 @router.get("/api/forecast/limits")
