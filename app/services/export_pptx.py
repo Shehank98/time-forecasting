@@ -188,7 +188,7 @@ class Deck:
         rs, p = fc["results"], fc["params"]
         label, unit = rs[0].get("metric_label", p.get("metric")), rs[0].get("unit", "number")
         if len(rs) > 1:
-            s = self.slide(f"{label}: outlook", f"{len(rs)} {p.get('entity_type')}s, next 4 weeks, TimesFM 2.5")
+            s = self.slide(f"{label}: outlook", f"{len(rs)} {p.get('entity_type')}s, next 4 weeks, Forecast engine")
             rows = [["Entity", "Trend", "Change", "Expected", "Next peak", "Reliability"]]
             for r in sorted(rs, key=lambda r: -(r["outlook"]["trend_change_pct"] or 0))[:10]:
                 o = r["outlook"]; pk = (r.get("peaks") or {}).get("peaks") or []
@@ -212,7 +212,7 @@ class Deck:
     def scenario_slide(self, sc: dict, title: str = "Budget scenarios") -> None:
         rows_ = sc["scenarios"]
         ratio = sc["params"].get("ratio_label", "Cost per result")
-        s = self.slide(title, f"Next {sc['params'].get('horizon_points')} {sc['params'].get('granularity')} periods. {'TimesFM 2.5 with spend as a covariate.' if sc.get('method') == 'timesfm_xreg' else 'Linear driver model with seasonal smoothing.'}")
+        s = self.slide(title, f"Next {sc['params'].get('horizon_points')} {sc['params'].get('granularity')} periods. {'Forecast engine with spend as a covariate.' if sc.get('method') == 'timesfm_xreg' else 'Linear driver model with seasonal smoothing.'}")
         self.chart(s, XL_CHART_TYPE.COLUMN_CLUSTERED, [r["scenario"] for r in rows_], [("Expected results (P50)", [r["kpi_p50"] for r in rows_])], Inches(0.6), Inches(1.6), Inches(5.6), Inches(5.0), legend=False)
         rows = [["Scenario", "Spend", "Results P50", "Range", ratio]]
         for r in rows_:

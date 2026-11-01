@@ -75,10 +75,10 @@ class ModelService:
 
     def status(self) -> dict:
         backend = "timesfm" if self._tfm is not None else ("fallback" if self._failed else "pending")
-        return {"backend": backend, "loaded": self._tfm is not None, "error": self.error, "checkpoint": CHECKPOINT, "model": "TimesFM 2.5 (200M)",
+        return {"backend": backend, "loaded": self._tfm is not None, "error": self.error, "checkpoint": CHECKPOINT, "model": "Media Radar forecast engine",
                 "max_context": MAX_CONTEXT, "load_seconds": self.load_seconds, "source": self.source,
                 "offline": os.environ.get("HF_HUB_OFFLINE") == "1", "covariates_supported": self.xreg_ok,
-                "note": "Fallback statistical model in use." if self._failed else ("TimesFM loads on first forecast." if self._tfm is None else "")}
+                "note": "Fallback statistical model in use." if self._failed else ("The forecast engine starts on first run." if self._tfm is None else "")}
 
     def load(self) -> bool:
         """Load TimesFM once. Returns True when the real model is available."""
@@ -521,7 +521,7 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
     bt_idx = [i for i, h in enumerate(holds) if h]
     batch = contexts + [contexts[i][:-holds[i]] for i in bt_idx]
     horizon_all = max([H] + [holds[i] for i in bt_idx])
-    prog(0.2, "Loading TimesFM" if model._tfm is None and not model._failed else "Running TimesFM")
+    prog(0.2, "Starting the forecast engine" if model._tfm is None and not model._failed else "Forecasting")
     q, backend = model.predict(batch, horizon_all, gran)
     prog(0.65, "Applying calendar covariates")
     cov_used, cov_msg = ([], None)
@@ -659,7 +659,7 @@ def scenarios_core(dates: pd.DatetimeIndex, y: np.ndarray, x: np.ndarray, params
     slope_info = None
     if qs is None:
         qs, slope_info = _fallback_scenarios(y, x, dates, [xf for _, xf in plans], H, gran)
-        warnings.append("Scenarios used a linear driver model plus seasonal smoothing because TimesFM covariates were not available.")
+        warnings.append("Scenarios used a linear driver model plus seasonal smoothing because the main forecast model's driver covariates were not available.")
     qs = np.clip(np.sort(qs, axis=-1), 0, None)
     # elasticity from history for the evidence trail
     if slope_info is None and len(y) >= 6 and np.std(x) > 0:

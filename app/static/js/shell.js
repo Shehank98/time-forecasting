@@ -31,8 +31,8 @@
     try {
       const s = await App.api.get('/api/model-status');
       const ok = s.backend === 'timesfm' && s.loaded;
-      pill.innerHTML = `<span class="dot ${ok ? 'ok' : 'warn'}"></span><span class="txt">${ok ? 'TimesFM 2.5 ready' : s.backend === 'fallback' ? 'Fallback model in use' : 'TimesFM loads on first forecast'}</span>`;
-      pill.title = s.error || s.note || '';
+      pill.innerHTML = `<span class="dot ${ok ? 'ok' : 'warn'}"></span><span class="txt">${ok ? 'Forecast engine ready' : s.backend === 'fallback' ? 'Fallback model in use' : 'Forecast engine starts on first run'}</span>`;
+      pill.title = s.backend === 'fallback' ? 'The main forecast model could not start; a simpler statistical model is in use.' : '';
     } catch (e) { pill.innerHTML = '<span class="dot"></span><span class="txt">Model status unavailable</span>'; }
   }
   function setClient(id) {
@@ -41,8 +41,9 @@
 
   /* ---------------- animated loader ---------------- */
   const loader = {
-    el: null, t0: 0,
+    el: null, t0: 0, n: 0,
     show(title = 'Initialising', sub = '') {
+      loader.n += 1;
       if (!loader.el) {
         loader.el = document.createElement('div'); loader.el.className = 'loader'; loader.el.setAttribute('role', 'status'); loader.el.setAttribute('aria-live', 'polite');
         loader.el.innerHTML = `<div><div class="core"><div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div><div class="orb"></div><div class="scan"></div></div>
@@ -61,7 +62,8 @@
       if (sub != null) loader.el.querySelector('[data-s]').textContent = sub;
     },
     async hide(minMs = 650) {
-      if (!loader.el) return;
+      loader.n = Math.max(0, loader.n - 1);
+      if (loader.n > 0 || !loader.el) return;
       const wait = minMs - (performance.now() - loader.t0);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       const el = loader.el; loader.el = null;
@@ -77,11 +79,11 @@
       <b>${esc2(opts.howLabel || 'How it predicts')}</b><p>${esc2(how)}</p><b>What you get</b><p>${esc2(get)}</p></span></span>`;
   };
   /** Planner's Evidence box: plain-language findings and recommendations under a chart. */
-  App.evidenceBox = function (items, title = "Planner's Evidence") {
+  App.evidenceBox = function (items, title = "Planner's Evidence", opts = {}) {
     const list = (items || []).filter(Boolean);
     if (!list.length) return '';
     return `<div class="evidence-box"><div class="ev-head"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${App.esc(title)}</div>
-      <ul>${list.map((x) => (typeof x === 'string' ? `<li>${App.esc(x)}</li>` : `<li class="${x.rec ? 'rec' : ''}">${x.rec ? '&#9656; ' : ''}${App.esc(x.text)}</li>`)).join('')}</ul></div>`;
+      ${opts.note ? `<div class="ev-note">${App.esc(opts.note)}</div>` : ''}<ul>${list.map((x) => (typeof x === 'string' ? `<li>${App.esc(x)}</li>` : `<li class="${x.rec ? 'rec' : ''}">${x.rec ? '&#9656; ' : ''}${App.esc(x.text)}</li>`)).join('')}</ul></div>`;
   };
 
   App.shell = {

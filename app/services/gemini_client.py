@@ -205,7 +205,7 @@ def standing_caveats(forecast: dict | None, dash: dict, meta: dict | None) -> li
         out.append(f"Only {meta['filtered_rows']} rows are in scope, so patterns may not be stable.")
     if forecast and forecast.get("ok"):
         if forecast.get("backend") == "fallback":
-            out.append("Forecasts came from the statistical fallback model, not TimesFM.")
+            out.append("Forecasts came from the statistical fallback model, not the main forecast model.")
         low = [r["entity"] for r in forecast["results"] if r["reliability"]["level"] == "Low"]
         if low:
             out.append("Low reliability forecasts: " + ", ".join(low[:6]) + ".")

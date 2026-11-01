@@ -41,7 +41,7 @@
     if (!c) { App.shell.noClient(root); return; }
     $('#client-head').innerHTML = `<div class="row">${c.has_logo ? `<img src="/api/clients/${c.id}/logo" alt="" class="client-logo lg">` : `<span class="client-dot lg" style="background:${esc(c.brand_color)};color:${esc(c.brand_color)}"></span>`}<div><div class="eyebrow">Mission control</div><h1>${esc(c.name)}</h1></div></div>`;
     root.innerHTML = `<section class="hero"><h1>See the <span class="grad-text">next ${'60'} days</span> of TV before they happen.</h1>
-        <p>Pick a prediction card. Google TimesFM 2.5 reads your ratings and ad monitoring history and projects audiences, competitor moves and costs with honest P10 to P90 ranges. Your sheets never leave this browser.</p></section>
+        <p>Pick a prediction card. The Media Radar forecast engine reads your ratings and ad monitoring history and projects audiences, competitor moves and costs with honest P10 to P90 ranges. Your sheets never leave this browser.</p></section>
       <div class="home-cards three" id="cards">${CARDS.map((k, i) => `<a class="home-card ${k.cls}" href="${k.href}" data-i="${i}"><span class="tag">${k.tag}</span><div class="ic"><svg viewBox="0 0 24 24">${k.icon}</svg></div>
         <h2>${k.title}</h2><p>${k.text}</p>${wave(i + 1)}<div class="small" data-st="${k.kind}">${status(k.kind, null)}</div><span class="go">Open prediction <span aria-hidden="true">&rarr;</span></span></a>`).join('')}</div>
       <div class="grid g2" style="margin-top:24px">
@@ -64,7 +64,7 @@
     try { s = await App.api.get('/api/workspace/summary'); } catch (e) { $('#h-fc').innerHTML = App.emptyState('Could not load the client', e.message); $('#h-rep').innerHTML = ''; return; }
     App.tables.create($('#h-fc'), { csv: 'saved_forecasts', pageSize: 8, empty: 'Nothing saved yet. Use "Save to client" in any Forecast studio.', rows: s.forecasts, columns: [
       { key: 'title', label: 'Title', html: (v, r) => `<a href="${page[r.kind] || '/'}?tab=forecast&saved=${r.id}${r.dataset ? '&dataset=' + encodeURIComponent(r.dataset) : ''}">${esc(v)}</a>` },
-      { key: 'ftype', label: 'Type', fmt: fmt.title }, { key: 'kind', label: 'Card', fmt: (v) => ({ tv: 'TVR', lmrb: 'Market', kpi: 'KPI' }[v] || v) }, { key: 'backend', label: 'Model', fmt: (v) => (v === 'timesfm' ? 'TimesFM' : v === 'timesfm_xreg' ? 'TimesFM + XReg' : v) },
+      { key: 'ftype', label: 'Type', fmt: fmt.title }, { key: 'kind', label: 'Card', fmt: (v) => ({ tv: 'TVR', lmrb: 'Market', kpi: 'KPI' }[v] || v) }, { key: 'backend', label: 'Model', fmt: (v) => (v === 'timesfm' ? 'Forecast engine' : v === 'timesfm_xreg' ? 'Driver model' : v) },
       { key: 'created_at', label: 'Saved', fmt: when }, { key: 'id', label: '', sortable: false, html: (v) => `<button class="btn sm" data-delfc="${v}" type="button">Delete</button>` }] });
     App.tables.create($('#h-rep'), { csv: 'reports', pageSize: 8, empty: 'No reports yet. Use "Client report" in any card.', rows: s.reports, columns: [
       { key: 'filename', label: 'File', html: (v, r) => `<a href="#" data-dl="${r.id}">${esc(v)}</a>` }, { key: 'format', label: 'Format', fmt: (v) => v.toUpperCase() },

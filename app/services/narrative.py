@@ -76,7 +76,7 @@ def forecast_points(fc: dict | None) -> tuple[list[str], list[str], list[str]]:
     if low:
         watch.append("Treat these forecasts as directional because history is thin or the backtest was weak: " + ", ".join(low[:5]) + ".")
     if fc.get("backend") == "fallback":
-        watch.append("TimesFM was not available for this run, so a statistical fallback produced the forecast.")
+        watch.append("The main forecast model was not available for this run, so a statistical fallback produced the forecast.")
     return finds, acts, watch
 
 
@@ -178,7 +178,7 @@ def story(rep: Any) -> dict:
 
 
 METHODOLOGY = [
-    "Forecasts use Google TimesFM 2.5 (200M parameters), an open-source time-series foundation model that forecasts zero-shot, without training on each client's data.",
+    "Forecasts use the Media Radar forecast engine, an advanced time-series model that forecasts without being trained on each client's data.",
     "The model returns a probabilistic forecast: P50 is the central estimate, and P10 to P90 is the range expected to contain the outcome about 8 times in 10.",
     "Weekday, Poya days, Sinhala and Tamil New Year, Vesak, Christmas and school holidays enter as calendar covariates where history allows.",
     "Every series is backtested: the last periods are hidden, forecast, and scored with sMAPE, MAE and MASE against a seasonal naive baseline.",

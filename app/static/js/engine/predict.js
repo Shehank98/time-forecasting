@@ -1,5 +1,5 @@
 /* Data preparation for the two prediction tabs (TVR & Audience, Market & Competitor).
- * Builds the compact series sent to TimesFM and the small history aggregates the charts need.
+ * Builds the compact series sent to the forecast engine and the small history aggregates the charts need.
  * Pure functions: the same file runs in the worker and in Node tests.
  */
 (function (root) {

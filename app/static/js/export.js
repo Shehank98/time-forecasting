@@ -9,7 +9,7 @@
       const pick = (store, on) => (on && App[store][k] ? App[store][k].result : null);
       const pe = opts.includePrediction && App.predictEvidence ? App.predictEvidence[ctx.kind] : null;
       const ai = opts.includeAi && App.lastInsights[k] ? App.lastInsights[k].insights : null;
-      const evidence = pe ? pe.kpis.map(([l, v]) => `${pe.title}: ${l} = ${v} (${pe.span || "next " + pe.horizon + " days"})`).concat(pe.lines) : [];
+      const evidence = pe ? pe.kpis.map(([l, v]) => `FORECAST (${pe.span || "next " + pe.horizon + " days"}), ${pe.title}: ${l} = ${v}`).concat(pe.lines.map((x) => 'FORECAST: ' + x)) : [];
       const meta = { ...(ctx.meta || {}) };
       const { blob, name } = await App.api.blob('/api/export', { kind: ctx.kind, format, dataset: ctx.dataset(), dash: ctx.data, meta, files: (ctx.state && ctx.state.files) || [],
         title: opts.title || '', include_ai: !!opts.includeAi, ai, evidence: evidence.slice(0, 20),

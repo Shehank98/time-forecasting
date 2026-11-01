@@ -176,12 +176,12 @@
       const el = $('#v-control'); if (!el) return;
       const st = status.storage || {}, pct = st.quota ? Math.min(100, (st.usage / st.quota) * 100) : 0;
       el.innerHTML = `<div class="card glow" style="margin-bottom:16px"><div class="control-bar">
-        <div class="cb-section"><div class="cb-title">Data sources ${App.help('Each sheet is read once, inside your browser, and kept in its local storage for this client. Nothing is uploaded to the server. Only compact daily series (a few kilobytes) are sent to TimesFM when you open a prediction.',
+        <div class="cb-section"><div class="cb-title">Data sources ${App.help('Each sheet is read once, inside your browser, and kept in its local storage for this client. Nothing is uploaded to the server. Only compact daily series (a few kilobytes) are sent to the forecast engine when you open a prediction.',
           'Upload once, then come back any time on this computer. Use "Append new period" each month to grow the history; duplicate rows are skipped automatically. CSV works at any size (500 MB and more); Excel files up to 150 MB.')}
           <span class="muted small" style="margin-left:auto;text-transform:none;letter-spacing:0">${st.quota ? `Browser storage ${mb(st.usage)} of ${mb(st.quota)}` : ''}</span></div>
           ${st.quota ? `<div class="storage-meter" title="${pct.toFixed(1)}% used"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}
           <div class="uploads">${slotHtml('tv')}${slotHtml('lmrb')}</div></div>
-        <div class="cb-section"><div class="cb-title">Forecast horizon ${App.help('Months view: TimesFM 2.5 forecasts monthly totals and averages up to 12 months ahead, with P10, P50 and P90 ranges and Sri Lankan holiday effects. It needs at least 12 months of history (24 or more is best) and gives the clearest picture for planning. Days view: the next 60 days, day by day.',
+        <div class="cb-section"><div class="cb-title">Forecast horizon ${App.help('Months view: The forecast engine forecasts monthly totals and averages up to 12 months ahead, with P10, P50 and P90 ranges and Sri Lankan holiday effects. It needs at least 12 months of history (24 or more is best) and gives the clearest picture for planning. Days view: the next 60 days, day by day.',
           'Use months for budget and strategy decisions (3, 6 or 12 months) and days for tactical weekly planning. Changing the horizon inside a view is instant; switching between days and months runs a new forecast.')}</div>
           <div class="row" style="gap:12px"><div class="seg" id="hz-mode" role="group" aria-label="Forecast view"><button type="button" data-m="monthly" aria-pressed="${hmode === 'monthly'}">Months</button><button type="button" data-m="daily" aria-pressed="${hmode !== 'monthly'}">Days</button></div></div>
           <div class="horizon" id="hz-box"></div>

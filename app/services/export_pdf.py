@@ -282,7 +282,7 @@ def build_pdf(rep: Report) -> bytes:
     el += [lt, Spacer(1, 3.2 * cm), band, Spacer(1, 0.6 * cm), Paragraph(safe(rep.title), h1),
            Paragraph(f"Prepared for <b>{safe(client)}</b> by {safe(agency)}", lead), Spacer(1, 0.4 * cm), Paragraph(safe(rep.card), body), Spacer(1, 1.2 * cm)]
     cover = [["Period", rep.date_range or "n/a"], ["Generated", rep.generated], ["Data sources", ", ".join(rep.source_files[-4:]) + (" and earlier files" if len(rep.source_files) > 4 else "")],
-             ["Filters", "; ".join(rep.filters)], ["Forecast model", "Google TimesFM 2.5" if not rep.forecast or rep.forecast.get("backend") == "timesfm" else "Statistical fallback (TimesFM unavailable)"]]
+             ["Filters", "; ".join(rep.filters)], ["Forecast model", "Media Radar forecast engine" if not rep.forecast or rep.forecast.get("backend") == "timesfm" else "Statistical fallback (main forecast model unavailable)"]]
     ct = RlTable([[Paragraph(f"<b>{a}</b>", body), Paragraph(safe(b), body)] for a, b in cover], colWidths=[3.6 * cm, 14.4 * cm])
     ct.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7f2")), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
     el += [ct] + [Paragraph(f"Note: {safe(n)}", small) for n in rep.notes] + [PageBreak()]
@@ -327,7 +327,7 @@ def build_pdf(rep: Report) -> bytes:
     if rep.scenarios:
         sc = rep.scenarios
         el += [Paragraph("Budget scenarios", h2), Paragraph(safe(f"What {sc['params'].get('driver_label', 'spend')} buys over the next {sc['params'].get('horizon_points')} {sc['params'].get('granularity')} periods. "
-                                                               f"Method: {'TimesFM 2.5 with spend as a covariate' if sc['method'] == 'timesfm_xreg' else 'linear driver model with seasonal smoothing'}."), body),
+                                                               f"Method: {'Forecast engine with spend as a covariate' if sc['method'] == 'timesfm_xreg' else 'linear driver model with seasonal smoothing'}."), body),
                chart_scenarios(sc)]
         rows = [["Scenario", "Planned spend", "Results P50", "P10 to P90", sc["params"].get("ratio_label", "Cost per result"), "Cost per extra result"]]
         for r in sc["scenarios"]:

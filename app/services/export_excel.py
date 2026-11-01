@@ -181,7 +181,7 @@ def _cover(wb: Workbook, rep: Report, brand: str) -> tuple[Any, int]:
     ws["A4"] = rep.title; ws["A4"].font = Font(bold=True, size=22, color=brand)
     ws["A5"] = f"Prepared for {client} by {agency}"; ws["A5"].font = Font(size=13, color=brand)
     info = [("Workspace", rep.card), ("Period", rep.date_range or "n/a"), ("Generated", rep.generated), ("Data sources", ", ".join(rep.source_files)),
-            ("Filters", "; ".join(rep.filters)), ("Forecast model", "Google TimesFM 2.5" if not rep.forecast or rep.forecast.get("backend") == "timesfm" else "Statistical fallback")]
+            ("Filters", "; ".join(rep.filters)), ("Forecast model", "Media Radar forecast engine" if not rep.forecast or rep.forecast.get("backend") == "timesfm" else "Statistical fallback")]
     r = 7
     for k, v in info:
         ws.cell(row=r, column=1, value=k).font = Font(bold=True); _put(ws, r, 2, v); r += 1
@@ -209,7 +209,7 @@ def _scenarios_sheet(wb: Workbook, sc: dict) -> None:
     ratio = sc["params"].get("ratio_label", "Cost per result")
     ws["A1"] = "Budget scenarios"; ws["A1"].font = Font(bold=True, size=14)
     ws["A2"] = (f"Next {sc['params'].get('horizon_points')} {sc['params'].get('granularity')} periods. Method: "
-                f"{'TimesFM 2.5 with spend as a covariate' if sc.get('method') == 'timesfm_xreg' else 'linear driver model with seasonal smoothing'}. Blue cells are inputs.")
+                f"{'Forecast engine with spend as a covariate' if sc.get('method') == 'timesfm_xreg' else 'linear driver model with seasonal smoothing'}. Blue cells are inputs.")
     ws["A2"].font = Font(italic=True, color="646A8A")
     head = ["Scenario", "Planned spend (LKR)", "Results P10", "Results P50", "Results P90", f"{ratio} (P50)", "Best case", "Worst case"]
     for j, h in enumerate(head, 1):

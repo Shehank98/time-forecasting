@@ -42,11 +42,34 @@
   function box(id, title, sub, opts = {}) {
     const help = opts.help ? App.help(opts.help[0], opts.help[1], { left: opts.helpLeft }) : '';
     const body = opts.html != null ? `<div id="${id}">${opts.html}</div>` : `<div class="chart-wrap ${opts.tall ? 'tall' : ''} ${opts.xtall ? 'xtall' : ''}"><canvas id="${id}" role="img" aria-label="${esc(title)}"></canvas></div>`;
-    return `<div class="card ${opts.glow ? 'glow' : ''}"><div class="card-head"><div><h3>${esc(title)} ${help}</h3>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
+    const pill = opts.pill ? `<span class="fc-pill">${esc(opts.pill)}</span>` : '';
+    return `<div class="card ${opts.glow ? 'glow' : ''} ${opts.pill ? 'fc' : ''}"><div class="card-head"><div><h3>${pill}${esc(title)} ${help}</h3>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
       <div class="row">${opts.extra || ''}${opts.html != null ? '' : `<button class="btn sm ghost" type="button" data-png="${id}" aria-label="Download ${esc(title)} as PNG">PNG</button>`}</div></div>
       ${body}${opts.ev ? `<div id="ev-${id}"></div>` : ''}</div>`;
   }
-  function evidence(id, items) { const el = document.getElementById('ev-' + id); if (el) el.innerHTML = App.evidenceBox(items); }
+  function evidence(id, items, title, opts) { const el = document.getElementById('ev-' + id); if (el) el.innerHTML = App.evidenceBox(items, title, opts); }
+  /** Marks the forecast part of a time chart: a shaded region after options.plugins.nowLine.index with a FORECAST label. */
+  const nowLine = { id: 'nowLine',
+    beforeDatasetsDraw(chart, a, o) {
+      if (!o || o.index == null) return;
+      const { ctx, chartArea: ar, scales: { x } } = chart, px = x.getPixelForValue(o.index);
+      if (!(px >= ar.left && px <= ar.right)) return;
+      ctx.save(); ctx.fillStyle = css('--fc-zone') || 'rgba(139,92,246,.10)'; ctx.fillRect(px, ar.top, ar.right - px, ar.bottom - ar.top);
+      ctx.restore();
+    },
+    afterDatasetsDraw(chart, a, o) {
+      if (!o || o.index == null) return;
+      const { ctx, chartArea: ar, scales: { x } } = chart, px = x.getPixelForValue(o.index);
+      if (!(px >= ar.left && px <= ar.right)) return;
+      const col = css('--accent') || '#3de0ff';
+      ctx.save(); ctx.strokeStyle = col; ctx.setLineDash([3, 4]); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(px, ar.top); ctx.lineTo(px, ar.bottom); ctx.stroke(); ctx.setLineDash([]);
+      const label = o.label || 'FORECAST: estimated, not recorded', font = '700 11px ' + (css('--display') || 'sans-serif');
+      ctx.font = font; const w = Math.min(ctx.measureText(label).width + 16, ar.right - px - 6);
+      ctx.fillStyle = css('--surface-solid') || '#0d1430'; ctx.strokeStyle = col; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px + 6, ar.top + 6, w, 20, 10) : ctx.rect(px + 6, ar.top + 6, w, 20); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = col; ctx.fillText(label, px + 14, ar.top + 20, w - 12); ctx.restore();
+    } };
+  /** Tooltip title that says whether the hovered point is actual or forecast. */
+  const fcTitle = (firstForecastIndex) => (items) => `${items[0].label}  \u00b7  ${items[0].dataIndex >= firstForecastIndex ? 'FORECAST' : 'actual'}`;
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-png]'); if (!b) return;
     const src = document.getElementById(b.dataset.png); if (!src) return;
@@ -103,5 +126,5 @@
       `<td title="${esc(r)} ${dates[j]}: ${v} spots" style="background:${v ? `color-mix(in srgb, ${colorFor(r)} ${20 + 80 * v / mx}%, transparent)` : 'var(--surface-2)'}">${v}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   document.addEventListener('themechange', defaults);
-  App.charts = { colorFor, register, make, box, evidence, bar, line, doughnut, heat, calendar, destroyAll, css, PALETTE };
+  App.charts = { nowLine, fcTitle, colorFor, register, make, box, evidence, bar, line, doughnut, heat, calendar, destroyAll, css, PALETTE };
 })(window.App);

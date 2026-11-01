@@ -1,4 +1,4 @@
-/* Forecast studio: TimesFM forecasts, driver scenarios (ROI planning) and pacing, with save-to-client. */
+/* Forecast studio: Forecast engine forecasts, driver scenarios (ROI planning) and pacing, with save-to-client. */
 (function (App) {
   const { esc, fmt, charts: C, tables: T, $, $$ } = App;
   const relCls = { High: 'good', Medium: 'warn', Low: 'bad' };
@@ -10,7 +10,7 @@
   function banner(model) {
     const el = document.getElementById('forecast-banner'); if (!el) return;
     el.innerHTML = model && model.backend === 'fallback'
-      ? `<div class="banner bad" role="alert"><span><b>Fallback model in use.</b> TimesFM could not be loaded (${esc(model.error || 'unknown reason')}). Forecasts use seasonal naive plus exponential smoothing. Treat them with extra care.</span></div>` : '';
+      ? `<div class="banner bad" role="alert"><span><b>Fallback model in use.</b> The main forecast model could not be loaded. Forecasts use seasonal naive plus exponential smoothing. Treat them with extra care.</span></div>` : '';
   }
   async function saveToClient(ctx, ftype, params, result) {
     const title = window.prompt('Name this saved ' + ftype + ' (for example "Q4 leads forecast, base case"):', '');
@@ -55,7 +55,7 @@
       const hide = ['P10', 'P90', 'lo'];
       ch.options.plugins.legend.labels.filter = (i) => !hide.includes(i.text);
       ch.options.plugins.tooltip.filter = (i) => !hide.includes(i.dataset.label);
-      ch.config.plugins = [cpPlugin]; ch.update();
+      ch.options.plugins.nowLine = { index: nh - 1 }; ch.config.plugins = [cpPlugin, C.nowLine]; ch.update();
     }
   }
 
@@ -65,9 +65,9 @@
     const blk = o.block === 'month' ? 'month' : 'week';
     box.innerHTML = `
       <div class="row" style="margin-bottom:12px"><h3>${esc(r.entity)}: ${esc(r.metric_label)}</h3><span class="badge ${relCls[rel.level]}" title="${esc(rel.reasons.join(' '))}">Forecast reliability: ${rel.level}</span>
-        <span class="badge info">${r.n_points} ${r.granularity} points</span><span class="badge ${res.backend === 'timesfm' ? 'good' : 'warn'}">${res.backend === 'timesfm' ? 'TimesFM 2.5' : 'Fallback model'}</span></div>
+        <span class="badge info">${r.n_points} ${r.granularity} points</span><span class="badge ${res.backend === 'timesfm' ? 'good' : 'warn'}">${res.backend === 'timesfm' ? 'Forecast engine' : 'Fallback model'}</span></div>
       <ul class="muted small" style="margin:0 0 12px;padding-left:18px">${rel.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}${r.warnings.map((x) => `<li><b>Warning:</b> ${esc(x)}</li>`).join('')}</ul>
-      ${C.box('c-fc', 'Actuals and forecast', 'Blue band: P10 to P90 forecast. Orange band: the range the model expected for the most recent periods. Red triangles: alerts. Dashed red lines: level shifts.', { tall: true })}
+      ${C.box('c-fc', 'Actuals and forecast', 'Solid line: actual data. Dashed line and hatched area: forecast. Blue band: likely range (P10 to P90). Orange band: the range expected for the most recent periods. Red triangles: alerts. Dashed red lines: level shifts.', { tall: true, pill: 'Actual + forecast' })}
       <div class="grid g2" style="margin-top:16px">
         <div class="card"><h3>Outlook</h3><div class="stack" style="gap:8px;margin-top:10px">
           <div>Trend: <span class="badge ${o.trend === 'rising' ? 'good' : o.trend === 'falling' ? 'bad' : 'info'}">${esc(o.trend)}</span> ${o.trend_change_pct != null ? fmt.delta(o.trend_change_pct) + ' vs recent' : ''}</div>
@@ -78,12 +78,12 @@
         <div class="card"><h3>Demand peaks and launch timing</h3><div class="small" style="margin-top:10px">${r.peaks.peaks.length ? r.peaks.peaks.map((p) => `<div style="margin-bottom:6px">Peak around <b>${esc(p.date)}</b>: ${vf(p.expected)} ${p.vs_history_pct != null ? `(${fmt.delta(p.vs_history_pct)} vs the historical average)` : ''}. Be live by <b>${esc(p.launch_by)}</b>.</div>`).join('')
           : '<div class="muted">No clear peak above normal in this horizon.</div>'}
           ${r.peaks.season_peak ? `<div class="muted" style="margin-top:6px">Seasonal high month in history: ${new Date(2000, r.peaks.season_peak.month - 1, 1).toLocaleString('en', { month: 'long' })} (index ${fmt.num(r.peaks.season_peak.index_vs_avg)}).</div>` : ''}</div></div>
-        <div class="card"><h3>Backtest (last ${r.backtest ? r.backtest.holdout : 0} points)</h3>${m ? `<table class="tbl" style="margin-top:8px"><thead><tr><th>Metric</th><th class="num">TimesFM</th><th class="num">${esc(b.name)}</th></tr></thead><tbody>
+        <div class="card"><h3>Backtest (last ${r.backtest ? r.backtest.holdout : 0} points)</h3>${m ? `<table class="tbl" style="margin-top:8px"><thead><tr><th>Metric</th><th class="num">Forecast</th><th class="num">${esc(b.name)}</th></tr></thead><tbody>
           <tr><td>sMAPE</td><td class="num">${m.smape == null ? 'n/a' : fmt.num(m.smape, 1) + '%'}</td><td class="num">${b.smape == null ? 'n/a' : fmt.num(b.smape, 1) + '%'}</td></tr>
           <tr><td>MAE</td><td class="num">${fmt.compact(m.mae)}</td><td class="num">${fmt.compact(b.mae)}</td></tr>
           <tr><td>MASE</td><td class="num">${m.mase == null ? 'n/a' : fmt.num(m.mase, 2)}</td><td class="num">${b.mase == null ? 'n/a' : fmt.num(b.mase, 2)}</td></tr>
           <tr><td>Inside P10 to P90</td><td class="num">${m.coverage == null ? 'n/a' : fmt.num(m.coverage, 0) + '%'}</td><td class="num muted">target about 80%</td></tr></tbody></table>
-          <div class="muted small" style="margin-top:6px">${m.mae <= b.mae ? 'TimesFM beat the baseline on MAE.' : 'The baseline was at least as accurate on MAE.'}</div>` : '<div class="muted" style="margin-top:8px">History is too short for a backtest.</div>'}</div>
+          <div class="muted small" style="margin-top:6px">${m.mae <= b.mae ? 'The forecast beat the baseline on MAE.' : 'The baseline was at least as accurate on MAE.'}</div>` : '<div class="muted" style="margin-top:8px">History is too short for a backtest.</div>'}</div>
         <div class="card"><h3>Monitoring alerts</h3><div class="small" style="margin-top:8px">${(r.band_breaches || []).length ? r.band_breaches.map((x) => `<div style="margin-bottom:4px"><span class="badge ${x.severity === 'high' ? 'bad' : 'warn'}">${x.direction}</span> ${esc(x.text)} (actual ${vf(x.actual)}, expected ${vf(x.p10)} to ${vf(x.p90)})</div>`).join('')
           : '<div class="muted">Recent actuals stayed inside the expected band.</div>'}
           ${r.change_points.length ? r.change_points.map((c) => `<div>Level shift on <b>${esc(c.date)}</b>: ${vf(c.before)} to ${vf(c.after)} ${c.change_pct != null ? fmt.delta(c.change_pct) : ''}</div>`).join('') : ''}
@@ -133,12 +133,12 @@
       rec = ok.length ? ok.sort((a, b) => b.driver_total - a.driver_total)[0] : null;
     }
     root.innerHTML = `${res.warnings.map((w) => `<div class="banner"><span>${esc(w)}</span></div>`).join('')}
-      <div class="banner info"><span>${res.method === 'timesfm_xreg' ? 'TimesFM 2.5 with the driver as a covariate (XReg).' : 'Linear driver model with seasonal smoothing (TimesFM covariates were not available).'}
+      <div class="banner info"><span>${res.method === 'timesfm_xreg' ? 'Forecast engine with the driver as a covariate (XReg).' : 'Linear driver model with seasonal smoothing (calendar and driver covariates were not available).'}
         ${res.driver_effect ? ` In history, each extra unit of the driver went with ${fmt.num(res.driver_effect.slope, 4)} more results (fit R2 ${fmt.num(res.driver_effect.r2, 2)}).` : ''}
         ${hist != null ? ` Historical ${esc(ratioLabel)}: <b>${fmt.lkr(hist)}</b>.` : ''}</span></div>
       ${rec ? `<div class="banner" style="background:var(--good-soft);border-color:var(--good)"><span><b>Suggested plan: ${esc(rec.scenario)}.</b> Expected ${vfK(rec.kpi_p50)} results for ${vfD(rec.driver_total)}, with each extra result costing about ${fmt.lkr(rec.marginal_ratio)} (within 1.5x the historical average).</span></div>` : ''}
       <div class="card"><div class="card-head"><div><h3>Scenario comparison</h3><div class="sub">Next ${res.params.horizon_points} ${esc(res.params.granularity)} periods. Ranges are P10 to P90.</div></div><button class="btn sm" id="sc-save" type="button">Save to client</button></div><div id="sc-table"></div></div>
-      <div class="grid g2" style="margin-top:16px">${C.box('c-sc', 'Expected results by scenario', 'Bars: P50. Whiskers in the tooltip: P10 to P90.', {})}${C.box('c-sc2', 'Results over the horizon', 'P50 per period', {})}</div>`;
+      <div class="grid g2" style="margin-top:16px">${C.box('c-sc', 'Expected results by scenario', 'All values are forecasts. Bars: P50. Whiskers in the tooltip: P10 to P90.', { pill: 'Forecast' })}${C.box('c-sc2', 'Results over the horizon', 'Forecast P50 per period', { pill: 'Forecast' })}</div>`;
     T.create(root.querySelector('#sc-table'), { csv: 'scenarios', search: false, rows: s.map((x) => ({ ...x })), columns: [
       { key: 'scenario', label: 'Scenario' }, { key: 'driver_total', label: 'Planned ' + (params.driver_label || 'driver'), num: true, fmt: vfD },
       { key: 'kpi_p50', label: 'Expected results (P50)', num: true, fmt: vfK }, { key: 'kpi_p10', label: 'P10', num: true, fmt: vfK }, { key: 'kpi_p90', label: 'P90', num: true, fmt: vfK },
@@ -155,13 +155,13 @@
     const vf = unitFmt(params.unit || 'number');
     const cls = { 'On track': 'good', 'Under pacing': 'bad', 'Over pacing': 'warn' }[res.status];
     root.innerHTML = `<div class="kpis">
-        <div class="kpi"><div class="k-lbl">Status</div><div class="k-val"><span class="badge ${cls}" style="font-size:15px">${esc(res.status)}</span></div><div class="k-sub">${res.target_reached_in_band ? 'Target is inside the P10 to P90 range' : 'Target is outside the likely range'}</div></div>
+        <div class="kpi fc"><span class="fc-pill tile">Forecast</span><div class="k-lbl">Status</div><div class="k-val"><span class="badge ${cls}" style="font-size:15px">${esc(res.status)}</span></div><div class="k-sub">${res.target_reached_in_band ? 'Target is inside the P10 to P90 range' : 'Target is outside the likely range'}</div></div>
         <div class="kpi"><div class="k-lbl">Actual to date</div><div class="k-val">${vf(res.actual_to_date)}</div><div class="k-sub">${fmt.pct(res.pct_of_target, 0)} of target, ${fmt.pct(res.time_elapsed_pct, 0)} of time gone</div></div>
-        <div class="kpi"><div class="k-lbl">Projected end total (P50)</div><div class="k-val">${vf(res.projected_p50)}</div><div class="k-sub">Range ${vf(res.projected_p10)} to ${vf(res.projected_p90)}</div></div>
-        <div class="kpi"><div class="k-lbl">Versus target</div><div class="k-val">${fmt.delta(res.projected_vs_target_pct)}</div><div class="k-sub">Target ${vf(res.target)}</div></div>
+        <div class="kpi fc"><span class="fc-pill tile">Forecast</span><div class="k-lbl">Projected end total (P50)</div><div class="k-val">${vf(res.projected_p50)}</div><div class="k-sub">Range ${vf(res.projected_p10)} to ${vf(res.projected_p90)}</div></div>
+        <div class="kpi fc"><span class="fc-pill tile">Forecast</span><div class="k-lbl">Versus target</div><div class="k-val">${fmt.delta(res.projected_vs_target_pct)}</div><div class="k-sub">Target ${vf(res.target)}</div></div>
         <div class="kpi"><div class="k-lbl">Needed per day</div><div class="k-val">${res.required_per_day == null ? 'n/a' : res.required_per_day <= 0 ? 'Target reached' : vf(res.required_per_day)}</div><div class="k-sub">Recent run rate ${vf(res.recent_run_rate)} per day, ${res.remaining_days} days left</div></div></div>
       ${res.notes.map((n) => `<div class="banner info" style="margin-top:12px"><span>${esc(n)}</span></div>`).join('')}
-      <div style="margin-top:16px">${C.box('c-pace', `Cumulative ${esc(res.metric_label)} against target`, `${esc(res.entity)}, flight ${esc(res.start)} to ${esc(res.end)}. Band: P10 to P90 projection.`, { tall: true, extra: '<button class="btn sm" id="pc-save" type="button">Save to client</button>' })}</div>`;
+      <div style="margin-top:16px">${C.box('c-pace', `Cumulative ${esc(res.metric_label)} against target`, `${esc(res.entity)}, flight ${esc(res.start)} to ${esc(res.end)}. Band: P10 to P90 projection.`, { tall: true, pill: 'Actual + forecast', extra: '<button class="btn sm" id="pc-save" type="button">Save to client</button>' })}</div>`;
     const labels = res.cumulative.dates.concat(res.projection.dates), n = res.cumulative.dates.length;
     const pad = (a) => Array(n - 1).fill(null).concat([res.cumulative.values[n - 1]], a);
     C.line({ id: 'c-pace', labels, valueFmt: vf, datasets: [
@@ -170,7 +170,7 @@
       { label: 'Projection (P50)', data: pad(res.projection.p50), borderColor: C.PALETTE[0], borderDash: [6, 4], pointRadius: 0 },
       { label: 'Actual to date', data: res.cumulative.values.concat(Array(res.projection.dates.length).fill(null)), borderColor: C.css('--text'), pointRadius: 0 },
       { label: 'Target', data: labels.map(() => res.target), borderColor: C.css('--bad'), borderDash: [3, 3], pointRadius: 0 }] });
-    const ch = Chart.getChart('c-pace'); if (ch) { ch.options.plugins.legend.labels.filter = (i) => !['P10', 'P90'].includes(i.text); ch.update(); }
+    const ch = Chart.getChart('c-pace'); if (ch) { ch.options.plugins.legend.labels.filter = (i) => !['P10', 'P90'].includes(i.text); ch.options.plugins.nowLine = { index: n - 1 }; ch.config.plugins = [C.nowLine]; ch.update(); }
     root.querySelector('#pc-save').onclick = () => saveToClient(ctx, 'pacing', params, res);
   }
 
@@ -193,7 +193,7 @@
     const opt = (o, sel) => Object.entries(o).map(([k, l]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
     const entOpts = (sel, list) => (list || ents).map((e) => `<option value="${e}" ${e === sel ? 'selected' : ''}>${esc(ENT_LABEL[e] || e)}</option>`).join('');
     const horizons = { daily: [7, 14, 28, 56, 91], weekly: [28, 56, 91, 182], monthly: [91, 182, 365] };
-    p.innerHTML = `<div class="card"><div class="card-head"><div><h3>Forecast studio</h3><div class="sub">Google TimesFM 2.5, zero-shot. Series are built in this browser from the filtered data; only those series are sent. ${kind === 'lmrb' ? 'Competitor set applies.' : ''}</div></div>
+    p.innerHTML = `<div class="card"><div class="card-head"><div><h3>Forecast studio</h3><div class="sub">The Media Radar forecast engine. Series are built in this browser from the filtered data; only those series are sent. ${kind === 'lmrb' ? 'Competitor set applies.' : ''}</div></div>
         <div class="seg" id="fm-seg">${modes.map(([k, l]) => `<button type="button" data-m="${k}" aria-pressed="${k === cur}">${l}</button>`).join('')}</div></div>
       <div id="fm-form"></div>
       <div id="f-prog" hidden style="margin-top:12px"><div class="progress"><i></i></div><div class="muted small" id="f-msg" style="margin-top:6px"></div></div></div>
@@ -201,15 +201,15 @@
     const form = $('#fm-form', p), out = $('#f-out', p), prog = $('#f-prog', p), msg = $('#f-msg', p);
 
     const series = (extra) => App.data.series(ctx.body(extra));
-    const onJob = (p2, m) => { msg.textContent = m || ''; if (p2) { prog.firstElementChild.classList.remove('indet'); prog.querySelector('i').style.width = Math.round(p2 * 100) + '%'; } };
+    const onJob = (p2, m) => App.loader.progress(p2 ? Math.max(0.05, p2) : null, m || '');
     const run = async (btn, starter, onDone) => {
-      btn.disabled = true; prog.hidden = false; prog.firstElementChild.classList.add('indet'); prog.querySelector('i').style.width = ''; msg.textContent = 'Building series in this browser'; out.innerHTML = App.skeleton(2);
+      btn.disabled = true; App.loader.show('Running forecast', 'Building series in this browser'); App.loader.progress(null); out.innerHTML = '';
       try {
         const res = await starter();
         if (!res.ok) { out.innerHTML = App.emptyState('Nothing to forecast', res.message); return; }
         onDone(res); App.shell.refreshModel();
       } catch (e) { out.innerHTML = App.emptyState('Forecast failed', e.message); App.toast(e.message, 'error', 8000); }
-      finally { btn.disabled = false; prog.hidden = true; }
+      finally { btn.disabled = false; App.loader.hide(250); }
     };
 
     async function entityPicker(box, et, metric, multi, sel) {
@@ -251,7 +251,7 @@
         run(e.currentTarget, async () => {
           const s = await series({ entity_type: et, metric: params.metric, granularity: params.granularity, entities: params.entities, history_days: params.history_days, max_entities: params.max_entities });
           if (!s.series.length) return { ok: false, message: s.notes[0] || 'No series could be built.' };
-          msg.textContent = `Sending ${s.series.length} compact series to TimesFM`;
+          App.loader.progress(null, `Forecasting ${s.series.length} series`);
           const res = await App.runJob('/api/forecast/run', { kind, series: s.series, params: { ...params, granularity: s.granularity } }, onJob);
           if (res.ok) res.notes = s.notes.concat(res.notes || []);
           return res;
@@ -265,7 +265,7 @@
       const tOpts = Object.fromEntries(targets.map((k) => [k, metrics[k]])), dOpts = Object.fromEntries(drivers.map((k) => [k, metrics[k]]));
       const ratios = (kpiMeta.ratios || []);
       const scEnts = kind === 'lmrb' ? ['advertiser', 'total'] : ents;
-      form.innerHTML = `<p class="muted small" style="margin-top:0">What happens to results if the client spends more or less? TimesFM forecasts the result with the planned spend as a covariate, then derives the cost per result.</p>
+      form.innerHTML = `<p class="muted small" style="margin-top:0">What happens to results if the client spends more or less? The forecast engine forecasts the result with the planned spend as a covariate, then derives the cost per result.</p>
         <div class="filter-grid">
         <div class="field"><label for="s-target">Result to forecast</label><select id="s-target">${opt(tOpts, ss.target)}</select></div>
         <div class="field"><label for="s-driver">Driver (planned)</label><select id="s-driver">${opt(dOpts, ss.driver)}</select></div>
@@ -305,7 +305,7 @@
       const d0 = ps.start || today.slice(0, 8) + '01';
       const end = ps.end || new Date(new Date(today).getFullYear(), new Date(today).getMonth() + 1, 0).toISOString().slice(0, 10);
       const pEnts = kind === 'lmrb' ? ['advertiser', 'total'] : ents;
-      form.innerHTML = `<p class="muted small" style="margin-top:0">Will the flight hit its target? Actual to date plus the TimesFM forecast for the remaining days, with a P10 to P90 range.</p>
+      form.innerHTML = `<p class="muted small" style="margin-top:0">Will the flight hit its target? Actual to date plus the forecast for the remaining days, with a P10 to P90 range.</p>
         <div class="filter-grid">
         <div class="field"><label for="p-metric">Metric</label><select id="p-metric">${opt(aOpts, ps.metric)}</select></div>
         <div class="field"><label for="p-et">For</label><select id="p-et">${entOpts(ps.entity_type || pEnts[0], pEnts)}</select></div>
@@ -324,13 +324,13 @@
           target: +$('#p-target', form).value, tolerance_pct: +$('#p-tol', form).value || 5, unit: units[metric] };
         if (!params.target) { App.toast('Enter the target for the flight.', 'error'); return; }
         App.store.set('pc:' + fk, params);
-        const btn = e.currentTarget; btn.disabled = true; out.innerHTML = App.skeleton(1);
+        const btn = e.currentTarget; btn.disabled = true; out.innerHTML = ''; App.loader.show('Checking pacing', 'Projecting the rest of the flight');
         try {
           const s = await series({ entity_type: et, metric, granularity: 'daily', entities: params.entity ? [params.entity] : null, max_entities: 1 });
           const res = s.series.length ? await App.api.post('/api/pacing/run', { kind, series: s.series[0], params }) : { ok: false, message: s.notes[0] || 'No data for pacing.' };
           if (!res.ok) { out.innerHTML = App.emptyState('Pacing could not be checked', res.message); } else { App.lastPacing[fk] = { params, result: res }; pacingResults(out, res, ctx, params); } }
         catch (err) { out.innerHTML = App.emptyState('Pacing failed', err.message); }
-        btn.disabled = false;
+        btn.disabled = false; App.loader.hide(250);
       };
       if (App.lastPacing[fk]) pacingResults(out, App.lastPacing[fk].result, ctx, App.lastPacing[fk].params);
     }

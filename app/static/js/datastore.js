@@ -71,7 +71,7 @@
     async kpiMeta(b) { await open(); return after(call('kpiMeta', b)); },
   };
 
-  /** Run a TimesFM job on compact series and wait for it. onProgress(p, message). */
+  /** Run a the forecast engine job on compact series and wait for it. onProgress(p, message). */
   App.runJob = async function (url, body, onProgress) {
     const { job_id: jid } = await App.api.post(url, body);
     for (;;) {

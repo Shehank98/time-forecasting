@@ -48,8 +48,8 @@
     'Day of week pattern': ['Average of the metric for each weekday, indexed so 100 is an average day.', 'Which days convert best.'],
     'Seasonal pattern': ['Average of the metric per calendar month, indexed so 100 is an average month (needs about a year of data).', 'High and low seasons for planning.'],
     // Forecast studio
-    'Actuals and forecast': ['TimesFM 2.5 forecasts each series with P10, P50 and P90 quantiles; the orange band is the backtest range for the latest periods.', 'Expected values, a likely range and alerts when actuals leave the expected band.'],
-    'Expected results by scenario': ['TimesFM forecasts the result with planned spend as a covariate (XReg) for each budget scenario.', 'How results respond to more or less spend, and the cost per extra result.'],
+    'Actuals and forecast': ['The forecast engine forecasts each series with P10, P50 and P90 quantiles; the orange band is the backtest range for the latest periods.', 'Expected values, a likely range and alerts when actuals leave the expected band.'],
+    'Expected results by scenario': ['The forecast engine forecasts the result with planned spend as a covariate (XReg) for each budget scenario.', 'How results respond to more or less spend, and the cost per extra result.'],
     'Results over the horizon': ['The P50 result path for each spend scenario.', 'When the extra results arrive.'],
     'Outlook summary': ['Trend, expected totals, activity and peaks per forecast series.', 'Which entities are emerging or declining.'],
     'Scenario comparison': ['Totals, ranges and cost per result for each spend plan.', 'The most efficient budget level.'],

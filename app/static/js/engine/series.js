@@ -1,5 +1,5 @@
 /* Regularly spaced series for forecasting, built in the browser. Mirrors app/services/series.py.
- * Only these compact series are sent to the server for TimesFM; the raw rows stay in the browser.
+ * Only these compact series are sent to the server for the forecast engine; the raw rows stay in the browser.
  */
 (function (root) {
   const MR = root.MR;
