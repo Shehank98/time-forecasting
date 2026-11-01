@@ -521,8 +521,10 @@
       btn.onclick = () => {
         if (!(state && state.loaded) || !data) { App.toast(`Upload the ${kind === 'tv' ? 'TVR' : kind === 'lmrb' ? 'LMRB' : 'client'} sheet first. Reports summarise this page's data.`, 'error'); return; }
         pop.hidden = !pop.hidden; btn.setAttribute('aria-expanded', String(!pop.hidden));
-        [['ex-fc', 'lastForecast'], ['ex-sc', 'lastScenarios'], ['ex-pc', 'lastPacing']].forEach(([id, st]) => { const c = $('#' + id, pop); c.disabled = !last(st); if (!last(st)) c.checked = false; });
-        const pr = $('#ex-pr', pop); if (pr) { const has = App.exporter.hasPrediction(kind); pr.disabled = !has; if (!has) pr.checked = false; }
+        // an option that was unavailable becomes ticked as soon as its data exists; options the planner switched off stay off
+        const sync = (c, has) => { const was = c.disabled; c.disabled = !has; if (!has) c.checked = false; else if (was || c.dataset.seen !== '1') c.checked = true; c.dataset.seen = has ? '1' : '0'; };
+        [['ex-fc', 'lastForecast'], ['ex-sc', 'lastScenarios'], ['ex-pc', 'lastPacing']].forEach(([id, st]) => sync($('#' + id, pop), !!last(st)));
+        const pr = $('#ex-pr', pop); if (pr) sync(pr, App.exporter.hasPrediction(kind));
       };
       document.addEventListener('click', (e) => { if (!pop.hidden && !e.target.closest('.menu')) { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); } });
       $$('[data-fmt]', pop).forEach((b) => { b.onclick = async () => {
