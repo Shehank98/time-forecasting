@@ -43,6 +43,7 @@
   }
   apply(current.id, true);
 
+  if (!document.querySelector('link[rel="icon"]')) { const l = document.createElement('link'); l.rel = 'icon'; l.type = 'image/png'; l.href = '/img/favicon.png'; document.head.appendChild(l); }
   let pop = null;
   function closePicker() { if (pop) { pop.remove(); pop = null; document.removeEventListener('keydown', onKey, true); document.removeEventListener('mousedown', onOut, true); } }
   const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePicker(); } };

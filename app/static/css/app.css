@@ -660,3 +660,10 @@ td[data-hv]:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ev-why summary, .fc-more summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 4px; }
 .fc-more { margin-top: 8px; } .fc-more .fc-key-row { margin-top: 8px; }
 .card-head .sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---------- Ogilvy Orbit Forecasting logo ---------- */
+.brand-wordmark { width: 168px; max-width: 100%; height: auto; display: block; }
+.brand-mini { display: none; width: 34px; height: 34px; }
+body.side-collapsed .brand-wordmark, :root[data-skin="paper"] .brand-wordmark { display: none; }
+body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display: block; }
+.login-logo { width: min(300px, 70%); height: auto; display: block; }

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import logging
 from typing import Any
 
@@ -229,12 +230,15 @@ def set_agency_logo(data: bytes, ctype: str) -> None:
     _upsert_setting("branding", json.dumps(cur), blob=data)
 
 
+_BUILTIN_LOGO = Path(__file__).resolve().parent.parent / "static" / "img" / "logo-white.png"
+
+
 def agency_logo() -> tuple[bytes, str] | None:
-    with db.engine().connect() as c:
-        r = c.execute(select(db.settings.c.blob, db.settings.c.value).where(db.settings.c.key == "branding")).first()
-    if not r or r[0] is None:
+    """The Ogilvy Orbit Forecasting logo is the agency logo everywhere (app and reports)."""
+    try:
+        return _BUILTIN_LOGO.read_bytes(), "image/png"
+    except OSError:
         return None
-    return r[0], json.loads(r[1]).get("logo_type", "image/png")
 
 
 def _upsert_setting(key: str, value: str, blob: bytes | None = None, keep_blob: bool = False) -> None:

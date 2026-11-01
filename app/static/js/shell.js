@@ -100,11 +100,10 @@
       side.className = 'sidebar';
       side.setAttribute('aria-label', 'Main navigation');
       const b = me.branding;
-      const mark = b.has_logo ? '<img src="/api/branding/logo" alt="" class="brand-logo">'
-        : '<span class="brand-mark"><svg class="ico" style="stroke:#fff" viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 8-10"/><path d="M15 5h5v5"/></svg></span>';
+      const mark = '<img src="/img/logo.png" alt="Ogilvy Orbit Forecasting" class="brand-wordmark"><img src="/img/mark.png" alt="" class="brand-mini">';
       const link = (href, key, icon, label) => `<a href="${href}" title="${label}" ${active === key ? 'aria-current="page"' : ''}>${svg(icon)}<span class="txt">${label}</span></a>`;
       side.innerHTML = `
-        <div class="brand">${mark}<span class="brand-text">${esc(b.agency_name)}</span></div>
+        <div class="brand">${mark}</div>
         <div class="client-pick">
           <label class="nav-label" for="client-sel">Client</label>
           ${me.clients.length ? `<div class="client-row">${cur && cur.has_logo ? `<img src="/api/clients/${cur.id}/logo" alt="" class="client-logo">` : `<span class="client-dot" style="background:${esc(cur ? cur.brand_color : '#5b5ce6')}"></span>`}

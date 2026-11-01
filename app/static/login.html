@@ -1,14 +1,14 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in</title><script src="/js/skins.js"></script><link rel="stylesheet" href="/css/app.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in | Ogilvy Orbit Forecasting</title><script src="/js/skins.js"></script><link rel="icon" type="image/png" href="/img/favicon.png"><link rel="stylesheet" href="/css/app.css"></head>
 <body class="login-body">
 <main class="login-split">
   <section class="login-hero" aria-label="About Media Radar">
-    <div class="login-brand" id="login-brand"><span class="brand-mark"><svg class="ico" viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 8-10"/><path d="M15 5h5v5"/></svg></span><span id="agency-name">Media Radar</span></div>
+    <div class="login-brand" id="login-brand"><img src="/img/logo.png" alt="Ogilvy Orbit Forecasting" class="login-logo"></div>
     <div class="hero-copy">
       <div class="eyebrow">Predictive TV intelligence</div>
       <h1>See tomorrow's <span class="grad-text">audience</span> today.</h1>
-      <p>The Media Radar forecast engine projects ratings, competitor spend and costs up to 60 days ahead, with honest low case to high case ranges and plain-language advice for every chart.</p>
+      <p>Ogilvy Orbit Forecasting projects ratings, channel share, competitor spend and costs for the coming days and months, with honest low case to high case ranges and plain-language advice for every chart.</p>
     </div>
     <div class="radar" aria-hidden="true">
       <svg viewBox="0 0 320 320">
@@ -55,8 +55,6 @@
 <script>
 (async () => {
   try { const b = await (await fetch('/api/branding/public')).json();
-    document.getElementById('agency-name').textContent = b.agency_name;
-    if (b.has_logo) document.querySelector('#login-brand .brand-mark').outerHTML = '<img src="/api/branding/logo" alt="" class="brand-logo">';
     if (b.setup_problem) document.getElementById('login-err').textContent = b.setup_problem; } catch (e) { /* defaults */ }
 })();
 const pw = document.getElementById('password'), tg = document.getElementById('pw-toggle');
