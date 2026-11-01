@@ -80,17 +80,34 @@ def create_user(email: str, password: str, name: str = "", role: str = "planner"
         return c.execute(insert(db.users).values(email=email, name=name or email.split("@")[0], password_hash=hash_password(password), role=role, active=True)).inserted_primary_key[0]
 
 
+SETUP_PROBLEM: str | None = None    # shown on the sign-in page when the first admin could not be created
+
+
+def has_users() -> bool:
+    with db.engine().connect() as c:
+        return c.execute(select(db.users.c.id).limit(1)).first() is not None
+
+
 def bootstrap_admin() -> None:
-    """Create the first admin from ADMIN_EMAIL and ADMIN_PASSWORD when no user exists yet."""
-    with db.engine().begin() as c:
-        if c.execute(select(db.users.c.id).limit(1)).first():
-            return
-    email, pw = os.environ.get("ADMIN_EMAIL"), os.environ.get("ADMIN_PASSWORD")
-    if email and pw:
+    """Create the first admin from ADMIN_EMAIL and ADMIN_PASSWORD when no user exists yet.
+
+    Never stops the app from starting: a bad value is logged and shown on the sign-in page instead.
+    """
+    global SETUP_PROBLEM
+    SETUP_PROBLEM = None
+    if has_users():
+        return
+    email, pw = (os.environ.get("ADMIN_EMAIL") or "").strip(), os.environ.get("ADMIN_PASSWORD") or ""
+    if not email or not pw:
+        SETUP_PROBLEM = "No admin account exists yet. Set ADMIN_EMAIL and ADMIN_PASSWORD (at least 10 characters) on the server and restart."
+        log.warning(SETUP_PROBLEM)
+        return
+    try:
         create_user(email, pw, "Administrator", "admin")
         log.info("Created the first admin user %s", email)
-    else:
-        log.warning("No users exist. Set ADMIN_EMAIL and ADMIN_PASSWORD to create the first admin.")
+    except ValueError as exc:
+        SETUP_PROBLEM = f"The first admin could not be created: {exc} Fix ADMIN_EMAIL or ADMIN_PASSWORD on the server and restart."
+        log.error(SETUP_PROBLEM)
 
 
 # ---------------------------------------------------------------- login throttle

@@ -18,7 +18,8 @@
 (async () => {
   try { const b = await (await fetch('/api/branding/public')).json();
     document.getElementById('agency-name').textContent = b.agency_name;
-    if (b.has_logo) document.querySelector('#login-brand .brand-mark').outerHTML = '<img src="/api/branding/logo" alt="" class="brand-logo">'; } catch (e) { /* defaults */ }
+    if (b.has_logo) document.querySelector('#login-brand .brand-mark').outerHTML = '<img src="/api/branding/logo" alt="" class="brand-logo">';
+    if (b.setup_problem) document.getElementById('login-err').textContent = b.setup_problem; } catch (e) { /* defaults */ }
 })();
 document.getElementById('login-form').onsubmit = async (e) => {
   e.preventDefault();

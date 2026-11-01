@@ -215,7 +215,8 @@ def agency_logo() -> Response:
 @router.get("/api/branding/public")
 def public_branding() -> dict:
     b = repo.get_branding()
-    return {"agency_name": b["agency_name"], "has_logo": b["has_logo"], "primary_color": b["primary_color"]}
+    setup = auth.SETUP_PROBLEM if auth.SETUP_PROBLEM and not auth.has_users() else None
+    return {"agency_name": b["agency_name"], "has_logo": b["has_logo"], "primary_color": b["primary_color"], "setup_problem": setup}
 
 
 # ------------------------------------------------------------------ editable JSON config

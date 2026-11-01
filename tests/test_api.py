@@ -202,3 +202,23 @@ def test_forecast_jobs_are_private_to_their_user():
     other = login(email, "planner-pass-1")
     other.headers["X-Client-Id"] = c.headers["X-Client-Id"]
     assert other.get(f"/api/forecast/job/{jid}").status_code == 404
+
+
+def test_short_admin_password_does_not_stop_startup(monkeypatch, tmp_path):
+    from app.services import auth, db
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "fresh.db"))
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("ADMIN_EMAIL", "boss@agency.lk")
+    monkeypatch.setenv("ADMIN_PASSWORD", "short")
+    db.reset_engine()
+    try:
+        auth.bootstrap_admin()                       # must not raise
+        assert not auth.has_users() and "10 characters" in auth.SETUP_PROBLEM
+        assert TestClient(app).get("/api/branding/public").json()["setup_problem"]
+        monkeypatch.setenv("ADMIN_PASSWORD", "long-enough-pass")
+        auth.bootstrap_admin()
+        assert auth.has_users() and auth.SETUP_PROBLEM is None
+    finally:
+        db.reset_engine()
+        monkeypatch.undo()
+        db.engine()
