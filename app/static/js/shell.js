@@ -14,19 +14,14 @@
     film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/>',
   };
   const svg = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${I[k]}</svg>`;
-  const isDark = () => (document.documentElement.dataset.theme || 'dark') === 'dark';
 
-  function setTheme(t) {
-    document.documentElement.dataset.theme = t;
-    try { localStorage.setItem('theme', t); } catch (e) { /* ignore */ }
-    document.dispatchEvent(new Event('themechange'));
-    paintThemeBtn();
-  }
   function paintThemeBtn() {
     const b = document.getElementById('theme-btn'); if (!b) return;
-    b.innerHTML = svg(isDark() ? 'sun' : 'moon') + `<span class="txt">${isDark() ? 'Light mode' : 'Dark mode'}</span>`;
-    b.setAttribute('aria-label', isDark() ? 'Switch to light mode' : 'Switch to dark mode');
+    const k = App.skins.current();
+    b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 000 18z" fill="currentColor"/></svg><span class="txt">Theme: ${App.esc(k.name)}</span>`;
+    b.title = 'Change theme'; b.setAttribute('aria-label', 'Change theme. Current: ' + k.name);
   }
+  document.addEventListener('themechange', paintThemeBtn);
   async function pollModel() {
     const pill = document.getElementById('model-pill'); if (!pill) return;
     try {
@@ -104,7 +99,7 @@
       const b = me.branding;
       const mark = b.has_logo ? '<img src="/api/branding/logo" alt="" class="brand-logo">'
         : '<span class="brand-mark"><svg class="ico" style="stroke:#fff" viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 8-10"/><path d="M15 5h5v5"/></svg></span>';
-      const link = (href, key, icon, label) => `<a href="${href}" ${active === key ? 'aria-current="page"' : ''}>${svg(icon)}<span class="txt">${label}</span></a>`;
+      const link = (href, key, icon, label) => `<a href="${href}" title="${label}" ${active === key ? 'aria-current="page"' : ''}>${svg(icon)}<span class="txt">${label}</span></a>`;
       side.innerHTML = `
         <div class="brand">${mark}<span class="brand-text">${esc(b.agency_name)}</span></div>
         <div class="client-pick">
@@ -131,7 +126,7 @@
       if (sel) sel.onchange = () => { setClient(sel.value); App.loader.show('Switching client', 'Loading this client\'s data from your browser'); location.reload(); };
       try { if (localStorage.getItem('side') === '1') document.body.classList.add('side-collapsed'); } catch (e) { /* ignore */ }
       document.getElementById('intro-btn').onclick = () => App.loadIntro().then(() => App.intro.open(true));
-      document.getElementById('theme-btn').onclick = () => setTheme(isDark() ? 'light' : 'dark');
+      const tb = document.getElementById('theme-btn'); tb.setAttribute('data-skin-btn', ''); tb.onclick = () => App.skins.openPicker(tb);
       document.getElementById('collapse-btn').onclick = () => {
         const c = document.body.classList.toggle('side-collapsed');
         try { localStorage.setItem('side', c ? '1' : '0'); } catch (e) { /* ignore */ }

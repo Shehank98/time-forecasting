@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in</title><script>try{document.documentElement.dataset.theme=localStorage.getItem("theme")||"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script><link rel="stylesheet" href="/css/app.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in</title><script src="/js/skins.js"></script><link rel="stylesheet" href="/css/app.css"></head>
 <body class="login-body">
 <main class="login-split">
   <section class="login-hero" aria-label="About Media Radar">
@@ -31,7 +31,7 @@
   </section>
 
   <section class="login-panel">
-    <button class="icon-btn login-theme" id="theme-toggle" type="button" aria-label="Switch theme"><svg class="ico" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg></button>
+    <button class="btn sm login-theme" id="theme-toggle" data-skin-btn type="button" aria-label="Change theme"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 000 18z" fill="currentColor"/></svg> Theme</button>
     <form class="card glow login-card" id="login-form" novalidate>
       <div class="eyebrow">Secure access</div>
       <h2 class="login-title">Welcome back</h2>
@@ -62,7 +62,7 @@
 const pw = document.getElementById('password'), tg = document.getElementById('pw-toggle');
 tg.onclick = () => { const show = pw.type === 'password'; pw.type = show ? 'text' : 'password'; tg.textContent = show ? 'Hide' : 'Show'; tg.setAttribute('aria-pressed', String(show)); tg.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); pw.focus(); };
 pw.addEventListener('keyup', (e) => { document.getElementById('caps').textContent = e.getModifierState && e.getModifierState('CapsLock') ? 'Caps Lock is on' : ''; });
-document.getElementById('theme-toggle').onclick = () => { const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'; document.documentElement.dataset.theme = t; try { localStorage.setItem('theme', t); } catch (e) { /* ignore */ } };
+document.getElementById('theme-toggle').onclick = (e) => App.skins.openPicker(e.currentTarget);
 document.getElementById('login-form').onsubmit = async (e) => {
   e.preventDefault();
   const err = document.getElementById('login-err'), btn = document.getElementById('login-btn'), form = e.currentTarget;

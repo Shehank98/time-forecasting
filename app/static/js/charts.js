@@ -1,7 +1,7 @@
 /* Chart.js wrappers, per-advertiser colour registry, heatmaps and PNG download. */
 (function (App) {
   const { esc, fmt } = App;
-  const PALETTE = ['#3de0ff', '#8b5cf6', '#ff4fd8', '#22f5a6', '#ffb547', '#4f8bff', '#ff6b6b', '#a3e635', '#f472b6', '#2dd4bf', '#facc15', '#94a3b8'];
+  const PALETTE = (App.skins ? App.skins.palette() : ['#3de0ff', '#8b5cf6', '#ff4fd8', '#22f5a6', '#ffb547', '#4f8bff', '#ff6b6b', '#a3e635', '#f472b6', '#2dd4bf', '#facc15', '#94a3b8']).slice();
   const registry = new Map();
   const charts = new Map();
   function colorFor(name) {
@@ -125,6 +125,6 @@
     return `<div class="heat-wrap"><table class="heat cal"><thead><tr><th></th>${head}</tr></thead><tbody>${cal.rows.map((r, i) => `<tr><th scope="row"><span class="swatch" style="background:${colorFor(r)}"></span>${esc(r)}</th>${cal.values[i].map((v, j) =>
       `<td title="${esc(r)} ${dates[j]}: ${v} spots" style="background:${v ? `color-mix(in srgb, ${colorFor(r)} ${20 + 80 * v / mx}%, transparent)` : 'var(--surface-2)'}">${v}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
-  document.addEventListener('themechange', defaults);
+  document.addEventListener('themechange', () => { if (App.skins) { PALETTE.splice(0, PALETTE.length, ...App.skins.palette()); registry.clear(); } defaults(); });
   App.charts = { nowLine, fcTitle, colorFor, register, make, box, evidence, bar, line, doughnut, heat, calendar, destroyAll, css, PALETTE };
 })(window.App);
