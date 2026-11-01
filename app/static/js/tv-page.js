@@ -74,5 +74,5 @@
   if (App.insights) tabs.push({ id: 'ai', label: 'AI insights', alwaysRender: true, render: (p, ctx) => App.insights.tab(p, ctx) });
   tabs.push({ id: 'rows', label: 'Raw rows', alwaysRender: true, render: (p, ctx) => App.rawRows(p, ctx) });
   App.workspace({ kind: 'tv', fileLabel: 'TVR programme file', reportTitle: 'TVR audience prediction', tabs,
-    predict: [App.predictTabs.tvr, App.predictTabs.market], defaultTab: 'p-tvr' });
+    predict: [App.predictTabs.tvr], defaultTab: 'p-tvr' });
 })(window.App);

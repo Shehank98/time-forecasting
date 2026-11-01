@@ -40,7 +40,7 @@
       const payload = await build();
       const n = payload.daily.length + payload.weekly.length;
       if (!n) return { payload, results: [], res: null };
-      onProgress(0.08, `Running the forecast engine on ${n} series`);
+      onProgress(0.08, `Analysing ${n} series`);
       const [d, w] = await Promise.all([forecastBatch(kind, payload.daily, payload.gran || 'daily', (p2, m) => onProgress(0.08 + 0.9 * p2, m)), forecastBatch(kind, payload.weekly, 'weekly', () => {})]);
       for (const r of [d, w]) if (r && !r.ok) throw new Error(r.message || 'The forecast could not run.');
       const results = [].concat(d ? d.results : [], w ? w.results : []);

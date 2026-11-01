@@ -95,6 +95,7 @@
   const GMAP = { tv: ['channel', 'program', 'category'], lmrb: ['channel', 'program', 'product_group', 'advertiser'] };
   const GFIELDS = [['channel', 'Channel'], ['program', 'Programme'], ['category', 'Category'], ['product_group', 'Product group'], ['advertiser', 'Advertiser']];
   const SHEET = { tv: 'TVR sheet', lmrb: 'LMRB sheet' };
+  const sheetName = (k, kind) => (k === 'tv' && kind === 'lmrb' ? 'TVR sheet (optional)' : SHEET[k]);
   const SHEET_HINT = { tv: 'Programme ratings: Channel, Date, Start, Program, Category, TVR, Reach', lmrb: 'Ad monitoring: Advertiser, Channel, Program, date parts, AdsinBrk, PosinBrk, Cost' };
   const mb = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(0) + ' MB');
 
@@ -164,8 +165,8 @@
     function slotHtml(k) {
       const s = status && status[k];
       return `<div class="up-slot ${s ? 'loaded' : ''}" data-kind="${k}" tabindex="0" aria-label="${SHEET[k]}: drop a file or press Enter to upload">
-        <div class="up-head"><span class="up-name">${SHEET[k]}</span>${s ? '<span class="badge good">In this browser</span>' : '<span class="badge warn">Not loaded</span>'}</div>
-        <div class="up-meta" title="${esc(s ? s.files.join(', ') : SHEET_HINT[k])}">${s ? `${fmt.num(s.rows)} rows, ${esc(s.date_min)} to ${esc(s.date_max)}` : esc(SHEET_HINT[k])}</div>
+        <div class="up-head"><span class="up-name">${sheetName(k, kind)}</span>${s ? '<span class="badge good">In this browser</span>' : '<span class="badge warn">Not loaded</span>'}</div>
+        <div class="up-meta" title="${esc(s ? s.files.join(', ') : SHEET_HINT[k])}">${s ? `${fmt.num(s.rows)} rows, ${esc(s.date_min)} to ${esc(s.date_max)}` : esc(k === 'tv' && kind === 'lmrb' ? 'Optional: adds programme ratings, GRPs and CPRP to the market forecast' : SHEET_HINT[k])}</div>
         <div class="progress" hidden><i></i></div><div class="up-msg muted small" hidden></div>
         <div class="up-actions">${s ? `<button class="btn sm" type="button" data-act="append">Append new period</button><button class="btn sm" type="button" data-act="replace">Replace</button>
           <button class="btn sm" type="button" data-act="summary">Summary</button><button class="btn sm ghost danger" type="button" data-act="remove">Remove</button>`
@@ -180,12 +181,12 @@
           'Upload once, then come back any time on this computer. Use "Append new period" each month to grow the history; duplicate rows are skipped automatically. CSV works at any size (500 MB and more); Excel files up to 150 MB.')}
           <span class="muted small" style="margin-left:auto;text-transform:none;letter-spacing:0">${st.quota ? `Browser storage ${mb(st.usage)} of ${mb(st.quota)}` : ''}</span></div>
           ${st.quota ? `<div class="storage-meter" title="${pct.toFixed(1)}% used"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}
-          <div class="uploads">${slotHtml('tv')}${slotHtml('lmrb')}</div></div>
+          <div class="uploads ${kind === 'tv' ? 'one' : ''}">${kind === 'tv' ? slotHtml('tv') : slotHtml('lmrb') + slotHtml('tv')}</div></div>
         <div class="cb-section"><div class="cb-title">Forecast horizon ${App.help('Months view: The forecast engine forecasts monthly totals and averages up to 12 months ahead, with P10, P50 and P90 ranges and Sri Lankan holiday effects. It needs at least 12 months of history (24 or more is best) and gives the clearest picture for planning. Days view: the next 60 days, day by day.',
           'Use months for budget and strategy decisions (3, 6 or 12 months) and days for tactical weekly planning. Changing the horizon inside a view is instant; switching between days and months runs a new forecast.')}</div>
           <div class="row" style="gap:12px"><div class="seg" id="hz-mode" role="group" aria-label="Forecast view"><button type="button" data-m="monthly" aria-pressed="${hmode === 'monthly'}">Months</button><button type="button" data-m="daily" aria-pressed="${hmode !== 'monthly'}">Days</button></div></div>
           <div class="horizon" id="hz-box"></div>
-          <div class="cb-title">Global filters ${App.help('These filters apply to both sheets: channel and programme to both, category to the TVR sheet, product group and advertiser to the LMRB sheet. Forecasts are rebuilt from the filtered rows.', 'Focus every prediction on the channels, programmes or competitors you are planning for.')}</div>
+          <div class="cb-title">Global filters ${App.help('These filters narrow every forecast on this page. Forecasts are rebuilt from the filtered rows.', 'Focus every prediction on the channels, programmes or competitors you are planning for.')}</div>
           <div class="gfilters" id="gfilters"></div></div></div>
         <div class="chips" id="gchips"></div></div>`;
       $$('.up-slot', el).forEach(wireSlot);
@@ -236,7 +237,7 @@
       const box = $('#gfilters'); if (!box) return;
       box.innerHTML = '';
       const onChange = App.debounce(() => { App.store.set(gKey(), gf); paintGlobalChips(); load(); }, 350);
-      GFIELDS.forEach(([k, l]) => { const opts = gopts[k] || []; if (!opts.length) return; box.appendChild(App.filters.multi({ key: 'g-' + k, label: l }, opts, proxy(k), onChange)); });
+      GFIELDS.filter(([k]) => GMAP[kind].includes(k)).forEach(([k, l]) => { const opts = gopts[k] || []; if (!opts.length) return; box.appendChild(App.filters.multi({ key: 'g-' + k, label: l }, opts, proxy(k), onChange)); });
       if (!box.children.length) box.innerHTML = '<div class="muted small">Filters appear after the first upload.</div>';
       paintGlobalChips();
     }
@@ -244,7 +245,7 @@
     function proxy(k) { return new Proxy(gf, { get: (t, p) => (p === 'g-' + k ? t[k] : t[p]), set: (t, p, v) => { t[p === 'g-' + k ? k : p] = v; return true; }, deleteProperty: (t, p) => { delete t[p === 'g-' + k ? k : p]; return true; } }); }
     function paintGlobalChips() {
       const el = $('#gchips'); if (!el) return;
-      const list = GFIELDS.filter(([k]) => gf[k] && gf[k].length).map(([k, l]) => ({ key: k, label: l, value: gf[k].slice(0, 3).join(', ') + (gf[k].length > 3 ? ` +${gf[k].length - 3}` : '') }));
+      const list = GFIELDS.filter(([k]) => GMAP[kind].includes(k) && gf[k] && gf[k].length).map(([k, l]) => ({ key: k, label: l, value: gf[k].slice(0, 3).join(', ') + (gf[k].length > 3 ? ` +${gf[k].length - 3}` : '') }));
       el.innerHTML = list.length ? list.map((c) => `<span class="chip">${esc(c.label)}: ${esc(c.value)}<button type="button" data-k="${esc(c.key)}" aria-label="Remove ${esc(c.label)} filter">&times;</button></span>`).join('') + '<button class="btn sm ghost" type="button" data-clear-g>Clear global filters</button>' : '';
       $$('button[data-k]', el).forEach((b) => { b.onclick = () => { delete gf[b.dataset.k]; App.store.set(gKey(), gf); renderGlobalFilters(); load(); }; });
       const c = $('[data-clear-g]', el); if (c) c.onclick = () => { gf = {}; App.store.set(gKey(), gf); renderGlobalFilters(); load(); };
@@ -378,13 +379,14 @@
 
     /* ================= dashboard ================= */
     function welcome() {
-      return `<div class="card" style="text-align:center;padding:42px 20px"><div class="eyebrow">One-time setup</div><h2 style="margin:8px 0 6px;font-size:24px">Load your sheets to start predicting</h2>
-        <p class="muted" style="max-width:640px;margin:0 auto">Drop the TVR programme sheet, the LMRB ad monitoring sheet, or both into the data sources above. They are read and stored in this browser only, so even 500 MB files never travel to the server. Next time you open this client on this computer, everything is already here.</p></div>`;
+      const sheet = kind === 'tv' ? 'TVR programme sheet' : 'LMRB ad monitoring sheet';
+      return `<div class="card" style="text-align:center;padding:42px 20px"><div class="eyebrow">One-time setup</div><h2 style="margin:8px 0 6px;font-size:24px">Load the ${sheet} to start predicting</h2>
+        <p class="muted" style="max-width:640px;margin:0 auto">Drop the file into the data sources above. It is read and stored in this browser only, so even 500 MB files never travel to the server. Next time you open this client on this computer, it is already here.</p></div>`;
     }
     function showDash(fresh) {
       $('#v-upload').hidden = true; $('#v-summary').hidden = true; const v = $('#v-dash'); v.hidden = false;
       const pageLoaded = !!(state && state.loaded);
-      if (predictMode && !ctx.has('tv') && !ctx.has('lmrb')) { v.innerHTML = welcome(); v.dataset.built = ''; return; }
+      if (predictMode && !ctx.has(kind)) { v.innerHTML = welcome(); v.dataset.built = ''; return; }
       const sig = [ds, state && state.sig, status && status.tv && status.tv.sig, status && status.lmrb && status.lmrb.sig, JSON.stringify((state && state.meta) || {})].join('|');
       if (v.dataset.built === sig && !fresh) return;
       v.dataset.built = sig;

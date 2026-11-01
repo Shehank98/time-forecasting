@@ -51,6 +51,8 @@ async def guard(request: Request, call_next):
     resp.headers.setdefault("X-Frame-Options", "DENY")
     if request.url.path.startswith("/api/"):
         resp.headers.setdefault("Cache-Control", "no-store")
+    elif request.url.path.endswith((".js", ".css", ".html")) or request.url.path == "/":
+        resp.headers.setdefault("Cache-Control", "no-cache")   # always revalidate so a new release shows immediately
     return resp
 
 

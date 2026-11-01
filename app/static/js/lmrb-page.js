@@ -225,5 +225,5 @@
   if (App.insights) tabs.push({ id: 'ai', label: 'AI insights', alwaysRender: true, render: (p, ctx) => App.insights.tab(p, ctx) });
   tabs.push({ id: 'rows', label: 'Raw rows', alwaysRender: true, render: (p, ctx) => App.rawRows(p, ctx) });
   App.workspace({ kind: 'lmrb', fileLabel: 'LMRB ad monitoring file', reportTitle: 'Market prediction', perspective: true, tabs,
-    predict: [App.predictTabs.market, App.predictTabs.tvr], defaultTab: 'p-market' });
+    predict: [App.predictTabs.market], defaultTab: 'p-market' });
 })(window.App);
