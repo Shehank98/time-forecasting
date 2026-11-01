@@ -162,7 +162,7 @@
   function flipTo(card, back) {
     const id = card.dataset.chart, ff = card.querySelector('.ff'), fb = card.querySelector('.fb');
     if (!fb || card.classList.contains('turning')) return;
-    if (back) { card.style.minHeight = card.offsetHeight + 'px'; backTable(id); const fn = backs.get(id), host = card.querySelector('[data-fbdata]'); if (fn && host) host.insertAdjacentHTML('afterbegin', fn()); }
+    if (back) { card.style.minHeight = card.offsetHeight + 'px'; backTable(id); const fn = backs.get(id), host = card.querySelector('[data-fbdata]'); if (fn && host) host.insertAdjacentHTML('afterbegin', fn()); if (host && App.memory && App.memory.text && /^p[tm]-/.test(id)) host.insertAdjacentHTML('afterbegin', `<p class="fb-mem"><b>Memory:</b> ${esc(App.memory.text)}</p>`); }
     card.classList.add('turning');
     setTimeout(() => {
       ff.hidden = !!back; fb.hidden = !back; card.classList.toggle('is-back', !!back);

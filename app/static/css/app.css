@@ -675,3 +675,5 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 
 .np-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; } .np-days { display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .np-signals .card { padding: 14px; } .np-signals h3 { margin: 0 0 8px; }
+
+.fb-mem { margin: 4px 0 10px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--fc-zone); border-radius: 0 10px 10px 0; font-size: 13px; }

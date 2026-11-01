@@ -467,7 +467,7 @@
       dirty.delete(id);
       const t = allTabs.find((x) => x.id === id), p = $('#panel-' + id); if (!t || !p) return;
       if (t.predict) { try { t.render(p, ctx); } catch (e) { console.error(e); p.innerHTML = App.emptyState('This prediction could not be drawn', e.message); } return; }
-      if (!(state && state.loaded)) { p.innerHTML = App.emptyState(`Upload the ${kind === 'tv' ? 'TVR' : kind === 'lmrb' ? 'LMRB' : 'client'} sheet to unlock this section`, 'Use the data sources panel above. The file stays in this browser.'); return; }
+      if (!(state && state.loaded)) { p.innerHTML = App.emptyState(`Upload the ${kind === 'tv' ? 'TVR' : kind === 'lmrb' ? 'LMRB' : 'client'} sheet to unlock this section`, 'Use the data sources panel above. Raw rows stay in this browser.'); return; }
       if (!data) { p.innerHTML = App.skeleton(2); return; }
       if (data.empty && !t.alwaysRender) { p.innerHTML = `${App.emptyState('No rows match the current filters', 'Widen the date range or remove a filter.')}<div style="text-align:center"><button class="btn" id="empty-reset">Reset filters</button></div>`; const r = $('#empty-reset', p); if (r) r.onclick = () => filtersCtl && filtersCtl.reset(); return; }
       try { const r = t.render(p, ctx); App.decorateHelp(p); if (r && r.then) r.then(() => App.decorateHelp(p)).catch(() => {}); } catch (e) { console.error(e); p.innerHTML = App.emptyState('This section could not be drawn', e.message); }

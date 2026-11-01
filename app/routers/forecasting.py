@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..core import workspace
-from ..services import repo, series as S
+from ..services import repo, series as S, vault as VT
 from ..services import forecast as fc
 from ..services import sl_media_calendar as CAL
 from ..services.store import Workspace
@@ -32,6 +32,7 @@ class SeriesIn(BaseModel):
     zero_fill: bool | None = None
     dates: list[str]
     values: list[float | None]
+    vault: dict[str, Any] | None = None     # lets the server prepend stored history to this series
 
 
 class ForecastIn(BaseModel):
@@ -97,14 +98,20 @@ def forecast_run(req: ForecastIn, ws: Workspace = Depends(workspace)) -> dict:
     h = int(p.get("horizon_days", 14) or 14)
     if not 1 <= h <= 400:
         raise HTTPException(422, "Horizon must be between 1 and 400 days.")
-    specs, notes = _specs(req.series, gran)
-    key = fc.cache.key("payload", req.kind, {}, {}, {**p, "_s": [(s.entity, s.group, s.metric, s.dates[0], s.dates[-1], len(s.dates), hash(tuple(s.values))) for s in req.series]})
+    items = [i.model_dump() for i in req.series]
+    key = fc.cache.key("payload", req.kind, {}, {}, {**p, "_v": VT.version(), "_s": [(s.entity, s.group, s.metric, s.dates[0], s.dates[-1], len(s.dates), hash(tuple(s.values)), str(sorted((s.vault or {}).items()))) for s in req.series]})
+    vault_info = VT.extend(items, gran)                  # stored history for the same series, strictly before the dates the browser sent
+    try:
+        specs, notes = fc.specs_from_payload(items, gran)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
     def work(progress):
         hit = fc.cache.get(key)
         if hit is not None:
             return {**hit, "cached": True}
         res = fc.run_specs(specs, notes, req.kind, {**p, "granularity": gran, "horizon_days": h}, progress)
+        res["vault"] = vault_info
         res["cached"] = False
         if res.get("ok"):
             fc.cache.put(key, res)

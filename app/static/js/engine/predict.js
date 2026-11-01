@@ -16,7 +16,7 @@
 
   /* ---------------- TVR & Audience ---------------- */
   /** mode 'daily' (60 days ahead) or 'monthly' (12 months ahead). In monthly mode every series is monthly and goes in `daily` (the primary batch). */
-  function tvrPayload(T, idx, mode) {
+  function tvrPayload(T, idx, mode, vopt = {}) {
     const monthly = mode === 'monthly', G = monthly ? 'monthly' : 'daily';
     const daily = [], weekly = [], notes = [];
     const ctx = { mode: monthly ? 'monthly' : 'daily', gran: G, rows: idx.length, heat_metric: hasValues(T, 'tvr_share', idx) ? 'share' : 'tvr', has_reach_pct: hasValues(T, 'reach_pct', idx) };
@@ -46,6 +46,7 @@
       ctx.channels = [...cc.entries()].sort((a, b) => b[1] - a[1]).map((e) => e[0]); ctx.categories = [...kc.entries()].sort((a, b) => b[1] - a[1]).map((e) => e[0]); }
     ctx.months_of_history = Math.round((hi - lo) / 30.4);
     notes.push(...wk.notes.filter((n) => !/recur weekly/.test(n)));
+    if (vopt.vault) { attachVault(daily, 'tv'); attachVault(weekly, 'tv'); }
     return { daily, weekly, notes, ctx, gran: G };
   }
 
@@ -150,6 +151,7 @@
       run('slot_rating', idx, 'slot', 'rating', { entity: matchedOf, entities: slots, metricDef: rating });
       run('slot_cost', idx, 'slot', 'cost_spot', { entity: matchedOf, entities: slots, metricDef: costSpot });
     } else notes.push('Load the TVR sheet as well to see programme ratings, CPRP and the optimal buying zone.');
+    if (opt.vault) attachVault(daily, 'lmrb', ctx.product_group);
     return { daily, weekly: [], notes, ctx, gran: G };
   }
 
@@ -390,6 +392,37 @@
     return out.sort((x, y) => rank[x.severity] - rank[y.severity] || y.metrics.length - x.metrics.length);
   }
 
+
+  /* ---------------- history vault: what the browser sends, and which series may be extended with stored history ---------------- */
+  /** Compact daily totals per (date, product group, advertiser, channel) from the LMRB table. */
+  function vaultRowsLmrb(L) {
+    const C = L.cols, m = new Map();
+    for (let i = 0; i < L.n; i++) {
+      const d = C.date[i]; if (!(d > 0)) continue;
+      const key = d + '|' + C.product_group[i] + '|' + C.advertiser[i] + '|' + C.channel[i];
+      let r = m.get(key); if (!r) { r = { date: d, pg: C.product_group[i], adv: C.advertiser[i], ch: C.channel[i], cost: 0, cost_d: 0, seconds: 0, spots: 0, totads_sum: 0, totads_n: 0, clutter_sum: 0, clutter_n: 0 }; m.set(key, r); }
+      r.cost += C.cost[i]; r.spots++;
+      if (C.dur[i] > 0) { r.cost_d += C.cost[i]; r.seconds += C.dur[i]; }
+      if (C.totads[i] >= 0) { r.totads_sum += C.totads[i]; r.totads_n++; }
+      if (C.adsinbrk[i] >= 0) { r.clutter_sum += C.adsinbrk[i]; r.clutter_n++; }
+    }
+    return [...m.values()].map((r) => ({ date: isoFromDay(r.date), product_group: L.dicts.product_group[r.pg], advertiser: L.dicts.advertiser[r.adv], channel: L.dicts.channel[r.ch], cost: r.cost, cost_d: r.cost_d, seconds: r.seconds, spots: r.spots,
+      totads_sum: r.totads_sum, totads_n: r.totads_n, clutter_sum: r.clutter_sum, clutter_n: r.clutter_n }));
+  }
+  /** One row per airing from the TVR table. */
+  function vaultRowsTv(T) {
+    const C = T.cols, out = [], fin = (v) => (Number.isFinite(v) && v >= 0 ? v : null);
+    for (let i = 0; i < T.n; i++) { if (!(C.date[i] > 0)) continue;
+      out.push({ date: isoFromDay(C.date[i]), channel: S(T, 'channel', i), start: C.start[i], end: C.end[i], program: S(T, 'program', i), category: C.category[i] >= 0 ? S(T, 'category', i) : '', data_set: C.data_set[i] >= 0 ? S(T, 'data_set', i) : '',
+        tvr: fin(C.tvr[i]), reach_pct: fin(C.reach_pct[i]), tvr_share: fin(C.tvr_share[i]), avg_time: fin(C.avg_time[i]), duration: fin(C.duration[i]) }); }
+    return out;
+  }
+  const VAULT_GROUPS = { lmrb: ['comp_spend', 'spots_total', 'cps_total', 'stealth_spend', 'stealth_totads', 'stealth_clutter'], tv: ['tvr_total', 'reach_total', 'channel_tvr', 'channel_share'] };
+  /** Marks the series whose definition the vault can reproduce exactly. Only done when no filters are active, because stored history is unfiltered. */
+  function attachVault(arr, kind, productGroup) {
+    for (const it of arr) if (VAULT_GROUPS[kind].includes(it.group)) it.vault = { kind, group: it.group, product_group: productGroup || null, entity: it.entity };
+  }
+
   /* ---------------- helpers for results ---------------- */
   /** First H points of a forecast (daily H, or the matching number of weekly points). */
   function sliceForecast(r, horizonDays) {
@@ -458,5 +491,5 @@
     };
   }
 
-  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, seasonalBursts, radarProb, themeLifecycle, coldStart, stealthPayload, stealthAlerts, sliceForecast, bursts, dowHourMatrix, monthHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
+  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, seasonalBursts, radarProb, themeLifecycle, coldStart, stealthPayload, stealthAlerts, vaultRowsLmrb, vaultRowsTv, sliceForecast, bursts, dowHourMatrix, monthHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
 })(typeof self !== 'undefined' ? self : globalThis);

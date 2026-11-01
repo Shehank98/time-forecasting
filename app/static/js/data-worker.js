@@ -1,6 +1,6 @@
 /* Data worker: parses uploads off the main thread, keeps columnar tables in memory and in IndexedDB
  * (per signed-in user and client), and answers dashboard, rows, series and prediction requests.
- * Raw rows never leave the browser; only compact aggregates and series go to the server.
+ * Raw rows never leave the browser; only compact aggregates, series and daily totals for the history vault go to the server.
  */
 /* global MR */
 importScripts('/js/vendor/xlsx.full.min.js', '/js/engine/core.js', '/js/engine/ingest.js', '/js/engine/filters.js', '/js/engine/analytics_tv.js',
@@ -78,6 +78,9 @@ function table(kind, name) {
   return T;
 }
 const lmrbBase = (options) => (tables.tv ? MR.withGrps(tables.lmrb, tables.tv, (options && options.tv_data_set) || null) : tables.lmrb);
+/** True when no filter narrows the data, which is when stored (unfiltered) history can safely extend a series. */
+const noFilters = (f) => !f || Object.values(f).every((v) => v == null || v === '' || v === false || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && noFilters(v)));
+const vaultCache = { sig: '', rows: [] };
 const marketBase = (options) => (tables.tv ? MR.withTimebands(tables.lmrb, tables.tv, (options && options.tv_data_set) || null) : tables.lmrb);
 function baseFrame(kind, name, options) { if (kind === 'lmrb') { table('lmrb'); return lmrbBase(options); } return table(kind, name); }
 function info(T) {
@@ -269,7 +272,12 @@ const OPS = {
 
   predictTvr({ filters, mode }) {
     const T = table('tv'), idx = MR.applyFilters(T, 'tv', filters || {});
-    return MR.tvrPayload(T, idx, mode);
+    return MR.tvrPayload(T, idx, mode, { vault: noFilters(filters) });
+  },
+  vaultRows({ kind, offset, limit }) {
+    const T = table(kind === 'tv' ? 'tv' : 'lmrb'), k = kind + '|' + (T.sig || T.n);
+    if (vaultCache.sig !== k) vaultCache.rows = kind === 'tv' ? MR.vaultRowsTv(T) : MR.vaultRowsLmrb(T), vaultCache.sig = k;
+    return { total: vaultCache.rows.length, rows: vaultCache.rows.slice(offset || 0, (offset || 0) + (limit || 20000)) };
   },
   predictStealth({ filters, options }) {
     table('lmrb');
@@ -283,7 +291,7 @@ const OPS = {
   predictMarket({ filters, options }) {
     table('lmrb');
     const L = marketBase(options), idx = MR.applyFilters(L, 'lmrb', filters || {});
-    return MR.marketPayload(L, idx, options || {});
+    return MR.marketPayload(L, idx, { ...(options || {}), vault: noFilters(filters) });
   },
 
   async kpiPropose({ file }, progress) {

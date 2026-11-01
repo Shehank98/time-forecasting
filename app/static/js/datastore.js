@@ -66,6 +66,7 @@
     series: (b) => open().then(() => call('series', b)),
     predictTvr: (b) => open().then(() => call('predictTvr', b)),
     predictMarket: (b) => open().then(() => call('predictMarket', b)),
+    vaultRows: (b) => open().then(() => call('vaultRows', b)),
     predictStealth: (b) => open().then(() => call('predictStealth', b)),
     coldStart: (b) => open().then(() => call('coldStart', b)),
     async kpiPropose(file, onProgress) { await open(); persist(); return call('kpiPropose', { file }, onProgress); },

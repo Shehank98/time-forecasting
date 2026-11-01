@@ -22,7 +22,7 @@
     .replace(/9 in 10 days/g, '9 in 10 months').replace(/forecast day for/g, 'forecast month for').replace(/each forecast day/g, 'each forecast month').replace(/daily/gi, (m) => (m[0] === 'D' ? 'Monthly' : 'monthly')).replace(/weekly/g, 'monthly') : t);
   /** Notes about how much history a monthly forecast has. */
   function monthNote(pc) {
-    const m = pc.months_of_history || 0;
+    const m = (pc.months_of_history || 0) + (MEM.extra || 0);
     if (m < 12) return `<div class="banner bad"><span><b>Only about ${m} month${m === 1 ? '' : 's'} of history.</b> Monthly forecasts need at least 12 months (24 or more is best) to learn seasonality, so treat these numbers as rough. Append older periods to the sheet, or use the Days view.</span></div>`;
     if (m < 24) return `<div class="banner"><span>About ${m} months of history. Monthly forecasts work, but with 24 months or more the seasonal pattern is much more reliable.</span></div>`;
     return '';
@@ -147,7 +147,7 @@
   const slice = (r, H) => MR.sliceForecast(r, H);
   const unitFmt = (u) => ({ currency: fmt.lkrc, percent: (v) => fmt.pct(v, 1), rating: f2 }[u] || fmt.compact);
   function needData(p, sheet) {
-    p.innerHTML = App.emptyState(`Load the ${sheet} to unlock this prediction`, 'Use the data sources panel above. Files are read once and stay in this browser.');
+    p.innerHTML = App.emptyState(`Load the ${sheet} to unlock this prediction`, 'Use the data sources panel above. Files are read once. Raw rows stay in this browser.');
   }
   /* ---- Trust meter: accuracy on days the engine had not seen (100 minus sMAPE) ---- */
   const trustOf = (r) => { const b = r && r.backtest; return b && b.model && b.model.smape != null ? Math.max(0, Math.min(100, 100 - b.model.smape)) : null; };
@@ -158,6 +158,63 @@
     const t = ts.reduce((a, b) => a + b, 0) / ts.length, [lvl, cls] = trustLvl(t), r0 = results.find((x) => trustOf(x) != null);
     return `<span class="badge ${cls}" title="${esc(trustTip(r0))}">Trust ${t.toFixed(0)}% (${lvl})</span>`;
   }
+
+  /* ---------------- brand memory: the history vault ---------------- */
+  let MEM = { text: '', chip: '' };
+  const VAULT_PAGE = 20000;
+  /** Sends compact daily totals of the loaded sheets to the agency history vault. Skips sheets that were already sent. Never blocks a forecast. */
+  async function vaultSync(force) {
+    let st; try { st = await App.data.status(); } catch (e) { return 0; }
+    let saved = 0;
+    for (const kind of ['lmrb', 'tv']) {
+      const sh = st[kind]; if (!sh || !sh.loaded) continue;
+      const mark = `mr:vault:${App.clientId()}:${kind}`; let seen = ''; try { seen = localStorage.getItem(mark) || ''; } catch (e) { /* ignore */ }
+      if (!force && seen === sh.sig) continue;
+      try {
+        let off = 0, total = 1, added = 0;
+        while (off < total) {
+          const r = await App.data.vaultRows({ kind, offset: off, limit: VAULT_PAGE }); total = r.total; if (!r.rows.length) break;
+          const res = await App.api.post('/api/vault/ingest', { kind, rows: r.rows, source: (sh.files || []).join(', ') });
+          if (res.enabled === false) return 0;
+          added += (res.added || 0) + (res.changed || 0); off += VAULT_PAGE;
+        }
+        try { localStorage.setItem(mark, sh.sig); } catch (e) { /* ignore */ }
+        saved += added;
+      } catch (e) { console.warn('History vault not updated', e); }
+    }
+    if (saved && force !== 'quiet') App.toast(`History vault updated: ${fmt.num(saved)} daily totals added or refreshed.`, 'info');
+    return saved;
+  }
+  let vaultTimer = null;
+  document.addEventListener('datachange', () => { clearTimeout(vaultTimer); vaultTimer = setTimeout(() => vaultSync('quiet'), 1500); });
+  /** Header chip and flip-card line that say how much stored history the forecast used. */
+  function memoryState(res, ownMonths, pg) {
+    const v = res && res.vault, extra = v && v.months > 0 ? v.months : 0;
+    const where = pg ? ` for ${pg}` : '';
+    const text = extra > 0 ? `Forecast powered by the forecast engine + stored vault history (${Math.round(ownMonths + extra)} months${where}, ${Math.round(extra)} of them from earlier uploads)`
+      : `Forecast powered by the forecast engine on this upload only (${Math.round(ownMonths)} months${where})`;
+    MEM = { extra, text, chip: `<span class="badge ${extra > 0 ? 'good' : 'info'}" title="${esc(text)}">Memory: ${extra > 0 ? `+${Math.round(extra)} months stored` : 'this upload only'}</span><button class="btn sm" type="button" data-memory>Brand memory</button>` };
+    App.memory = { text };
+  }
+  async function brandMemory(kind, pg, again) {
+    const m = App.modal('Brand memory', '<div id="bm-body" class="muted">Reading the vault...</div>'), body = m.querySelector('#bm-body');
+    let st; try { st = await App.api.get('/api/vault/status' + (pg ? '?product_group=' + encodeURIComponent(pg) : '')); } catch (e) { body.innerHTML = App.emptyState('Could not read the vault', e.message); return; }
+    if (!st.enabled) { body.innerHTML = App.emptyState('The history vault is switched off', 'An administrator turned it off on this server, so each forecast uses only the sheet you upload.'); return; }
+    const ad = st.adapters || {}, isAdmin = !!(App.shell.me && App.shell.me.user && App.shell.me.user.is_admin);
+    const lm = Object.entries(st.lmrb || {}), tv = st.tv, adLine = (a, label) => `<tr><td>${esc(label)}</td><td>${a.exists ? `<span class="badge good">Trained</span>` : '<span class="badge warn">Not trained</span>'}</td><td>${a.trained_through ? `through ${esc(a.trained_through)} on ${fmt.num(a.windows)} windows` : 'nothing yet'}</td></tr>`;
+    body.innerHTML = `<p class="small">The vault keeps <b>compact daily totals</b> from every upload (not the raw files) so a forecast can use the longest history your agency has uploaded for the same ${kind === 'tv' ? 'TV channels' : 'product group'}. Data from this upload always wins for the dates it covers.</p>
+      <h4>What is stored</h4><div class="fb-scroll"><table class="dt-table"><thead><tr><th>Area</th><th>From</th><th>To</th><th>Months</th><th>Detail</th></tr></thead><tbody>
+        ${lm.map(([n, x]) => `<tr class="${n === pg ? 'on' : ''}"><td>${esc(n)}</td><td>${esc(x.date_min)}</td><td>${esc(x.date_max)}</td><td>${x.months}</td><td>${x.advertisers} advertisers</td></tr>`).join('')}
+        ${tv ? `<tr class="${kind === 'tv' ? 'on' : ''}"><td>TV ratings</td><td>${esc(tv.date_min)}</td><td>${esc(tv.date_max)}</td><td>${tv.months}</td><td>${tv.channels} channels</td></tr>` : ''}
+        ${!lm.length && !tv ? '<tr><td colspan="5">Nothing stored yet. It fills when you upload a sheet.</td></tr>' : ''}</tbody></table></div>
+      <h4 style="margin-top:14px">Learned adjustments (adapters)</h4><table class="dt-table"><tbody>${adLine(ad.group || {}, pg ? `Product group: ${pg}` : 'This brand')}${adLine(ad.global || {}, 'Whole agency')}</tbody></table>
+      <p class="small muted">${esc(ad.note || '')}</p>
+      <div class="row" style="margin-top:12px"><button class="btn primary" type="button" id="bm-save">Update Brand Memory now</button>${isAdmin ? '<button class="btn" type="button" id="bm-train">Train adapters</button>' : ''}</div><div id="bm-msg" class="small" style="margin-top:8px"></div>`;
+    body.querySelector('#bm-save').onclick = async (e) => { e.currentTarget.disabled = true; body.querySelector('#bm-msg').textContent = 'Saving this upload to the vault...'; const n = await vaultSync('quiet'); body.querySelector('#bm-msg').textContent = n ? `Saved: ${fmt.num(n)} daily totals added or refreshed. Re-run the forecast to use them.` : 'Already up to date. Nothing new to save.'; e.currentTarget.disabled = false; if (again) cache.clear(); };
+    const tb = body.querySelector('#bm-train');
+    if (tb) tb.onclick = async () => { try { const r = await App.api.post('/api/vault/train', { product_group: pg || null, global_too: true }); body.querySelector('#bm-msg').textContent = r.message; } catch (e) { body.querySelector('#bm-msg').textContent = e.message; } };
+  }
+
   /* ---- Quantile risk: Volatility Index = (high case - low case) / most likely ---- */
   const volIdx = (lo, mid, hi) => (finite(lo) && finite(hi) && finite(mid) && mid > 0 ? (hi - lo) / mid : null);
   const volLvl = (v) => (v == null ? ['n/a', ''] : v < 0.25 ? ['Stable', 'good'] : v < 0.5 ? ['Moderate', 'warn'] : ['Volatile', 'bad']);
@@ -172,7 +229,7 @@
   function headCard(title, sub, r, extra = '') {
     const rel = r && r.reliability;
     return `<div class="card glow" style="margin-bottom:16px"><div class="card-head" style="margin:0"><div><div class="eyebrow"><span class="fc-pill">Forecast</span> Estimates of what is likely, not recorded data</div><h2 style="margin-top:4px">${esc(title)}</h2><div class="sub">${esc(sub)}</div></div>
-      <div class="row">${extra}${calendarTools()}${r ? trustBadge([r]) : ''}${rel ? `<span class="badge ${relCls[rel.level]}" title="${esc(rel.reasons.join(' '))}">Reliability: ${rel.level}</span>` : ''}<button class="btn sm" type="button" data-rerun>Re-run</button></div></div></div>`;
+      <div class="row">${extra}${calendarTools()}${MEM.chip || ''}${r ? trustBadge([r]) : ''}${rel ? `<span class="badge ${relCls[rel.level]}" title="${esc(rel.reasons.join(' '))}">Reliability: ${rel.level}</span>` : ''}<button class="btn sm" type="button" data-rerun>Re-run</button></div></div></div>`;
   }
   const kpiTile = (label, value, sub, help, cls = '') => `<div class="kpi fc ${cls}"><span class="fc-pill tile">Forecast</span><div class="k-lbl">${esc(label)} ${help || ''}</div><div class="k-val">${value}</div>${sub ? `<div class="k-sub">${sub}</div>` : ''}</div>`;
 
@@ -307,6 +364,8 @@
     const pTVR = avg(fT.p50), gTVR = avg(fT.p10), upTVR = avg(fT.p90);
     const catRows = cats.map((r) => { const f = slice(r, H); return { name: r.entity, now: MR.recentMean(r, NOW), next: avg(f.p50) }; }).map((x) => ({ ...x, shift: finite(x.next) && finite(x.now) ? x.next - x.now : null }));
     const growing = catRows.filter((x) => finite(x.shift)).sort((a, b) => b.shift - a.shift);
+    memoryState(pr.res, tot.history.dates.length * (M ? 1 : 1 / 30.4), null);
+    vaultSync('quiet');
     const spotsPerDay = Math.max(1, +App.store.get('spots-per-day', 5));
     const fR = reach ? slice(reach, H) : null;
     p.innerHTML = w(`${headCard('TVR & Audience Forecast', `Next ${SPAN} from ${pc.date_max}, ${fmt.num(pc.rows)} airings in scope. History ${tot.n_points} ${M ? 'months' : 'days'}.`, tot,
@@ -363,7 +422,7 @@
         ${fR ? `<div style="margin-top:16px">${C.box('pt-reach', 'Reach outlook', 'Average Reach % per airing', { ev: true, help: ['The same forecast applied to the daily average Reach %.', 'Expected breadth of audience per airing, useful for reach-led campaigns.'] })}</div>` : ''}
       </section>`);
     wireRerun(p, key, () => tvrTab(p, ctx));
-    wireCalendar(p, () => tvrTab(p, ctx));
+    wireCalendar(p, () => tvrTab(p, ctx), { kind: 'tv', pg: null });
     wireSv(p, 'tvr');
     wireColdStart(p, filters, pc);
     p.querySelectorAll('[data-open-sv]').forEach((b) => { b.onclick = () => { const t = p.querySelector(`[data-svb="${b.dataset.openSv}"]`); if (t) t.click(); }; });
@@ -634,6 +693,8 @@
     const bd = pc.bridge, bridgeBanner = pc.has_grp && bd
       ? `<div class="banner info"><span><b>Ratings bridge:</b> spots are matched to TVR by 30-minute timeband on shared TV channels, never by programme name. ${fmt.num(bd.rated_pct, 0)}% of spots have a rating (${fmt.num(bd.rated_exact)} on the exact day, ${fmt.num(bd.rated_profile)} from the usual weekday pattern). The other ${fmt.num(bd.not_rated_pct, 0)}% are <span class="badge warn">TVR N/A</span> (radio, press, unmonitored TV or no matching timeband) and are left out of the slot charts, never guessed.</span></div>`
       : `<div class="banner info"><span><span class="badge warn">TVR N/A</span> No TVR sheet loaded, so rating-based charts are hidden. Everything else on this card works from the LMRB sheet alone. Add the TVR sheet to rate TV slots.</span></div>`;
+    memoryState(pr.res, (pc.months_of_history || 0), pc.product_group);
+    vaultSync('quiet');
     const groupSel = `<label class="row small">Product group <select id="mk-group" style="max-width:220px">${pc.product_groups.map((g) => `<option ${g === pc.product_group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></label>
       <label class="row small">Focus brand <select id="mk-brand" style="max-width:220px"><option value="">None</option>${pc.advertisers.map((a) => `<option ${a === persp.my_brand ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>`;
     p.innerHTML = w(`${headCard('Market & Competitor Forecast', `${pc.product_group}: next ${SPAN} from ${pc.date_max}, ${fmt.num(pc.group_rows)} spots in the group.`, spots, groupSel)}
@@ -710,7 +771,7 @@
           help: ['Group spend per daypart is forecast and compared with the recent level.', 'Where competitor money is moving, to find quieter, cheaper dayparts.'] })}</div>
       </section>`);
     wireRerun(p, key, () => marketTab(p, ctx));
-    wireCalendar(p, () => marketTab(p, ctx));
+    wireCalendar(p, () => marketTab(p, ctx), { kind: 'lmrb', pg: pc.product_group });
     wireSv(p, 'market');
     markForecast(p, { R, H, M });
     p.querySelectorAll('[data-intro]').forEach((b) => { b.onclick = () => App.loadIntro().then(() => App.intro.open(true)); });
@@ -1074,12 +1135,13 @@
       }
     });
   }
-  function wireCalendar(p, again) {
+  function wireCalendar(p, again, mem) {
     p.querySelectorAll('[data-pins]').forEach((b) => { b.onchange = () => {
       PINS_ON = b.checked;
       p.querySelectorAll('canvas').forEach((c) => { const ch = window.Chart && Chart.getChart(c); const o = ch && ch.options.plugins && ch.options.plugins.eventPins; if (o) { o.on = PINS_ON; ch.update('none'); } });
     }; });
     p.querySelectorAll('[data-events]').forEach((b) => { b.onclick = () => eventsEditor(again); });
+    p.querySelectorAll('[data-memory]').forEach((b) => { b.onclick = () => brandMemory(mem.kind, mem.pg, true); });
   }
   function wireRerun(p, key, again) {
     p.querySelectorAll('[data-rerun]').forEach((b) => { b.onclick = () => { cache.delete(key); again(); }; });

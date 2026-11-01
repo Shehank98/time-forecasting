@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import account, ai, forecasting, reports
+from .routers import account, ai, forecasting, reports, vault as vault_router
 from .services import auth, db
 from .services import forecast as fc
 
@@ -61,7 +61,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-for r in (account.router, forecasting.router, ai.router, reports.router):
+for r in (account.router, forecasting.router, ai.router, reports.router, vault_router.router):
     app.include_router(r)
 
 
