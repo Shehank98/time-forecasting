@@ -12,8 +12,11 @@ with a short launch animation. The interface uses a futuristic dark theme by def
 
 ### The two forecast tabs
 
-Both TV cards share a **global control bar**: the TVR and LMRB uploaders, a forecast horizon (7, 14 or 30 days, or a slider from 1 to 60 days) and global filters for Channel, Programme, Category, Product group and Advertiser.
-TimesFM 2.5 always forecasts 60 days ahead in one batch, so moving the horizon only re-slices the outlook and is instant.
+Both TV cards share a **global control bar**: the TVR and LMRB uploaders, a forecast horizon and global filters for Channel, Programme, Category, Product group and Advertiser.
+
+- **Months view (default):** TimesFM forecasts monthly totals and averages up to **12 months** ahead (quick buttons 3, 6 and 12 months, slider 1 to 12). This is the clearest view for budgets and strategy. It needs at least 12 months of history and works best with 24 or more; with less, the page shows a warning and the reliability badge drops to Low. Beyond 12 months the ranges get too wide to be useful, so the app stops there.
+- **Days view:** the next 60 days, day by day (quick buttons 7, 14 and 30, slider 1 to 60), for tactical weekly planning.
+- Inside a view TimesFM runs once for the full range, so changing the horizon only re-slices the outlook and is instant; switching between Months and Days runs a new forecast. The switch is also in the top bar of the forecast popup. In months view the heatmap shows forecast month by start hour, and bursts compare each month with the previous three.
 
 | Tab | KPI cards | Charts |
 | --- | --- | --- |

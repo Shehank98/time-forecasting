@@ -135,7 +135,7 @@
     let ds = kind === 'kpi' ? (new URLSearchParams(location.search).get('dataset') || App.store.get('kpi-ds:' + App.clientId(), '')) : '';
     const gKey = () => 'gf:' + App.clientId();
     let gf = App.store.get(gKey(), {});
-    let horizon = App.store.get('horizon', 14);
+    let horizon = App.store.get('horizon', 14), months = App.store.get('months', 6), hmode = App.store.get('hmode', 'monthly');
     const ctx = {
       kind, get data() { return data; }, get meta() { return meta; }, get state() { return state; }, get status() { return status; },
       dataset: () => ds, fkey: () => kind + ':' + ds,
@@ -147,7 +147,7 @@
       },
       options: () => ({ my_brand: persp.my_brand || null, competitors: persp.competitors || [], tv_data_set: persp.tv_data_set || null }),
       setPersp(p) { persp = { ...persp, ...p }; App.store.set('persp:lmrb', persp); if (kind === 'lmrb') load(); },
-      horizon: () => horizon, persp: () => persp, reload: () => load(), panel: (id) => $('#panel-' + id),
+      horizon: () => horizon, mode: () => (hmode === 'monthly' ? 'monthly' : 'daily'), months: () => months, persp: () => persp, reload: () => load(), panel: (id) => $('#panel-' + id),
       has: (k) => !!(status && (k === 'kpi' ? status.kpi.length : status[k])),
       body: (extra) => ({ kind, name: ds, dataset: ds, filters: ctx.filters(), options: ctx.options(), ...(extra || {}) }),
       select: (id) => select(id),
@@ -181,27 +181,56 @@
           <span class="muted small" style="margin-left:auto;text-transform:none;letter-spacing:0">${st.quota ? `Browser storage ${mb(st.usage)} of ${mb(st.quota)}` : ''}</span></div>
           ${st.quota ? `<div class="storage-meter" title="${pct.toFixed(1)}% used"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}
           <div class="uploads">${slotHtml('tv')}${slotHtml('lmrb')}</div></div>
-        <div class="cb-section"><div class="cb-title">Forecast horizon ${App.help('TimesFM 2.5 predicts the next 60 days for every series in one batch, with P10, P50 and P90 quantiles and weekday plus Sri Lankan holiday and Poya day covariates. The horizon only changes how much of that outlook the charts show.',
-          'Quick 7, 14 or 30 day views for weekly plans, monthly flights or a custom number of days up to 60. Changing it is instant; no re-run needed.')}</div>
-          <div class="horizon"><div class="seg" id="hz-quick">${[7, 14, 30].map((d) => `<button type="button" data-d="${d}" aria-pressed="${horizon === d}">${d} days</button>`).join('')}</div>
-            <input type="range" min="1" max="60" step="1" id="hz-range" class="slider" value="${horizon}" aria-label="Custom horizon in days"><span class="val" id="hz-val">${horizon}d</span></div>
+        <div class="cb-section"><div class="cb-title">Forecast horizon ${App.help('Months view: TimesFM 2.5 forecasts monthly totals and averages up to 12 months ahead, with P10, P50 and P90 ranges and Sri Lankan holiday effects. It needs at least 12 months of history (24 or more is best) and gives the clearest picture for planning. Days view: the next 60 days, day by day.',
+          'Use months for budget and strategy decisions (3, 6 or 12 months) and days for tactical weekly planning. Changing the horizon inside a view is instant; switching between days and months runs a new forecast.')}</div>
+          <div class="row" style="gap:12px"><div class="seg" id="hz-mode" role="group" aria-label="Forecast view"><button type="button" data-m="monthly" aria-pressed="${hmode === 'monthly'}">Months</button><button type="button" data-m="daily" aria-pressed="${hmode !== 'monthly'}">Days</button></div></div>
+          <div class="horizon" id="hz-box"></div>
           <div class="cb-title">Global filters ${App.help('These filters apply to both sheets: channel and programme to both, category to the TVR sheet, product group and advertiser to the LMRB sheet. Forecasts are rebuilt from the filtered rows.', 'Focus every prediction on the channels, programmes or competitors you are planning for.')}</div>
           <div class="gfilters" id="gfilters"></div></div></div>
         <div class="chips" id="gchips"></div></div>`;
       $$('.up-slot', el).forEach(wireSlot);
-      $$('#hz-quick button', el).forEach((b) => { b.onclick = () => setHorizon(+b.dataset.d); });
-      const range = $('#hz-range', el);
-      range.oninput = () => { $('#hz-val', el).textContent = range.value + 'd'; };
-      range.onchange = () => setHorizon(+range.value);
+      $$('#hz-mode button', el).forEach((b) => { b.onclick = () => setMode(b.dataset.m); });
+      paintHorizon();
       renderGlobalFilters();
     }
-    function setHorizon(d) {
-      horizon = Math.max(1, Math.min(60, d)); App.store.set('horizon', horizon);
-      $$('#hz-quick button').forEach((x) => x.setAttribute('aria-pressed', String(+x.dataset.d === horizon)));
-      const r = $('#hz-range'); if (r) r.value = horizon; const v = $('#hz-val'); if (v) v.textContent = horizon + 'd';
+    const isM = () => hmode === 'monthly';
+    function paintHorizon() {
+      const box = $('#hz-box'); if (!box) return;
+      const quick = isM() ? [3, 6, 12] : [7, 14, 30], cur = isM() ? months : horizon, max = isM() ? 12 : 60, unit = isM() ? 'mo' : 'd';
+      box.innerHTML = `<div class="seg" id="hz-quick">${quick.map((d) => `<button type="button" data-d="${d}" aria-pressed="${cur === d}">${d} ${isM() ? 'months' : 'days'}</button>`).join('')}</div>
+        <input type="range" min="1" max="${max}" step="1" id="hz-range" class="slider" value="${cur}" aria-label="Custom horizon in ${isM() ? 'months' : 'days'}"><span class="val" id="hz-val">${cur}${unit}</span>`;
+      $$('#hz-quick button', box).forEach((b) => { b.onclick = () => setHorizon(+b.dataset.d); });
+      const range = $('#hz-range', box);
+      range.oninput = () => { $('#hz-val', box).textContent = range.value + unit; };
+      range.onchange = () => setHorizon(+range.value);
+    }
+    /** Horizon controls inside the popup, so the view can be changed without closing it. */
+    function paintSheetHz() {
+      const box = $('#sheet-hz'); if (!box) return;
+      const isPredict = !!(active && (cfg.predict || []).some((t) => t.id === active));
+      box.hidden = !isPredict; if (!isPredict) return;
+      const quick = isM() ? [3, 6, 12] : [7, 14, 30], cur = isM() ? months : horizon;
+      box.innerHTML = `<div class="seg" role="group" aria-label="Forecast view"><button type="button" data-m="monthly" aria-pressed="${isM()}">Months</button><button type="button" data-m="daily" aria-pressed="${!isM()}">Days</button></div>
+        <div class="seg" role="group" aria-label="Horizon">${quick.map((d) => `<button type="button" data-d="${d}" aria-pressed="${cur === d}">${d}${isM() ? ' mo' : ' d'}</button>`).join('')}</div>`;
+      $$('[data-m]', box).forEach((b) => { b.onclick = () => setMode(b.dataset.m); });
+      $$('[data-d]', box).forEach((b) => { b.onclick = () => setHorizon(+b.dataset.d); });
+    }
+    function refreshPredict() {
+      paintSheetHz();
       (cfg.predict || []).forEach((t) => dirty.add(t.id));
       if (active && (cfg.predict || []).some((t) => t.id === active)) renderTab(active);
-      document.dispatchEvent(new CustomEvent('horizonchange', { detail: horizon }));
+      document.dispatchEvent(new CustomEvent('horizonchange', { detail: isM() ? months : horizon }));
+    }
+    function setMode(m) {
+      if (m === hmode) return;
+      hmode = m; App.store.set('hmode', m);
+      $$('#hz-mode button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.m === hmode)));
+      paintHorizon(); refreshPredict();
+    }
+    function setHorizon(d) {
+      if (isM()) { months = Math.max(1, Math.min(12, d)); App.store.set('months', months); }
+      else { horizon = Math.max(1, Math.min(60, d)); App.store.set('horizon', horizon); }
+      paintHorizon(); refreshPredict();
     }
     function renderGlobalFilters() {
       const box = $('#gfilters'); if (!box) return;
@@ -381,7 +410,7 @@
         ${pTabs.length ? `<div class="sec-title">Predictions</div><div class="section-cards feature" id="tablist" aria-label="Predictions">${pTabs.map(tabBtn).join('')}</div>` : ''}
         <div class="sec-title">${pTabs.length ? 'Analysis' : 'Sections'}</div><div class="section-cards" ${pTabs.length ? '' : 'id="tablist"'} aria-label="Sections">${cfg.tabs.map(tabBtn).join('')}</div>
         <div class="sheet-back" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden><div class="sheet">
-          <div class="sheet-bar"><h2 id="sheet-title"></h2><div class="row"><a class="btn sm" id="sheet-new" target="_blank" rel="noopener">Open in new tab</a><button class="btn sm primary" id="sheet-close" type="button">Close</button></div></div>
+          <div class="sheet-bar"><h2 id="sheet-title"></h2><div class="row" id="sheet-hz" hidden></div><div class="row"><a class="btn sm" id="sheet-new" target="_blank" rel="noopener">Open in new tab</a><button class="btn sm primary" id="sheet-close" type="button">Close</button></div></div>
           <div class="sheet-body">${allTabs.map((t) => `<div role="region" id="panel-${t.id}" aria-label="${esc(t.label)}" hidden></div>`).join('')}</div></div></div>`;
       if ($('#b-summary')) $('#b-summary').onclick = () => modal('Data summary', summaryHtml(state.report));
       if ($('#b-settings')) $('#b-settings').onclick = openSettings;
@@ -425,6 +454,7 @@
       if (!id) { App.charts.destroyAll(); const b = prev && $('#tab-' + prev); if (b) b.focus(); return; }
       const t = allTabs.find((x) => x.id === id);
       $('#sheet-title').textContent = t ? t.label : '';
+      paintSheetHz();
       $('#sheet-new').href = location.pathname + '?tab=' + encodeURIComponent(id);
       const body = $('.sheet-body', sheet); if (body) body.scrollTop = 0;
       if (prev && prev !== id) App.charts.destroyAll();
@@ -507,6 +537,8 @@
     // every card title that gains content later (forecast results, head-to-head) gets its "?" too
     let helpT = null;
     new MutationObserver(() => { clearTimeout(helpT); helpT = setTimeout(() => App.decorateHelp(root), 60); }).observe(root, { childList: true, subtree: true });
+
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && active && !document.querySelector('.modal-back') && !document.querySelector('.ms-pop')) select(null); });
 
     /* ---------------- boot ---------------- */
     App.loader.show('Initialising', 'Opening your data vault in this browser');

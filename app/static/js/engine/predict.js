@@ -14,21 +14,24 @@
   const items = (res, group) => res.series.map((s) => MR.payloadItem(s, group));
 
   /* ---------------- TVR & Audience ---------------- */
-  function tvrPayload(T, idx) {
+  /** mode 'daily' (60 days ahead) or 'monthly' (12 months ahead). In monthly mode every series is monthly and goes in `daily` (the primary batch). */
+  function tvrPayload(T, idx, mode) {
+    const monthly = mode === 'monthly', G = monthly ? 'monthly' : 'daily';
     const daily = [], weekly = [], notes = [];
-    const ctx = { rows: idx.length, heat_metric: hasValues(T, 'tvr_share', idx) ? 'share' : 'tvr', has_reach_pct: hasValues(T, 'reach_pct', idx) };
-    if (!idx.length) return { daily, weekly, notes: ['No TVR rows match the current filters.'], ctx };
+    const ctx = { mode: monthly ? 'monthly' : 'daily', gran: G, rows: idx.length, heat_metric: hasValues(T, 'tvr_share', idx) ? 'share' : 'tvr', has_reach_pct: hasValues(T, 'reach_pct', idx) };
+    if (!idx.length) return { daily, weekly, notes: ['No TVR rows match the current filters.'], ctx, gran: G };
     const [lo, hi] = MR.minMax(T.cols.date, idx);
     ctx.date_min = isoFromDay(lo); ctx.date_max = isoFromDay(hi);
     const run = (arr, group, et, metric, gran, opts) => { const r = MR.buildSeries(T, idx, 'tv', et, metric, gran, opts || {}); arr.push(...items(r, group)); return r; };
-    run(daily, 'tvr_total', 'total', 'tvr', 'daily');
-    if (ctx.has_reach_pct) run(daily, 'reach_total', 'total', 'reach_pct', 'daily');
-    run(daily, 'cat_share', 'category', 'tvr_sum', 'daily', { maxEntities: 6 });
-    run(daily, 'hour_share', 'hour', ctx.heat_metric, 'daily', { maxEntities: 24 });
-    run(daily, 'channel_tvr', 'channel', 'tvr', 'daily', { maxEntities: 8 });
-    const wk = run(weekly, 'program_tvr', 'program', 'tvr', 'weekly', { maxEntities: 12 });
+    run(daily, 'tvr_total', 'total', 'tvr', G);
+    if (ctx.has_reach_pct) run(daily, 'reach_total', 'total', 'reach_pct', G);
+    run(daily, 'cat_share', 'category', 'tvr_sum', G, { maxEntities: 6 });
+    run(daily, 'hour_share', 'hour', ctx.heat_metric, G, { maxEntities: 24 });
+    run(daily, 'channel_tvr', 'channel', 'tvr', G, { maxEntities: 8 });
+    const wk = run(monthly ? daily : weekly, 'program_tvr', 'program', 'tvr', monthly ? 'monthly' : 'weekly', { maxEntities: 12 });
+    ctx.months_of_history = Math.round((hi - lo) / 30.4);
     notes.push(...wk.notes.filter((n) => !/recur weekly/.test(n)));
-    return { daily, weekly, notes, ctx };
+    return { daily, weekly, notes, ctx, gran: G };
   }
 
   /* ---------------- Market & Competitor ---------------- */
@@ -47,9 +50,10 @@
   }
 
   function marketPayload(L, idx, opt = {}) {
+    const monthly = opt.mode === 'monthly', G = monthly ? 'monthly' : 'daily', recentDays = monthly ? 91 : 28;
     const daily = [], notes = [];
-    const ctx = { rows: idx.length, has_grp: !!(L.cols.grp && hasValues(L, 'grp', idx)) };
-    if (!idx.length) return { daily, weekly: [], notes: ['No LMRB rows match the current filters.'], ctx };
+    const ctx = { mode: monthly ? 'monthly' : 'daily', gran: G, rows: idx.length, has_grp: !!(L.cols.grp && hasValues(L, 'grp', idx)) };
+    if (!idx.length) return { daily, weekly: [], notes: ['No LMRB rows match the current filters.'], ctx, gran: G };
     const [lo, hi] = MR.minMax(L.cols.date, idx);
     ctx.date_min = isoFromDay(lo); ctx.date_max = isoFromDay(hi);
     const cost = (i) => L.cols.cost[i];
@@ -65,7 +69,7 @@
     ctx.my_brand = opt.my_brand && ctx.advertisers.includes(opt.my_brand) ? opt.my_brand : null;
     const comp = ctx.advertisers.slice(0, 6);
     if (ctx.my_brand && !comp.includes(ctx.my_brand)) comp.push(ctx.my_brand);
-    const run = (group_, rows, et, metric, opts) => { const r = MR.buildSeries(L, rows, 'lmrb', et, metric, 'daily', opts || {}); daily.push(...items(r, group_)); return r; };
+    const run = (group_, rows, et, metric, opts) => { const r = MR.buildSeries(L, rows, 'lmrb', et, metric, G, opts || {}); daily.push(...items(r, group_)); return r; };
     run('comp_spend', gIdx, 'advertiser', 'spend', { entities: comp });
     run('sov', gIdx, 'advertiser', 'sov', { entities: comp });
     run('spots_total', gIdx, 'total', 'spots');
@@ -78,7 +82,8 @@
       run('clutter', idx, 'program', 'clutter', { entities: progs });
       run('posinbrk', idx, 'program', 'posinbrk', { entities: progs });
     } else notes.push('AdsinBrk is empty in this sheet, so break clutter cannot be forecast.');
-    const recent = MR.where(L, idx, (i) => L.cols.date[i] > hi - 28);
+    const recent = MR.where(L, idx, (i) => L.cols.date[i] > hi - recentDays);
+    ctx.months_of_history = Math.round((hi - lo) / 30.4);
     ctx.clutter_recent = avgBy(L, recent, progOf(L), 'adsinbrk', progs);
     ctx.pos_recent = avgBy(L, recent, progOf(L), 'posinbrk', progs);
     // CPRP efficiency: matched programme ratings (needs the TVR sheet)
@@ -92,7 +97,7 @@
       run('slot_rating', idx, 'slot', 'rating', { entity: matchedOf, entities: slots, metricDef: rating });
       run('slot_cost', idx, 'slot', 'cost_spot', { entity: matchedOf, entities: slots, metricDef: costSpot });
     } else notes.push('Load the TVR sheet as well to see programme ratings, CPRP and the optimal buying zone.');
-    return { daily, weekly: [], notes, ctx };
+    return { daily, weekly: [], notes, ctx, gran: G };
   }
 
   /* ---------------- helpers for results ---------------- */
@@ -113,6 +118,15 @@
       if (finite(v) && v > avg * ratio && v >= peak * floorShare && v > 0) out.push({ index: j, value: v, rolling_avg: avg, lift_pct: avg > 0 ? (v / avg - 1) * 100 : null });
     }
     return out;
+  }
+
+  /** Month x hour matrix of the forecast P50 (rows = forecast months, columns = hours). */
+  function monthHourMatrix(results, months) {
+    const hours = results.map((r) => r.entity).filter((h) => /^\d\d:00$/.test(h)).sort();
+    const first = results.find((r) => r.forecast.dates.length);
+    const dates = first ? first.forecast.dates.slice(0, months) : [];
+    const values = dates.map((d, k) => hours.map((h) => { const r = results.find((q) => q.entity === h); const v = r && r.forecast.p50[k]; return finite(v) ? v : null; }));
+    return { rows: dates.map((d) => d.slice(0, 7)), cols: hours, values };
   }
 
   /** Day-of-week x hour matrix of the average forecast P50 (rows Mon..Sun, columns hours). */
@@ -154,5 +168,5 @@
     };
   }
 
-  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, sliceForecast, bursts, dowHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
+  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, sliceForecast, bursts, dowHourMatrix, monthHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
 })(typeof self !== 'undefined' ? self : globalThis);

@@ -266,9 +266,9 @@ const OPS = {
     return { series: res.series.map((s) => MR.payloadItem(s)), notes: res.notes, granularity: res.gran };
   },
 
-  predictTvr({ filters }) {
+  predictTvr({ filters, mode }) {
     const T = table('tv'), idx = MR.applyFilters(T, 'tv', filters || {});
-    return MR.tvrPayload(T, idx);
+    return MR.tvrPayload(T, idx, mode);
   },
   predictMarket({ filters, options }) {
     table('lmrb');
