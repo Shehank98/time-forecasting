@@ -20,7 +20,7 @@
 
   function tab(p, ctx) {
     const kind = ctx.fkey(), hasFc = !!(App.lastForecast && App.lastForecast[kind]);
-    p.innerHTML = `<div class="card"><div class="card-head"><div><h3>AI insights</h3><div class="sub">Gemini reads compact aggregates for the current filters and returns structured, evidence-backed findings.</div></div></div>
+    p.innerHTML = `<div class="card"><div class="card-head"><div><h3>AI insights</h3><div class="sub">Gemini reads the compact summary your browser computed for the current filters (never the raw sheet), plus the latest prediction evidence, and returns structured, evidence-backed findings.</div></div></div>
       <div class="row"><button class="btn primary" id="ai-go" type="button">Generate insights</button>
         <label class="row small"><input type="checkbox" id="ai-fc" ${hasFc ? 'checked' : 'disabled'}> Include last forecast${hasFc ? '' : ' (run one in the Forecast tab first)'}</label>
         <span class="muted small" id="ai-msg"></span></div></div>
@@ -30,11 +30,13 @@
         <form class="row" id="chat-form" style="flex-wrap:nowrap"><label class="sr-only" for="chat-q">Your question</label><input type="text" id="chat-q" placeholder="For example: Which competitor increased prime time spend the most?" maxlength="500" autocomplete="off"><button class="btn primary" type="submit">Ask</button></form></div>`;
     const out = p.querySelector('#ai-out'), msg = p.querySelector('#ai-msg');
     if (App.lastInsights[kind]) render(out, App.lastInsights[kind]);
-    const fcParams = () => (p.querySelector('#ai-fc').checked ? App.lastForecast[kind].params : null);
+    const fcResult = () => (p.querySelector('#ai-fc').checked ? App.lastForecast[kind].result : null);
+    const pe = App.predictEvidence && App.predictEvidence[ctx.kind];
+    const body = (extra) => ({ kind: ctx.kind, dash: ctx.data, meta: ctx.meta, forecast: fcResult() || (pe && pe.result) || null, evidence: pe ? pe.lines.slice(0, 12) : [], ...extra });
     p.querySelector('#ai-go').onclick = async (e) => {
       const b = e.currentTarget; b.disabled = true; msg.textContent = 'Asking Gemini. This usually takes 10 to 30 seconds.'; out.innerHTML = App.skeleton(2);
       try {
-        const res = await App.api.post('/api/insights', ctx.body({ forecast: fcParams(), refresh: true }));
+        const res = await App.api.post('/api/insights', body({ refresh: true }));
         App.lastInsights[kind] = res; render(out, res); msg.textContent = '';
       } catch (err) { out.innerHTML = App.emptyState('Insights are not available right now', err.message); msg.textContent = ''; App.toast(err.message, 'error', 8000); }
       b.disabled = false;
@@ -44,7 +46,7 @@
       e.preventDefault(); const q = p.querySelector('#chat-q'), text = q.value.trim(); if (!text) return; q.value = '';
       log.insertAdjacentHTML('beforeend', `<div class="msg user">${esc(text)}</div>`); const wait = document.createElement('div'); wait.className = 'msg bot muted'; wait.textContent = 'Thinking...'; log.appendChild(wait); log.scrollTop = log.scrollHeight;
       try {
-        const r = await App.api.post('/api/chat', ctx.body({ forecast: fcParams(), question: text, history }));
+        const r = await App.api.post('/api/chat', body({ question: text, history }));
         history.push({ role: 'user', text }, { role: 'assistant', text: r.answer });
         wait.className = 'msg bot'; wait.innerHTML = `${esc(r.answer)} <span class="badge ${confCls[r.confidence]}">${esc(r.confidence)}</span>${evidence(r.evidence, r.unverified_citations)}`;
       } catch (err) { wait.className = 'msg bot'; wait.innerHTML = `<span class="delta down">${esc(err.message)}</span>`; }

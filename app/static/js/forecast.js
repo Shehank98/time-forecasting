@@ -12,22 +12,10 @@
     el.innerHTML = model && model.backend === 'fallback'
       ? `<div class="banner bad" role="alert"><span><b>Fallback model in use.</b> TimesFM could not be loaded (${esc(model.error || 'unknown reason')}). Forecasts use seasonal naive plus exponential smoothing. Treat them with extra care.</span></div>` : '';
   }
-  async function poll(jobUrl, prog, msgEl) {
-    const bar = prog.querySelector('i');
-    let j;
-    do {
-      await new Promise((r) => setTimeout(r, 600));
-      j = await App.api.get(jobUrl);
-      msgEl.textContent = j.message || '';
-      if (j.progress) { prog.firstElementChild.classList.remove('indet'); bar.style.width = Math.round(j.progress * 100) + '%'; }
-    } while (j.status === 'running');
-    if (j.status === 'error') throw new Error(j.error);
-    return j.result;
-  }
   async function saveToClient(ctx, ftype, params, result) {
     const title = window.prompt('Name this saved ' + ftype + ' (for example "Q4 leads forecast, base case"):', '');
     if (title === null) return;
-    try { await App.api.post('/api/saved-forecasts', { title: title || ftype, ftype, request: ctx.body({ params }), result }); App.toast('Saved to the client. Find it under Client overview.', 'ok'); }
+    try { await App.api.post('/api/saved-forecasts', { title: title || ftype, ftype, request: { kind: ctx.kind, dataset: ctx.dataset(), filters: ctx.filters(), options: ctx.options(), params }, result }); App.toast('Saved to the client. Find it under Client overview.', 'ok'); }
     catch (e) { App.toast(e.message, 'error'); }
   }
 
@@ -189,7 +177,9 @@
   /* ================================================================ tab */
   async function tab(p, ctx) {
     const kind = ctx.kind, fk = ctx.fkey(), s0 = App.store.get('fc:' + fk, {});
-    const info = await App.api.post('/api/forecast/entities', ctx.body({ params: {} })).catch((e) => { p.innerHTML = App.emptyState('Forecasting is not available', e.message); return null; });
+    const info = await Promise.all([App.data.entities(ctx.body()), App.api.get('/api/forecast/limits'), App.api.get('/api/model-status')])
+      .then(([e, lim, model]) => ({ catalog: e.catalog, date_max: e.date_max, default_granularity: e.default_granularity, min_points: lim.min_points, model }))
+      .catch((e) => { p.innerHTML = App.emptyState('Forecasting is not available', e.message); return null; });
     if (!info) return;
     banner(info.model);
     const cat = info.catalog, metrics = cat.metrics, units = cat.units, ents = cat.entities;
@@ -203,18 +193,19 @@
     const opt = (o, sel) => Object.entries(o).map(([k, l]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
     const entOpts = (sel, list) => (list || ents).map((e) => `<option value="${e}" ${e === sel ? 'selected' : ''}>${esc(ENT_LABEL[e] || e)}</option>`).join('');
     const horizons = { daily: [7, 14, 28, 56, 91], weekly: [28, 56, 91, 182], monthly: [91, 182, 365] };
-    p.innerHTML = `<div class="card"><div class="card-head"><div><h3>Forecast studio</h3><div class="sub">Google TimesFM 2.5, zero-shot. Filters above apply. ${kind === 'lmrb' ? 'Competitor set applies.' : ''}</div></div>
+    p.innerHTML = `<div class="card"><div class="card-head"><div><h3>Forecast studio</h3><div class="sub">Google TimesFM 2.5, zero-shot. Series are built in this browser from the filtered data; only those series are sent. ${kind === 'lmrb' ? 'Competitor set applies.' : ''}</div></div>
         <div class="seg" id="fm-seg">${modes.map(([k, l]) => `<button type="button" data-m="${k}" aria-pressed="${k === cur}">${l}</button>`).join('')}</div></div>
       <div id="fm-form"></div>
       <div id="f-prog" hidden style="margin-top:12px"><div class="progress"><i></i></div><div class="muted small" id="f-msg" style="margin-top:6px"></div></div></div>
       <div id="f-out" style="margin-top:16px"></div>`;
     const form = $('#fm-form', p), out = $('#f-out', p), prog = $('#f-prog', p), msg = $('#f-msg', p);
 
-    const run = async (btn, startUrl, body, onDone) => {
-      btn.disabled = true; prog.hidden = false; prog.firstElementChild.classList.add('indet'); prog.querySelector('i').style.width = ''; msg.textContent = 'Starting'; out.innerHTML = App.skeleton(2);
+    const series = (extra) => App.data.series(ctx.body(extra));
+    const onJob = (p2, m) => { msg.textContent = m || ''; if (p2) { prog.firstElementChild.classList.remove('indet'); prog.querySelector('i').style.width = Math.round(p2 * 100) + '%'; } };
+    const run = async (btn, starter, onDone) => {
+      btn.disabled = true; prog.hidden = false; prog.firstElementChild.classList.add('indet'); prog.querySelector('i').style.width = ''; msg.textContent = 'Building series in this browser'; out.innerHTML = App.skeleton(2);
       try {
-        const { job_id } = await App.api.post(startUrl, body);
-        const res = await poll('/api/forecast/job/' + job_id, prog, msg);
+        const res = await starter();
         if (!res.ok) { out.innerHTML = App.emptyState('Nothing to forecast', res.message); return; }
         onDone(res); App.shell.refreshModel();
       } catch (e) { out.innerHTML = App.emptyState('Forecast failed', e.message); App.toast(e.message, 'error', 8000); }
@@ -224,7 +215,7 @@
     async function entityPicker(box, et, metric, multi, sel) {
       box.innerHTML = '';
       if (et === 'total') { box.innerHTML = '<label>Entities</label><div class="muted small" style="padding:8px 0">Whole filtered data</div>'; return { get: () => [] }; }
-      const r = await App.api.post('/api/forecast/entities', ctx.body({ params: { entity_type: et, metric } })).catch(() => ({ entities: [] }));
+      const r = await App.data.entities(ctx.body({ entity_type: et, metric })).catch(() => ({ entities: [] }));
       const names = r.entities.map((e) => e.name);
       if (multi) {
         const st = { entities: [] };
@@ -257,7 +248,14 @@
         const params = { metric: $('#f-metric', form).value, entity_type: et, granularity: $('#f-gran', form).value, horizon_days: +$('#f-hor', form).value, history_days: +$('#f-hist', form).value || null,
           holdout: +$('#f-hold', form).value || null, covariates: $('#f-cov', form).checked, entities: picker ? picker.get() : [], max_entities: et === 'timebelt' ? 24 : 8 };
         App.store.set('fc:' + fk, { ...params, entities: undefined });
-        run(e.currentTarget, '/api/forecast/start', ctx.body({ params }), (res) => { App.lastForecast[fk] = { params, result: res }; forecastResults(out, res, ctx, params); });
+        run(e.currentTarget, async () => {
+          const s = await series({ entity_type: et, metric: params.metric, granularity: params.granularity, entities: params.entities, history_days: params.history_days, max_entities: params.max_entities });
+          if (!s.series.length) return { ok: false, message: s.notes[0] || 'No series could be built.' };
+          msg.textContent = `Sending ${s.series.length} compact series to TimesFM`;
+          const res = await App.runJob('/api/forecast/run', { kind, series: s.series, params: { ...params, granularity: s.granularity } }, onJob);
+          if (res.ok) res.notes = s.notes.concat(res.notes || []);
+          return res;
+        }, (res) => { App.lastForecast[fk] = { params, result: res }; forecastResults(out, res, ctx, params); });
       };
       if (App.lastForecast[fk]) forecastResults(out, App.lastForecast[fk].result, ctx, App.lastForecast[fk].params);
     }
@@ -290,7 +288,12 @@
           ratio_label: ratio ? ratio.label : (target === 'grp' ? 'CPRP' : `Cost per ${metrics[target]}`), ratio_scale: ratio ? ratio.scale : 1 };
         if (!params.multipliers.length && !params.budgets.length) { App.toast('Enter at least one spend change or budget.', 'error'); return; }
         App.store.set('sc:' + fk, { ...params, mult: $('#s-mult', form).value, bud: $('#s-bud', form).value });
-        run(e.currentTarget, '/api/scenarios/start', ctx.body({ params }), (res) => { App.lastScenarios[fk] = { params, result: res }; scenarioResults(out, res, ctx, params); });
+        run(e.currentTarget, async () => {
+          const one = { entity_type: et, entities: params.entity ? [params.entity] : null, granularity: params.granularity, max_entities: 1 };
+          const [t, d] = await Promise.all([series({ ...one, metric: target }), series({ ...one, metric: driver })]);
+          if (!t.series.length || !d.series.length) return { ok: false, message: (t.notes.concat(d.notes))[0] || 'Target or driver series could not be built.' };
+          return App.runJob('/api/scenarios/run', { kind, target: t.series[0], driver: d.series[0], params: { ...params, granularity: t.granularity } }, onJob);
+        }, (res) => { App.lastScenarios[fk] = { params, result: res }; scenarioResults(out, res, ctx, params); });
       };
       if (App.lastScenarios[fk]) scenarioResults(out, App.lastScenarios[fk].result, ctx, App.lastScenarios[fk].params);
     }
@@ -322,7 +325,10 @@
         if (!params.target) { App.toast('Enter the target for the flight.', 'error'); return; }
         App.store.set('pc:' + fk, params);
         const btn = e.currentTarget; btn.disabled = true; out.innerHTML = App.skeleton(1);
-        try { const res = await App.api.post('/api/pacing', ctx.body({ params })); if (!res.ok) { out.innerHTML = App.emptyState('Pacing could not be checked', res.message); } else { App.lastPacing[fk] = { params, result: res }; pacingResults(out, res, ctx, params); } }
+        try {
+          const s = await series({ entity_type: et, metric, granularity: 'daily', entities: params.entity ? [params.entity] : null, max_entities: 1 });
+          const res = s.series.length ? await App.api.post('/api/pacing/run', { kind, series: s.series[0], params }) : { ok: false, message: s.notes[0] || 'No data for pacing.' };
+          if (!res.ok) { out.innerHTML = App.emptyState('Pacing could not be checked', res.message); } else { App.lastPacing[fk] = { params, result: res }; pacingResults(out, res, ctx, params); } }
         catch (err) { out.innerHTML = App.emptyState('Pacing failed', err.message); }
         btn.disabled = false;
       };

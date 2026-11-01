@@ -173,7 +173,7 @@
       h2h.a = p.querySelector('#h-a').value; h2h.b = p.querySelector('#h-b').value; const out = p.querySelector('#h-out');
       if (h2h.a === h2h.b) { out.innerHTML = App.emptyState('Pick two different advertisers'); return; }
       out.innerHTML = App.skeleton(2);
-      try { const r = await App.api.post('/api/lmrb/head2head', { filters: ctx.filters(), options: { a: h2h.a, b: h2h.b } }); drawHead(out, r); } catch (e) { out.innerHTML = App.emptyState('Could not compare', e.message); }
+      try { const r = await App.data.head2head({ filters: ctx.filters(), options: { ...ctx.options(), a: h2h.a, b: h2h.b } }); drawHead(out, r); } catch (e) { out.innerHTML = App.emptyState('Could not compare', e.message); }
     };
     p.querySelector('#h-a').onchange = run; p.querySelector('#h-b').onchange = run; run();
   }
@@ -224,5 +224,6 @@
   if (App.forecast) tabs.push({ id: 'forecast', label: 'Forecast studio', alwaysRender: true, render: (p, ctx) => App.forecast.tab(p, ctx) });
   if (App.insights) tabs.push({ id: 'ai', label: 'AI insights', alwaysRender: true, render: (p, ctx) => App.insights.tab(p, ctx) });
   tabs.push({ id: 'rows', label: 'Raw rows', alwaysRender: true, render: (p, ctx) => App.rawRows(p, ctx) });
-  App.workspace({ kind: 'lmrb', fileLabel: 'LMRB ad monitoring file', perspective: true, tabs });
+  App.workspace({ kind: 'lmrb', fileLabel: 'LMRB ad monitoring file', reportTitle: 'Market prediction', perspective: true, tabs,
+    predict: [App.predictTabs.market, App.predictTabs.tvr], defaultTab: 'p-market' });
 })(window.App);

@@ -1,11 +1,11 @@
 /* Chart.js wrappers, per-advertiser colour registry, heatmaps and PNG download. */
 (function (App) {
   const { esc, fmt } = App;
-  const PALETTE = ['#5b5ce6', '#12a6a0', '#f08a24', '#d6457f', '#3b9ae1', '#8b5cf6', '#c9a30a', '#3ea65a', '#e5484d', '#0b8fb8', '#a16207', '#6b7280'];
+  const PALETTE = ['#3de0ff', '#8b5cf6', '#ff4fd8', '#22f5a6', '#ffb547', '#4f8bff', '#ff6b6b', '#a3e635', '#f472b6', '#2dd4bf', '#facc15', '#94a3b8'];
   const registry = new Map();
   const charts = new Map();
   function colorFor(name) {
-    if (name === 'Others') return '#9aa0b8';
+    if (name === 'Others') return '#7c86b0';
     if (!registry.has(name)) {
       const i = registry.size;
       registry.set(name, i < PALETTE.length ? PALETTE[i] : `hsl(${(i * 137.5) % 360} 62% 52%)`);
@@ -23,6 +23,10 @@
     Chart.defaults.maintainAspectRatio = false;
     Chart.defaults.plugins.legend.labels.usePointStyle = true;
     Chart.defaults.plugins.legend.labels.boxWidth = 8;
+    const tt = Chart.defaults.plugins.tooltip;
+    tt.backgroundColor = css('--surface-solid') || '#0d1430'; tt.titleColor = css('--text') || '#e8eeff'; tt.bodyColor = css('--text') || '#e8eeff';
+    tt.borderColor = css('--border-strong') || 'rgba(61,224,255,.4)'; tt.borderWidth = 1; tt.padding = 10; tt.cornerRadius = 10; tt.boxPadding = 4;
+    tt.titleFont = { family: css('--display') || 'system-ui', weight: '600' };
   }
   function make(id, cfg) {
     const el = document.getElementById(id);
@@ -34,11 +38,15 @@
     return ch;
   }
   function destroyAll() { charts.forEach((c) => c.destroy()); charts.clear(); }
+  /** Chart card. opts.help = [how it predicts, what you get] adds the "?" tooltip; opts.ev adds a Planner's Evidence slot (fill with evidence()). */
   function box(id, title, sub, opts = {}) {
-    return `<div class="card"><div class="card-head"><div><h3>${esc(title)}</h3>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
-      <div class="row">${opts.extra || ''}<button class="btn sm ghost" type="button" data-png="${id}" aria-label="Download ${esc(title)} as PNG">PNG</button></div></div>
-      <div class="chart-wrap ${opts.tall ? 'tall' : ''}"><canvas id="${id}" role="img" aria-label="${esc(title)}"></canvas></div></div>`;
+    const help = opts.help ? App.help(opts.help[0], opts.help[1], { left: opts.helpLeft }) : '';
+    const body = opts.html != null ? `<div id="${id}">${opts.html}</div>` : `<div class="chart-wrap ${opts.tall ? 'tall' : ''} ${opts.xtall ? 'xtall' : ''}"><canvas id="${id}" role="img" aria-label="${esc(title)}"></canvas></div>`;
+    return `<div class="card ${opts.glow ? 'glow' : ''}"><div class="card-head"><div><h3>${esc(title)} ${help}</h3>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
+      <div class="row">${opts.extra || ''}${opts.html != null ? '' : `<button class="btn sm ghost" type="button" data-png="${id}" aria-label="Download ${esc(title)} as PNG">PNG</button>`}</div></div>
+      ${body}${opts.ev ? `<div id="ev-${id}"></div>` : ''}</div>`;
   }
+  function evidence(id, items) { const el = document.getElementById('ev-' + id); if (el) el.innerHTML = App.evidenceBox(items); }
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-png]'); if (!b) return;
     const src = document.getElementById(b.dataset.png); if (!src) return;
@@ -95,5 +103,5 @@
       `<td title="${esc(r)} ${dates[j]}: ${v} spots" style="background:${v ? `color-mix(in srgb, ${colorFor(r)} ${20 + 80 * v / mx}%, transparent)` : 'var(--surface-2)'}">${v}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   document.addEventListener('themechange', defaults);
-  App.charts = { colorFor, register, make, box, bar, line, doughnut, heat, calendar, destroyAll, css, PALETTE };
+  App.charts = { colorFor, register, make, box, evidence, bar, line, doughnut, heat, calendar, destroyAll, css, PALETTE };
 })(window.App);

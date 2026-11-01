@@ -52,7 +52,7 @@
     return wrap;
   }
 
-  function init(container, kind, opts, onChange, storeKey) {
+  function init(container, kind, opts, onChange, storeKey, skip = []) {
     const key = storeKey || 'filters:' + kind;
     let state = App.store.get(key, {});
     const fire = App.debounce(() => { App.store.set(key, state); onChange(state); }, 350);
@@ -61,7 +61,7 @@
     const widgets = [];
     for (const f of SCHEMA[kind]) {
       if (f.type === 'multi') {
-        if (!opts[f.key]) continue;
+        if (!opts[f.key] || skip.includes(f.key)) continue;
         const w = multi(f, opts[f.key], state, change); widgets.push(w); grid.appendChild(w);
       } else if (f.type === 'date') {
         const w = document.createElement('div'); w.className = 'field';
@@ -78,6 +78,7 @@
         grid.appendChild(w); widgets.push(w);
       }
     }
+    if (!grid.children.length) grid.innerHTML = '<div class="muted small">No extra filters for this sheet.</div>';
     const sync = () => { $$('[data-k]', grid).forEach((i) => { i.value = state[i.dataset.k] ?? ''; }); widgets.forEach((w) => w.repaint && w.repaint()); };
     grid.addEventListener('input', (e) => {
       const k = e.target.dataset && e.target.dataset.k; if (!k) return;

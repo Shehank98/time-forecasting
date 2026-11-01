@@ -31,7 +31,7 @@
     p.innerHTML = `<div class="stack"><div class="card"><h3>Average TVR: channel by category</h3>${C.heat(d.heat_category, { fmt: (v) => fmt.num(v, 2) })}</div>
       <div class="card"><h3>Average TVR: channel by daypart</h3>${C.heat(d.heat_daypart, { fmt: (v) => fmt.num(v, 2) })}</div>
       <div class="card"><h3>Average TVR: channel by day of week</h3>${C.heat(d.heat_day, { fmt: (v) => fmt.num(v, 2) })}</div>
-      <div class="card"><h3>Average TVR: time-belt by day of week</h3><div class="sub muted small">Use the Forecast studio with "Forecast by: Time-belt" to see which belts are emerging or declining.</div>${C.heat(d.heat_timebelt, { fmt: (v) => fmt.num(v, 2) })}</div></div>`;
+      <div class="card"><h3>Average TVR: time-belt by day of week</h3><div class="sub muted small">The TVR & Audience Forecast tab projects the day and hour pattern forward; the Forecast studio can forecast each time-belt.</div>${C.heat(d.heat_timebelt, { fmt: (v) => fmt.num(v, 2) })}</div></div>`;
   }
   function categories(p, ctx) {
     const d = ctx.data;
@@ -73,5 +73,6 @@
   if (App.forecast) tabs.push({ id: 'forecast', label: 'Forecast studio', alwaysRender: true, render: (p, ctx) => App.forecast.tab(p, ctx) });
   if (App.insights) tabs.push({ id: 'ai', label: 'AI insights', alwaysRender: true, render: (p, ctx) => App.insights.tab(p, ctx) });
   tabs.push({ id: 'rows', label: 'Raw rows', alwaysRender: true, render: (p, ctx) => App.rawRows(p, ctx) });
-  App.workspace({ kind: 'tv', fileLabel: 'TVR programme file', tabs });
+  App.workspace({ kind: 'tv', fileLabel: 'TVR programme file', reportTitle: 'TVR audience prediction', tabs,
+    predict: [App.predictTabs.tvr, App.predictTabs.market], defaultTab: 'p-tvr' });
 })(window.App);

@@ -4,7 +4,7 @@
   const { parseNum, parseDate, parseTime, headerKey, NumCol, DictCol, normaliseChannel, normaliseProgram, daypartFor, durationBand, dedupe, dayFromYMD } = MR;
 
   const MAX_XLSX_MB = 150;
-  class IngestError extends Error {}
+  class IngestError extends Error { constructor(m) { super(m); this.name = 'IngestError'; } }
 
   /* ---------------- streaming CSV ---------------- */
   /** Incremental RFC 4180 parser: push(text) as chunks arrive, end() at the close. Calls onRow(fields). */

@@ -13,7 +13,7 @@
     out: '<path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
   };
   const svg = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${I[k]}</svg>`;
-  const isDark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
+  const isDark = () => (document.documentElement.dataset.theme || 'dark') === 'dark';
 
   function setTheme(t) {
     document.documentElement.dataset.theme = t;
@@ -38,6 +38,51 @@
   function setClient(id) {
     try { localStorage.setItem('client', String(id)); } catch (e) { /* ignore */ }
   }
+
+  /* ---------------- animated loader ---------------- */
+  const loader = {
+    el: null, t0: 0,
+    show(title = 'Initialising', sub = '') {
+      if (!loader.el) {
+        loader.el = document.createElement('div'); loader.el.className = 'loader'; loader.el.setAttribute('role', 'status'); loader.el.setAttribute('aria-live', 'polite');
+        loader.el.innerHTML = `<div><div class="core"><div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div><div class="orb"></div><div class="scan"></div></div>
+          <div class="txt"><span data-t></span><small data-s></small></div><div class="bar indet"><i></i></div></div>`;
+        document.body.appendChild(loader.el);
+        requestAnimationFrame(() => loader.el && loader.el.classList.add('on'));
+        loader.t0 = performance.now();
+      }
+      loader.el.querySelector('[data-t]').textContent = title;
+      loader.el.querySelector('[data-s]').textContent = sub;
+    },
+    progress(p, sub) {
+      if (!loader.el) return;
+      const bar = loader.el.querySelector('.bar');
+      if (p == null) bar.classList.add('indet'); else { bar.classList.remove('indet'); bar.firstElementChild.style.width = Math.round(Math.max(0, Math.min(1, p)) * 100) + '%'; }
+      if (sub != null) loader.el.querySelector('[data-s]').textContent = sub;
+    },
+    async hide(minMs = 650) {
+      if (!loader.el) return;
+      const wait = minMs - (performance.now() - loader.t0);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      const el = loader.el; loader.el = null;
+      el.classList.remove('on'); setTimeout(() => el.remove(), 260);
+    },
+  };
+  App.loader = loader;
+
+  /** "?" icon with a hover/focus explanation: how the chart predicts and what the planner gets from it. */
+  App.help = function (how, get, opts = {}) {
+    const esc2 = App.esc;
+    return `<span class="help ${opts.left ? 'left' : ''}" tabindex="0" role="button" aria-label="How to read this chart"><span aria-hidden="true">?</span><span class="tip" role="tooltip">
+      <b>${esc2(opts.howLabel || 'How it predicts')}</b><p>${esc2(how)}</p><b>What you get</b><p>${esc2(get)}</p></span></span>`;
+  };
+  /** Planner's Evidence box: plain-language findings and recommendations under a chart. */
+  App.evidenceBox = function (items, title = "Planner's Evidence") {
+    const list = (items || []).filter(Boolean);
+    if (!list.length) return '';
+    return `<div class="evidence-box"><div class="ev-head"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${App.esc(title)}</div>
+      <ul>${list.map((x) => (typeof x === 'string' ? `<li>${App.esc(x)}</li>` : `<li class="${x.rec ? 'rec' : ''}">${x.rec ? '&#9656; ' : ''}${App.esc(x.text)}</li>`)).join('')}</ul></div>`;
+  };
 
   App.shell = {
     me: null,
@@ -65,9 +110,9 @@
         </div>
         <nav class="nav" aria-label="Workspaces">
           <div class="nav-label">Workspaces</div>
-          ${link('/', 'home', 'home', 'Client overview')}
-          ${link('/tv.html', 'tv', 'tv', 'TV Programme Analysis')}
-          ${link('/lmrb.html', 'lmrb', 'chart', 'LMRB Ad Monitoring')}
+          ${link('/', 'home', 'home', 'Mission control')}
+          ${link('/tv.html', 'tv', 'tv', 'TVR Audience Prediction')}
+          ${link('/lmrb.html', 'lmrb', 'chart', 'Market Prediction')}
           ${link('/kpi.html', 'kpi', 'kpi', 'Client KPI Forecast')}
           ${me.user.is_admin ? `<div class="nav-label">Agency</div>${link('/admin.html', 'admin', 'admin', 'Admin')}` : ''}
         </nav>
@@ -78,7 +123,7 @@
           <button id="signout-btn" type="button" title="${esc(me.user.email)}">${svg('out')}<span class="txt">Sign out <span class="small" style="opacity:.6">${esc(me.user.email)}</span></span></button>
         </div>`;
       const sel = document.getElementById('client-sel');
-      if (sel) sel.onchange = () => { setClient(sel.value); location.reload(); };
+      if (sel) sel.onchange = () => { setClient(sel.value); App.loader.show('Switching client', 'Loading this client\'s data from your browser'); location.reload(); };
       try { if (localStorage.getItem('side') === '1') document.body.classList.add('side-collapsed'); } catch (e) { /* ignore */ }
       document.getElementById('theme-btn').onclick = () => setTheme(isDark() ? 'light' : 'dark');
       document.getElementById('collapse-btn').onclick = () => {
@@ -95,7 +140,6 @@
       };
       if (cur) document.documentElement.style.setProperty('--client', cur.brand_color);
       paintThemeBtn(); pollModel();
-      matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (!document.documentElement.dataset.theme) { paintThemeBtn(); document.dispatchEvent(new Event('themechange')); } });
       return me;
     },
     refreshModel: pollModel,
