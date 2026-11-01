@@ -252,6 +252,35 @@
     C.evidence('pt-cold', ev, 'Estimate');
   }
 
+
+  /* ---------------- stealth anomaly detector (shared by the Alerts tab and the Rivals shortlist) ---------------- */
+  const stealthCache = new Map();
+  function stealthRun(ctx, onProgress) {
+    const filters = ctx.filtersFor('lmrb'), persp = ctx.persp(), opts = { product_group: App.store.get('mk-group:' + App.clientId(), '') || null, my_brand: persp.my_brand || null };
+    const ev = readEvents(), key = 'st|' + ctx.status.lmrb.sig + JSON.stringify([filters, opts, ev]);
+    if (stealthCache.has(key)) return stealthCache.get(key);
+    const job = (async () => {
+      const pay = await App.data.predictStealth({ filters, options: opts });
+      if (!pay.daily.length) return { items: [], ctx: pay.ctx, notes: pay.notes };
+      const res = await App.runJob('/api/forecast/run', { kind: 'lmrb', series: pay.daily, params: { granularity: 'daily', horizon_days: 14, holdout: 14, covariates: true, entity_type: 'prediction', metric: 'prediction', major_events: ev } }, onProgress || (() => {}));
+      if (!res.ok) throw new Error(res.message || 'The anomaly check could not run.');
+      return { items: MR.stealthAlerts(res.results, pay.ctx), ctx: pay.ctx, notes: pay.notes };
+    })();
+    stealthCache.set(key, job); job.catch(() => stealthCache.delete(key));
+    if (stealthCache.size > 6) stealthCache.delete(stealthCache.keys().next().value);
+    return job;
+  }
+  /** One alert as an HTML card with the root-cause numbers folded underneath. */
+  function stealthCard(a) {
+    const sev = { high: 'bad', medium: 'warn', low: 'info' }[a.severity];
+    const mt = a.metrics.map((m) => `<h4>${esc(m.name)}: ${m.run} days in a row above the expected range</h4><table class="dt-table"><thead><tr><th>Day</th><th>Actual</th><th>Expected ceiling (P90)</th></tr></thead><tbody>${m.days.map((d, i) => `<tr><td>${esc(d)}</td><td>${fmt.num(m.actual[i], m.unit === 'spend' ? 0 : 1)}</td><td>${fmt.num(m.p90[i], m.unit === 'spend' ? 0 : 1)}</td></tr>`).join('')}</tbody></table>`).join('');
+    const drv = a.root ? ['by_channel', 'by_daypart', 'by_theme'].map((k) => `<li>${esc(k.replace('by_', ''))}: ${a.root[k].map((x) => `${esc(fmt.title(x.name))} (${x.delta >= 0 ? '+' : ''}${fmt.num(x.delta, 0)})`).join(', ') || 'no change'}</li>`).join('') : '';
+    return `<div class="alert ${a.severity}"><div><span class="badge ${sev}">${a.severity}</span></div><div><div>${esc(a.text)}</div>
+      ${a.cause.length ? `<div class="small muted" style="margin-top:4px">${a.cause.map(esc).join(' ')}</div>` : ''}
+      <details class="evidence"><summary>Root-cause metrics</summary>${mt}${a.root ? `<h4>What changed (last 14 days against the 14 before)</h4><ul>${drv}<li>Spots: ${fmt.num(a.root.spots_last)} against ${fmt.num(a.root.spots_prev)}</li>${a.root.clutter_last != null ? `<li>Ads per break: ${fmt.num(a.root.clutter_last, 1)} against ${a.root.clutter_prev != null ? fmt.num(a.root.clutter_prev, 1) : 'n/a'}</li>` : ''}</ul>` : ''}${a.new_themes.length ? `<h4>New themes</h4><ul>${a.new_themes.map((t) => `<li>${esc(t.theme)}, first seen ${esc(t.first_seen)}</li>`).join('')}</ul>` : ''}</details></div></div>`;
+  }
+  App.stealth = { run: stealthRun, card: stealthCard };
+
   /* ================================================================ TVR & Audience */
   async function tvrTab(p, ctx) {
     if (!ctx.has('tv')) return needData(p, 'TVR sheet');
@@ -887,7 +916,7 @@
       const optimal = zone ? zone.points.filter((q) => q.optimal && q.cprp != null).sort((a, b) => a.cprp - b.cprp) : [];
       const chm = shareRows(group(R, 'chan_mix'), H, NOW);
       const quiet = chm.slice().sort((a, b) => a.chg - b.chg)[0];
-      shortlist($('#sl-mk', p), [
+      const mkCards = [
         { title: 'Rivals to watch', sub: `Expected spend, next ${SPAN}`, rows: rivals.slice().sort((a, b) => b.next - a.next).slice(0, 4).map((x) => ({ label: short(x.name, 26), value: `${fmt.lkrc(x.next)}  ${signed(pct(x.next, x.prev), 0)}`, tone: pct(x.next, x.prev) > 10 ? 'down' : '',
             detail: { title: x.name, sub: 'Competitor spend', rows: [['Previous', fmt.lkrc(x.prev)], ['Forecast', fmt.lkrc(x.next)], ['Low case', fmt.lkrc(x.lo)], ['High case', fmt.lkrc(x.hi)], ['Change', signed(pct(x.next, x.prev), 0)]] } })),
           todo: rivals.length ? 'Defend share against the biggest riser.' : '' },
@@ -897,7 +926,12 @@
         { title: 'Best value to buy', sub: 'Cheapest rating points', rows: optimal.slice(0, 3).map((q) => ({ label: short(q.name, 28), value: fmt.lkrc(q.cprp),
             detail: { title: q.name, sub: 'Optimal buying zone slot', rows: [['Rating', f2(q.x)], ['Cost per spot', fmt.lkrc(q.y)], ['Cost per rating point', fmt.lkrc(q.cprp)], ['Ads per break', finite(q.clutter) ? fmt.num(q.clutter, 1) : 'n/a']] } }))
           .concat(quiet ? [{ label: `Quietest: ${fmt.title(quiet.name)}`, value: `${quiet.chg >= 0 ? '+' : ''}${quiet.chg.toFixed(1)} pts`, detail: { title: fmt.title(quiet.name), sub: 'Channel share of competitor spend', rows: [['Now', fmt.num(quiet.now, 1) + '%'], ['Forecast', fmt.num(quiet.next, 1) + '%']] } }] : []),
-          todo: zone && zone.best ? `Shift weight to ${short(zone.best.name, 30)}.` : 'Load the TVR sheet to rate slots.' }]);
+          todo: zone && zone.best ? `Shift weight to ${short(zone.best.name, 30)}.` : 'Load the TVR sheet to rate slots.' }];
+      shortlist($('#sl-mk', p), mkCards);
+      // stealth check runs in the background and puts any sudden rival activity at the top of the first card
+      stealthRun(ctx).then((st) => { if (!p.isConnected || !st.items.length) return; const rows = st.items.slice(0, 3).map((a) => ({ label: `Alert: ${short(a.advertiser, 20)}`, value: a.kind === 'band' ? `${a.metrics[0].run} days above range` : 'new theme', tone: 'down',
+        detail: { title: a.advertiser, sub: 'Stealth anomaly (last 14 days)', rows: [['Severity', a.severity]].concat(a.metrics.map((m) => [m.name, `${m.run} days over the ceiling`])), extra: `<div class="small">${esc(a.text)} ${a.cause.map(esc).join(' ')}</div>` } }));
+        mkCards[0].rows = rows.concat(mkCards[0].rows).slice(0, 5); mkCards[0].todo = `Check the alerts for ${short(st.items[0].advertiser, 22)}.`; shortlist($('#sl-mk', p), mkCards); }).catch(() => {});
     }
 
     // 9. Competitor War-Room (LMRB sheet only)

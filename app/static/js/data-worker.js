@@ -271,6 +271,11 @@ const OPS = {
     const T = table('tv'), idx = MR.applyFilters(T, 'tv', filters || {});
     return MR.tvrPayload(T, idx, mode);
   },
+  predictStealth({ filters, options }) {
+    table('lmrb');
+    const L = tables.lmrb, idx = MR.applyFilters(L, 'lmrb', filters || {});
+    return MR.stealthPayload(L, idx, options || {});
+  },
   coldStart({ filters, request }) {
     const T = table('tv');
     return MR.coldStart(T, { ...request, filters: filters || {} });

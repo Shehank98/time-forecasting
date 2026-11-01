@@ -11,6 +11,7 @@
   const sum = (a) => { let s = 0; for (const v of a) if (finite(v)) s += v; return s; };
 
   function hasValues(T, col, idx) { const C = T.cols[col]; if (!C) return false; for (let k = 0; k < idx.length; k++) if (Number.isFinite(C[idx[k]])) return true; return false; }
+  const pct = (a, b) => (finite(a) && finite(b) && b !== 0 ? ((a - b) / Math.abs(b)) * 100 : null);
   const items = (res, group) => res.series.map((s) => MR.payloadItem(s, group));
 
   /* ---------------- TVR & Audience ---------------- */
@@ -317,6 +318,78 @@
       weeks, verdict: { p50: avg('p50'), p10: avg('p10'), p90: avg('p90'), biggest_loser: rivals[0] && rivals[0].stealable > 0 ? rivals[0].channel : null, loser_share: rivals[0] ? rivals[0].stealable : 0 } };
   }
 
+
+  /* ---------------- stealth anomaly detector ---------------- */
+  /**
+   * Daily spend, ads in the programme and break length for the top advertisers, to be forecast from history that stops 14 days short
+   * so the last 14 recorded days can be judged against the expected P10 to P90 band. Also returns root-cause numbers (what changed in
+   * those 14 days against the 14 before) and any Advt_Theme that first appeared in the last 14 days.
+   */
+  function stealthPayload(L, idx, opt = {}) {
+    const daily = [], notes = [], ctx = { window: 14 };
+    if (!idx.length) return { daily, weekly: [], notes: ['No LMRB rows match the current filters.'], ctx, gran: 'daily' };
+    const [lo, hi] = MR.minMax(L.cols.date, idx), cost = (i) => L.cols.cost[i];
+    ctx.date_min = isoFromDay(lo); ctx.date_max = isoFromDay(hi);
+    const groups = topBy(L, idx, (i) => S(L, 'product_group', i), cost, 200);
+    let group = opt.product_group && groups.includes(opt.product_group) ? opt.product_group : null;
+    if (!group && opt.my_brand) group = topBy(L, MR.where(L, idx, (i) => S(L, 'advertiser', i) === opt.my_brand), (i) => S(L, 'product_group', i), cost, 1)[0] || null;
+    group = group || groups[0]; ctx.product_group = group;
+    const gCode = L.dicts.product_group.indexOf(group), gIdx = MR.where(L, idx, (i) => L.cols.product_group[i] === gCode);
+    const recent90 = MR.where(L, gIdx, (i) => L.cols.date[i] > hi - 90);
+    const advs = topBy(L, recent90.length ? recent90 : gIdx, (i) => S(L, 'advertiser', i), cost, 8); ctx.advertisers = advs;
+    ctx.my_brand = opt.my_brand && advs.includes(opt.my_brand) ? opt.my_brand : null;
+    const run = (g, metric) => { const r = MR.buildSeries(L, gIdx, 'lmrb', 'advertiser', metric, 'daily', { entities: advs, historyDays: 540 }); daily.push(...items(r, g)); };
+    run('stealth_spend', 'spend'); run('stealth_totads', 'totads'); if (L.cols.adsinbrk.some((v) => v >= 0)) run('stealth_clutter', 'clutter');
+    // root causes: the last 14 days against the 14 before
+    const a0 = hi - 13, p0 = hi - 27, want = new Set(advs), root = {}, firstSeen = new Map();
+    for (let k = 0; k < gIdx.length; k++) { const i = gIdx[k], a = S(L, 'advertiser', i); if (!want.has(a)) continue; const key = a + '\u0001' + S(L, 'theme', i), d = L.cols.date[i]; if (!firstSeen.has(key) || d < firstSeen.get(key)) firstSeen.set(key, d); }
+    const advFirst = new Map(); for (const [key, d] of firstSeen) { const a = key.split('\u0001')[0]; if (!advFirst.has(a) || d < advFirst.get(a)) advFirst.set(a, d); }
+    const sumBy = (rows, keyFn) => { const m = new Map(); rows.forEach((i) => m.set(keyFn(i), (m.get(keyFn(i)) || 0) + cost(i))); return m; };
+    for (const a of advs) {
+      const rows = MR.where(L, gIdx, (i) => S(L, 'advertiser', i) === a && L.cols.date[i] >= p0);
+      const cur = rows.filter((i) => L.cols.date[i] >= a0), prev = rows.filter((i) => L.cols.date[i] < a0);
+      const tot = (r) => r.reduce((s2, i) => s2 + cost(i), 0), driver = (fn) => { const c = sumBy(cur, fn), p = sumBy(prev, fn); return [...new Set([...c.keys(), ...p.keys()])].map((k) => ({ name: k, last: c.get(k) || 0, prev: p.get(k) || 0, delta: (c.get(k) || 0) - (p.get(k) || 0) })).sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta)).slice(0, 3); };
+      const avgOf = (r, col) => { const v = r.map((i) => L.cols[col][i]).filter((x) => x >= 0); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null; };
+      const newThemes = []; for (const [key, d] of firstSeen) { const [adv, th] = key.split('\u0001'); if (adv === a && d >= a0 && advFirst.get(a) < a0 && !MR.isSponsorTheme(th)) newThemes.push({ theme: th, first_seen: isoFromDay(d) }); }
+      root[a] = { spend_last: tot(cur), spend_prev: tot(prev), spots_last: cur.length, spots_prev: prev.length, clutter_last: avgOf(cur, 'adsinbrk'), clutter_prev: avgOf(prev, 'adsinbrk'), totads_last: avgOf(cur, 'totads'), totads_prev: avgOf(prev, 'totads'),
+        by_channel: driver((i) => S(L, 'channel', i)), by_daypart: driver((i) => S(L, 'daypart', i)), by_theme: driver((i) => S(L, 'theme', i)), new_themes: newThemes };
+    }
+    ctx.root = root;
+    return { daily, weekly: [], notes, ctx, gran: 'daily' };
+  }
+  /** Turns the forecast results of a stealth run into structured alerts. A metric alerts when it is above the expected P90 on 2 or more days in a row. */
+  function stealthAlerts(results, ctx, minRun = 2) {
+    const NAMES = { stealth_spend: ['Daily spend', 'spend'], stealth_totads: ['Ads in programme (TotAds)', 'count'], stealth_clutter: ['Ads in break (AdsinBrk)', 'count'] };
+    const byAdv = new Map();
+    const dayDiff = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+    for (const r of results) {
+      const nm = NAMES[r.group]; if (!nm || !r.band_breaches) continue;
+      const up = r.band_breaches.filter((x) => x.direction === 'above').sort((x, y) => (x.date < y.date ? -1 : 1));
+      let best = [], cur = [];
+      for (const b of up) { if (cur.length && dayDiff(cur[cur.length - 1].date, b.date) === 1) cur.push(b); else cur = [b]; if (cur.length > best.length) best = cur.slice(); }
+      if (best.length < minRun) continue;
+      const gaps = best.map((x) => x.gap_pct).filter(finite), gap = gaps.length ? mean(gaps) : null;
+      if (gap != null && gap < (nm[1] === 'spend' ? 10 : 15)) continue;      // a few percent over the ceiling is noise
+      const e = byAdv.get(r.entity) || { advertiser: r.entity, metrics: [] };
+      e.metrics.push({ key: r.group, name: nm[0], unit: nm[1], days: best.map((x) => x.date), actual: best.map((x) => x.actual), p90: best.map((x) => x.p90), p10: best.map((x) => x.p10), gap_pct: gap, run: best.length }); byAdv.set(r.entity, e);
+    }
+    const out = [], advs = new Set([...byAdv.keys(), ...Object.keys((ctx && ctx.root) || {}).filter((a) => ((ctx.root[a] || {}).new_themes || []).length)]);
+    for (const a of advs) {
+      const e = byAdv.get(a) || { advertiser: a, metrics: [] }, root = (ctx && ctx.root && ctx.root[a]) || null, nt = root ? root.new_themes : [];
+      const worst = e.metrics.reduce((m, x) => Math.max(m, x.gap_pct || 0, x.run * 10), 0);
+      const sev = e.metrics.length && (worst >= 50 || e.metrics.some((x) => x.run >= 4)) ? 'high' : e.metrics.length ? 'medium' : 'low';
+      const cause = [];
+      if (root && root.spend_prev > 0) { const ch = pct(root.spend_last, root.spend_prev); cause.push(`Spend ${ch >= 0 ? 'up' : 'down'} ${Math.abs(ch).toFixed(0)}% in the last 14 days (${Math.round(root.spend_last).toLocaleString('en-US')} against ${Math.round(root.spend_prev).toLocaleString('en-US')}).`); }
+      if (root) { const d = (arr, nm) => (arr[0] && arr[0].delta !== 0 ? `${nm} ${arr[0].name} (${arr[0].delta > 0 ? '+' : ''}${Math.round(arr[0].delta).toLocaleString('en-US')})` : null); const dr = [d(root.by_channel, 'channel'), d(root.by_daypart, 'daypart'), d(root.by_theme, 'theme')].filter(Boolean); if (dr.length) cause.push(`Biggest changes: ${dr.join(', ')}.`); }
+      const text = e.metrics.length
+        ? `${a}: ${e.metrics.map((m) => `${m.name.toLowerCase()} above the expected range for ${m.run} days in a row (${m.days[0]} to ${m.days[m.days.length - 1]}${m.gap_pct != null ? `, ${m.gap_pct.toFixed(0)}% over the ceiling` : ''})`).join('; ')}.${nt.length ? ` New theme: ${nt.map((x) => x.theme).join(', ')}.` : ''}`
+        : `${a} introduced a new theme in the last 14 days: ${nt.map((x) => `${x.theme} (first seen ${x.first_seen})`).join(', ')}.`;
+      out.push({ advertiser: a, severity: sev, kind: e.metrics.length ? 'band' : 'new_theme', text, metrics: e.metrics, new_themes: nt, root, cause });
+    }
+    const rank = { high: 0, medium: 1, low: 2 };
+    return out.sort((x, y) => rank[x.severity] - rank[y.severity] || y.metrics.length - x.metrics.length);
+  }
+
   /* ---------------- helpers for results ---------------- */
   /** First H points of a forecast (daily H, or the matching number of weekly points). */
   function sliceForecast(r, horizonDays) {
@@ -385,5 +458,5 @@
     };
   }
 
-  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, seasonalBursts, radarProb, themeLifecycle, coldStart, sliceForecast, bursts, dowHourMatrix, monthHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
+  Object.assign(MR, { HORIZON_MAX, tvrPayload, marketPayload, seasonalBursts, radarProb, themeLifecycle, coldStart, stealthPayload, stealthAlerts, sliceForecast, bursts, dowHourMatrix, monthHourMatrix, recentMean, buyingZone, globalOptions, pmean: mean, psum: sum, pmedian: median });
 })(typeof self !== 'undefined' ? self : globalThis);

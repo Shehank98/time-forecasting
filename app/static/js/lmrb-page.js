@@ -209,9 +209,17 @@
   /* ---------------- Alerts ---------------- */
   function alerts(p, ctx) {
     const a = ctx.data.alerts;
-    p.innerHTML = `${(a.notes || []).map((n) => `<div class="banner"><span>${esc(n)}</span></div>`).join('')}
+    p.innerHTML = `<div class="card" id="stealth-card" style="margin-bottom:16px"><div class="card-head"><div><h3>Stealth anomaly detector</h3><div class="sub">Spend, ads in the programme and break length of the top rivals over the last 14 recorded days, against the range the forecast engine expected. Two or more days in a row above the ceiling, or a new theme, raises an alert.</div></div><button class="btn sm" type="button" id="stealth-run">Re-check</button></div><div id="stealth-out"></div></div>
+      ${(a.notes || []).map((n) => `<div class="banner"><span>${esc(n)}</span></div>`).join('')}
       <div class="muted small" style="margin-bottom:10px">${a.window ? `Latest 7 days ${a.window.cur[0]} to ${a.window.cur[1]} compared with ${a.window.prev[0]} to ${a.window.prev[1]}.` : ''}</div>
       <div class="stack">${a.items.map(alertHtml).join('') || App.emptyState('No competitor movement detected', 'Rules need at least a week of history and a 30% change.')}</div>`;
+    const out = p.querySelector('#stealth-out');
+    const run = () => {
+      out.innerHTML = '<div class="muted small">Checking the last 14 days against the expected range...</div>';
+      App.stealth.run(ctx).then((st) => { if (!out.isConnected) return; out.innerHTML = st.items.length ? `<div class="stack">${st.items.map(App.stealth.card).join('')}</div>` : App.emptyState('Nothing unusual', 'No rival went above its expected range for 2 days in a row and no new theme appeared in the last 14 days.'); })
+        .catch((e) => { if (out.isConnected) out.innerHTML = App.emptyState('The check could not run', e.message); });
+    };
+    p.querySelector('#stealth-run').onclick = () => run(); run();
   }
 
   /* ---------------- Head to head ---------------- */

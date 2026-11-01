@@ -27,6 +27,7 @@
     }
     // browser-only extras used by the Market Prediction tab
     m.clutter = M('clutter', 'Average ads in break', 'mean', { col: 'adsinbrk', zero_fill: false });
+    m.totads = M('totads', 'Average total ads in the programme', 'mean', { col: 'totads', zero_fill: false });
     m.posinbrk = M('posinbrk', 'Average position in break', 'mean', { col: 'posinbrk', zero_fill: false });
     m.cost_per_spot = M('cost_per_spot', 'Average cost per spot (LKR)', 'mean', { col: 'cost', zero_fill: false, unit: 'currency' });
     return m;
