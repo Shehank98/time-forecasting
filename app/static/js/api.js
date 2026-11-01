@@ -21,7 +21,8 @@ window.App = window.App || {};
       const cls = v > 0.05 ? 'up' : v < -0.05 ? 'down' : '';
       return `<span class="delta ${cls}">${v > 0 ? '+' : ''}${Number(v).toFixed(1)}%</span>`;
     },
-    title: (s) => String(s ?? '').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()),
+    // Title Case, but short all-capital words such as TV and ITN stay as they are
+    title: (s) => String(s ?? '').replace(/[A-Za-z0-9][A-Za-z0-9']*/g, (w) => (w.length <= 3 && w === w.toUpperCase() ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())),
   };
   function toast(msg, type = 'info', ms = 5000) {
     let box = document.querySelector('.toasts');

@@ -400,7 +400,7 @@
     // 2. clutter combo
     if (clutRows.length) {
       const rows = clutRows.slice().sort((a, b) => b.next - a.next);
-      C.make('pm-clutter', { data: { labels: rows.map((x) => short(x.name, 26)), datasets: [
+      C.make('pm-clutter', { data: { labels: rows.map((x) => `${short(x.name, 24)} (${fmt.num(x.next, 1)})`), datasets: [
         { type: 'bar', label: 'Forecast ads in break', data: rows.map((x) => x.next), backgroundColor: rows.map((x) => (x.rising ? (C.css('--bad') || '#ff5d7a') + 'cc' : C.PALETTE[0] + 'aa')), borderRadius: 5, maxBarThickness: 26, yAxisID: 'y' },
         { type: 'bar', label: w('Last 4 weeks'), data: rows.map((x) => x.hist), backgroundColor: 'rgba(142,154,200,.28)', borderRadius: 5, maxBarThickness: 26, yAxisID: 'y' },
         { type: 'line', label: 'Average position in break', data: rows.map((x) => x.pos), borderColor: C.PALETTE[2], backgroundColor: C.PALETTE[2], pointRadius: 4, tension: 0.3, yAxisID: 'y2' }] },
@@ -421,7 +421,7 @@
       const cl = zone.points.map((q) => q.clutter).filter(finite), cmin = Math.min(...cl, 0), cmax = Math.max(...cl, 1);
       const rad = (v) => (finite(v) ? 6 + 16 * ((v - cmin) / (cmax - cmin || 1)) : 8);
       C.make('pm-bubble', { type: 'bubble', data: { datasets: chans.map((ch) => ({ label: fmt.title(ch), data: zone.points.filter((q) => q.channel === ch).map((q) => ({ x: q.x, y: q.y, r: rad(q.clutter), q })),
-        backgroundColor: C.colorFor('ch:' + ch) + '99', borderColor: C.colorFor('ch:' + ch), borderWidth: 1.5 })) }, plugins: [zonePlugin],
+        backgroundColor: C.PALETTE[chans.indexOf(ch) % C.PALETTE.length] + '99', borderColor: C.PALETTE[chans.indexOf(ch) % C.PALETTE.length], borderWidth: 1.5 })) }, plugins: [zonePlugin],
         options: { plugins: { zone: { x: zone.x_median, y: zone.y_median }, legend: { position: 'bottom' }, tooltip: { callbacks: { label: (c) => { const q = c.raw.q; return [short(q.name, 60), `Rating ${f2(q.x)}, cost ${fmt.lkrc(q.y)} per spot`, `CPRP ${fmt.lkrc(q.cprp)}, clutter ${finite(q.clutter) ? fmt.num(q.clutter, 1) : 'n/a'} ads/break${q.optimal ? ', optimal zone' : ''}`]; } } } },
           scales: { x: { title: { display: true, text: 'Forecast spot rating (TVR)' } }, y: { title: { display: true, text: 'Forecast cost per spot (LKR)' }, ticks: { callback: (v) => fmt.compact(v) } } } } });
       const opt = zone.points.filter((q) => q.optimal && q.cprp != null).sort((a, b) => a.cprp - b.cprp);
