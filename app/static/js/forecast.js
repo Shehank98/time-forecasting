@@ -26,7 +26,7 @@
     opts.lines.forEach((l) => { const px = x.getPixelForValue(l.index); if (px >= ar.left && px <= ar.right) { ctx.beginPath(); ctx.moveTo(px, ar.top); ctx.lineTo(px, ar.bottom); ctx.stroke(); } }); ctx.restore(); } };
 
   /* Chart view state, kept while the page is open. Big histories open on a recent window so the forecast stays readable. */
-  const VIEW = { range: null, weekly: false, smooth: true, band: true, backtest: false, alerts: true };
+  const VIEW = { range: null, weekly: false, smooth: true, band: true, backtest: true, alerts: true };
   const RANGES = { daily: [['3m', '3 months', 91], ['6m', '6 months', 182], ['1y', '1 year', 365], ['all', 'All', Infinity]],
     weekly: [['6m', '6 months', 26], ['1y', '1 year', 52], ['2y', '2 years', 104], ['all', 'All', Infinity]],
     monthly: [['1y', '1 year', 12], ['2y', '2 years', 24], ['3y', '3 years', 36], ['all', 'All', Infinity]] };
@@ -71,46 +71,102 @@
     return { gran, weekly, add, key, start, hd: hd.slice(start), hv: hv.slice(start), allHd: hd, allHv: hv, fd, f10, f50, f90, partialNote };
   }
 
+  const alphaC = (c, a) => (/^#[0-9a-f]{6}$/i.test(c) ? c + Math.round(a * 255).toString(16).padStart(2, '0') : /^hsl\(/.test(c) ? c.replace(')', ` / ${a})`) : c);
+  /** HTML legend under the chart: plain words and clear swatches instead of the default circles. */
+  function legendHtml(items) {
+    return `<div class="fc-legend">${items.map((x) => `<span class="fc-lg"><i class="fc-sw ${x.kind}" style="--sw:${x.color}"></i>${esc(x.label)}</span>`).join('')}</div>`;
+  }
+  /**
+   * Main chart. Daily view: each day is a soft bar (grey recorded, blue forecast) with a bold trend line (7-day average)
+   * that runs solid through history and dashed through the forecast, so both halves read the same way.
+   * Weekly or monthly: solid actual line with points, dashed forecast line with points.
+   * The likely range (low to high case) is drawn only over the forecast.
+   */
   function drawChart(id, r) {
-    const v = shape(r), nh = v.hd.length, labels = v.hd.concat(v.fd);
-    const pad = (arr) => Array(nh - 1).fill(null).concat([v.hv[nh - 1]], arr);
-    const col = C.PALETTE[0], txt = C.css('--text') || '#222', vf = unitFmt(r.unit), daily = v.gran === 'daily';
-    const smooth = daily && VIEW.smooth && nh > 21;
-    const ds = [];
+    const v = shape(r), nh = v.hd.length, nf = v.fd.length, labels = v.hd.concat(v.fd);
+    const col = C.PALETTE[0], txt = C.css('--text') || '#222', mut = C.css('--muted') || '#8a93b8', vf = unitFmt(r.unit), daily = v.gran === 'daily';
+    const trend = daily && VIEW.smooth && nh > 14;
+    const nulls = (n) => Array(n).fill(null);
+    const ds = [], legend = [];
+    // likely range: smoothed for daily trend view so it reads as a band, not a jagged blob
     if (VIEW.band) {
-      ds.push({ label: 'High case', data: pad(v.f90), borderColor: 'transparent', backgroundColor: col + '30', fill: '+1', pointRadius: 0, order: 5 });
-      ds.push({ label: 'Low case', data: pad(v.f10), borderColor: 'transparent', backgroundColor: col + '30', fill: false, pointRadius: 0, order: 5 });
+      const all10 = v.hv.concat(v.f10), all90 = v.hv.concat(v.f90);
+      const lo = trend ? rolling(all10, 7).slice(nh) : v.f10, hi = trend ? rolling(all90, 7).slice(nh) : v.f90;
+      const join = trend ? rolling(v.hv, 7)[nh - 1] : v.hv[nh - 1];
+      ds.push({ type: 'line', label: 'High case', data: nulls(nh - 1).concat([join], hi), borderColor: 'transparent', backgroundColor: alphaC(col, 0.16), fill: '+1', pointRadius: 0, tension: 0.3, order: 6 });
+      ds.push({ type: 'line', label: 'Low case', data: nulls(nh - 1).concat([join], lo), borderColor: alphaC(col, 0.35), borderWidth: 0, backgroundColor: alphaC(col, 0.16), fill: false, pointRadius: 0, tension: 0.3, order: 6 });
+      legend.push({ kind: 'band', color: alphaC(col, 0.3), label: `Likely range (low to high case)${trend ? ', 7-day average' : ''}` });
     }
-    ds.push({ label: 'Most likely forecast', data: pad(v.f50), borderColor: col, borderDash: [6, 4], borderWidth: 2.5, pointRadius: nh + v.fd.length > 120 ? 0 : 2, order: 2 });
-    if (smooth) {
-      ds.push({ label: 'Actual (each day)', data: v.hv.concat(Array(v.fd.length).fill(null)), borderColor: txt + '40', borderWidth: 1, pointRadius: 0, order: 3 });
-      ds.push({ label: 'Actual, 7-day average', data: rolling(v.hv, 7).concat(Array(v.fd.length).fill(null)), borderColor: txt, borderWidth: 2.2, pointRadius: 0, order: 1 });
+    if (trend) {
+      ds.push({ type: 'bar', label: 'Actual (each day)', data: v.hv.concat(nulls(nf)), backgroundColor: alphaC(mut, 0.35), borderWidth: 0, barPercentage: 1, categoryPercentage: 0.9, order: 5 });
+      ds.push({ type: 'bar', label: 'Forecast (each day)', data: nulls(nh).concat(v.f50), backgroundColor: alphaC(col, 0.35), borderWidth: 0, barPercentage: 1, categoryPercentage: 0.9, order: 5 });
+      const tr = rolling(v.hv.concat(v.f50), 7);
+      ds.push({ type: 'line', label: 'Actual trend (7-day average)', data: tr.slice(0, nh).concat(nulls(nf)), borderColor: txt, borderWidth: 3, pointRadius: 0, tension: 0.35, order: 1 });
+      ds.push({ type: 'line', label: 'Forecast trend (7-day average)', data: nulls(nh - 1).concat(tr.slice(nh - 1)), borderColor: col, borderWidth: 3, borderDash: [7, 5], pointRadius: 0, tension: 0.35, order: 1 });
+      legend.unshift({ kind: 'bar', color: alphaC(mut, 0.6), label: 'Actual, each day' }, { kind: 'line', color: txt, label: 'Actual trend (7-day average)' },
+        { kind: 'bar', color: alphaC(col, 0.6), label: 'Forecast, each day' }, { kind: 'dash', color: col, label: 'Forecast trend (7-day average)' });
     } else {
-      ds.push({ label: v.weekly ? 'Actual (weekly total)' : 'Actual', data: v.hv.concat(Array(v.fd.length).fill(null)), borderColor: txt, backgroundColor: txt, borderWidth: 2, pointRadius: nh > 60 ? 0 : 2, order: 1 });
-    }
-    if (VIEW.backtest && r.backtest && !v.weekly) {
-      const arr = Array(labels.length).fill(null);
-      r.backtest.dates.forEach((d, k) => { const i = labels.indexOf(d); if (i >= 0) arr[i] = r.backtest.pred[k]; });
-      ds.push({ label: 'Backtest: what the engine would have said', data: arr, borderColor: C.css('--warn') || '#ffb547', pointRadius: 3, borderDash: [2, 3], order: 0 });
+      const pts = nh + nf > 90 ? 0 : 3;
+      ds.push({ type: 'line', label: v.weekly ? 'Actual (weekly total)' : 'Actual', data: v.hv.concat(nulls(nf)), borderColor: txt, backgroundColor: txt, borderWidth: 2.5, pointRadius: pts, tension: 0.2, order: 1 });
+      ds.push({ type: 'line', label: 'Most likely forecast', data: nulls(nh - 1).concat([v.hv[nh - 1]], v.f50), borderColor: col, backgroundColor: col, borderWidth: 2.5, borderDash: [7, 5], pointRadius: pts, tension: 0.2, order: 1 });
+      legend.unshift({ kind: 'line', color: txt, label: v.weekly ? 'Actual (weekly total)' : 'Actual' }, { kind: 'dash', color: col, label: 'Most likely forecast' });
     }
     if (VIEW.alerts && !v.weekly) {
-      const marks = Array(labels.length).fill(null);
+      const marks = nulls(labels.length);
       r.anomalies.forEach((a) => { const i = labels.indexOf(a.date); if (i >= 0) marks[i] = a.value; });
       (r.band_breaches || []).forEach((b) => { const i = labels.indexOf(b.date); if (i >= 0) marks[i] = b.actual; });
-      if (marks.some((x) => x != null)) ds.push({ label: 'Alert', data: marks, showLine: false, pointStyle: 'triangle', pointRadius: 7, borderColor: C.css('--bad') || 'red', backgroundColor: C.css('--bad') || 'red', order: 0 });
+      if (marks.some((x) => x != null)) { ds.push({ type: 'line', label: 'Alert', data: marks, showLine: false, pointStyle: 'triangle', pointRadius: 7, borderColor: C.css('--bad') || 'red', backgroundColor: C.css('--bad') || 'red', order: 0 });
+        legend.push({ kind: 'tri', color: C.css('--bad') || 'red', label: 'Alert (unusual day)' }); }
     }
     const hide = ['Low case', 'High case'], tf = tickFmt(v.gran);
-    C.make(id, { type: 'line', data: { labels, datasets: ds }, plugins: [cpPlugin, C.nowLine],
+    C.make(id, { type: 'bar', data: { labels, datasets: ds }, plugins: [cpPlugin, C.nowLine],
       options: { interaction: { mode: 'index', intersect: false }, animation: labels.length > 400 ? false : undefined,
-        plugins: { legend: { position: 'bottom', labels: { filter: (i) => !hide.includes(i.text) } }, nowLine: { index: nh - 1 },
+        plugins: { legend: { display: false }, nowLine: { index: nh - 1 },
           cp: { lines: r.change_points.map((c) => ({ index: labels.indexOf(v.weekly ? weekStart(c.date) : c.date) })).filter((l) => l.index >= 0) },
           tooltip: { filter: (i) => !hide.includes(i.dataset.label) && i.parsed.y != null, callbacks: { title: (it) => `${tf(it[0].label)}${v.weekly ? ' (week)' : ''}  ·  ${it[0].dataIndex >= nh ? 'FORECAST' : 'actual'}`,
-            label: (c) => `${c.dataset.label}: ${vf(c.parsed.y)}`, afterBody: (it) => { const k = it[0].dataIndex - nh; return k >= 0 && k < v.fd.length ? [`Range: ${vf(v.f10[k])} to ${vf(v.f90[k])}`] : []; } } } },
+            label: (c) => `${c.dataset.label}: ${vf(c.parsed.y)}`, afterBody: (it) => { const k = it[0].dataIndex - nh; return k >= 0 && k < nf ? [`Likely range: ${vf(v.f10[k])} to ${vf(v.f90[k])}`] : []; } } } },
         scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8, autoSkip: true, maxRotation: 0, callback(val) { return tf(this.getLabelForValue(val)); } } },
-          y: { beginAtZero: v.add, ticks: { maxTicksLimit: 6, callback: (x) => vf(x) } } } } });
+          y: { beginAtZero: v.add, grace: '5%', ticks: { maxTicksLimit: 6, callback: (x) => vf(x) } } } } });
+    const lg = document.getElementById(id + '-legend'); if (lg) lg.innerHTML = legendHtml(legend);
     drawOverview(id + '-ov', r, v);
+    drawBacktest(id + '-bt', r);
     const note = document.getElementById(id + '-note');
     if (note) note.textContent = [v.start > 0 ? `Showing the last ${nh} of ${v.allHd.length} ${v.weekly ? 'weeks' : r.granularity === 'daily' ? 'days' : r.granularity === 'weekly' ? 'weeks' : 'months'} and the forecast. Pick a range to see more.` : '', v.weekly ? 'Weekly ranges combine the daily ranges as if days vary independently, so they are approximate.' : '', v.partialNote].filter(Boolean).join(' ');
+  }
+
+  /**
+   * Backtest check, in its own panel: for the last N periods the engine was asked to forecast without seeing them.
+   * Bars = what really happened, orange line = what the engine predicted, shaded = its range. Tooltip shows the miss.
+   */
+  function drawBacktest(id, r) {
+    const box = document.getElementById(id + '-box'); if (!box) return;
+    const bt = r.backtest;
+    if (!VIEW.backtest || !bt || !bt.dates || !bt.dates.length) { box.hidden = true; return; }
+    box.hidden = false;
+    const vf = unitFmt(r.unit), tf = tickFmt(r.granularity), warn = C.css('--warn') || '#ffb547', mut = C.css('--muted') || '#8a93b8';
+    const act = bt.actual || bt.dates.map((d) => { const i = r.history.dates.indexOf(d); return i >= 0 ? r.history.values[i] : null; });
+    const miss = bt.dates.map((d, k) => (act[k] != null && bt.pred[k] != null ? bt.pred[k] - act[k] : null));
+    const totA = act.reduce((s, x) => s + (x || 0), 0), totP = bt.pred.reduce((s, x) => s + (x || 0), 0);
+    const inBand = bt.p10 ? bt.dates.filter((d, k) => act[k] != null && act[k] >= bt.p10[k] && act[k] <= bt.p90[k]).length : null;
+    const head = box.querySelector('.fc-bt-head');
+    if (head) head.innerHTML = `<b>Backtest check</b>: the engine forecast the last ${bt.dates.length} ${r.granularity === 'daily' ? 'days' : r.granularity === 'weekly' ? 'weeks' : 'months'} without seeing them.
+      <span class="fc-bt-kpis"><span>Accuracy <b>${bt.accuracy == null ? 'n/a' : fmt.num(bt.accuracy, 0) + '%'}</b></span><span>Total predicted <b>${vf(totP)}</b> vs actual <b>${vf(totA)}</b> (${totA ? (totP >= totA ? '+' : '') + fmt.num((totP / totA - 1) * 100, 0) + '%' : 'n/a'})</span>${inBand != null ? `<span>Inside the likely range <b>${inBand} of ${bt.dates.length}</b></span>` : ''}</span>`;
+    const ds = [];
+    if (bt.p10 && bt.p90) {
+      ds.push({ type: 'line', label: 'High case', data: bt.p90, borderColor: 'transparent', backgroundColor: alphaC(warn, 0.15), fill: '+1', pointRadius: 0, order: 5 });
+      ds.push({ type: 'line', label: 'Low case', data: bt.p10, borderColor: 'transparent', backgroundColor: alphaC(warn, 0.15), fill: false, pointRadius: 0, order: 5 });
+    }
+    ds.push({ type: 'bar', label: 'What really happened', data: act, backgroundColor: alphaC(mut, 0.55), borderWidth: 0, barPercentage: 0.8, order: 3 });
+    ds.push({ type: 'line', label: 'What the engine predicted', data: bt.pred, borderColor: warn, backgroundColor: warn, borderWidth: 2.5, pointRadius: bt.dates.length > 40 ? 0 : 3.5, tension: 0.2, order: 1 });
+    const hide = ['Low case', 'High case'];
+    C.make(id, { type: 'bar', data: { labels: bt.dates, datasets: ds },
+      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false },
+        tooltip: { filter: (i) => !hide.includes(i.dataset.label) && i.parsed.y != null, callbacks: { title: (it) => `${tf(it[0].label)}  ·  backtest`, label: (c) => `${c.dataset.label}: ${vf(c.parsed.y)}`,
+          afterBody: (it) => { const k = it[0].dataIndex, m = miss[k]; return m == null ? [] : [`Miss: ${m >= 0 ? '+' : ''}${vf(m)}${act[k] ? ` (${m >= 0 ? '+' : ''}${fmt.num(m / act[k] * 100, 0)}%)` : ''}`]; } } } },
+        scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10, maxRotation: 0, callback(val) { return tf(this.getLabelForValue(val)); } } }, y: { beginAtZero: true, ticks: { maxTicksLimit: 5, callback: (x) => vf(x) } } } },
+      detail: (k) => `<div class="dt-kpis"><div class="dt-k"><span>Actual</span><b>${vf(act[k])}</b></div><div class="dt-k"><span>Predicted</span><b>${vf(bt.pred[k])}</b></div><div class="dt-k"><span>Miss</span><b>${miss[k] == null ? 'n/a' : vf(miss[k])}</b></div>${bt.p10 ? `<div class="dt-k"><span>Likely range</span><b>${vf(bt.p10[k])} to ${vf(bt.p90[k])}</b></div>` : ''}</div>` });
+    const lg = box.querySelector('.fc-legend-host');
+    if (lg) lg.innerHTML = legendHtml([{ kind: 'bar', color: alphaC(mut, 0.8), label: 'What really happened' }, { kind: 'line', color: warn, label: 'What the engine predicted' }].concat(bt.p10 ? [{ kind: 'band', color: alphaC(warn, 0.3), label: 'Its likely range' }] : []));
   }
   /** Small full-history strip under the chart, with the window that is shown above highlighted. */
   function drawOverview(id, r, v) {
@@ -132,12 +188,12 @@
     const chk = (k, l, on, dis) => `<label class="row small" style="gap:4px"><input type="checkbox" data-layer="${k}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}> ${l}</label>`;
     return `<div class="fc-controls">${seg('range', RANGES[gran].map((o) => [o[0], o[1]]), cur)}
       ${daily ? seg('grain', [['day', 'Daily'], ['week', 'Weekly totals']], VIEW.weekly ? 'week' : 'day') : ''}
-      ${daily && !VIEW.weekly ? chk('smooth', '7-day average', VIEW.smooth) : ''}${chk('band', 'Range band', VIEW.band)}${chk('backtest', 'Backtest', VIEW.backtest, !r.backtest || VIEW.weekly)}${chk('alerts', 'Alerts', VIEW.alerts, VIEW.weekly)}</div>`;
+      ${daily && !VIEW.weekly ? chk('smooth', '7-day average', VIEW.smooth) : ''}${chk('band', 'Range band', VIEW.band)}${chk('backtest', 'Backtest check', VIEW.backtest, !r.backtest)}${chk('alerts', 'Alerts', VIEW.alerts, VIEW.weekly)}</div>`;
   }
   function wireChart(box, r) {
     const host = box.querySelector('[data-chart="c-fc"] .ff'); if (!host) return;
     let ctl = host.querySelector('.fc-controls-host');
-    if (!ctl) { const wrap = host.querySelector('.chart-wrap'); wrap.insertAdjacentHTML('beforebegin', '<div class="fc-controls-host"></div>'); wrap.insertAdjacentHTML('afterend', '<div class="chart-wrap overview"><canvas id="c-fc-ov" aria-hidden="true"></canvas></div><div class="muted small" id="c-fc-note" style="margin-top:4px"></div>'); ctl = host.querySelector('.fc-controls-host'); }
+    if (!ctl) { const wrap = host.querySelector('.chart-wrap'); wrap.insertAdjacentHTML('beforebegin', '<div class="fc-controls-host"></div>'); wrap.insertAdjacentHTML('afterend', '<div id="c-fc-legend"></div><div class="chart-wrap overview"><canvas id="c-fc-ov" aria-hidden="true"></canvas></div><div class="muted small" id="c-fc-note" style="margin-top:4px"></div><div class="fc-bt" id="c-fc-bt-box" hidden><div class="fc-bt-head small"></div><div class="chart-wrap fc-bt-wrap"><canvas id="c-fc-bt" aria-label="Backtest check"></canvas></div><div class="fc-legend-host"></div></div>'); ctl = host.querySelector('.fc-controls-host'); }
     const redraw = () => { ctl.innerHTML = chartControls(r); bind(); drawChart('c-fc', r); };
     const bind = () => {
       ctl.querySelectorAll('[data-ctl="range"] button').forEach((b) => { b.onclick = () => { VIEW.range = b.dataset.v; redraw(); }; });
@@ -155,7 +211,7 @@
       <div class="row" style="margin-bottom:12px"><h3>${esc(r.entity)}: ${esc(r.metric_label)}</h3><span class="badge ${relCls[rel.level]}" title="${esc(rel.reasons.join(' '))}">Forecast reliability: ${rel.level}</span>
         <span class="badge info">${r.n_points} ${r.granularity} points</span><span class="badge ${res.backend === 'timesfm' ? 'good' : 'warn'}">${res.backend === 'timesfm' ? 'Forecast engine' : 'Fallback model'}</span></div>
       <ul class="muted small" style="margin:0 0 12px;padding-left:18px">${rel.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}${r.warnings.map((x) => `<li><b>Warning:</b> ${esc(x)}</li>`).join('')}</ul>
-      ${C.box('c-fc', 'Actuals and forecast', 'Solid: actual. Dashed: forecast with its low-to-high range. The strip below shows all history; the highlighted part is what the chart shows.', { tall: true, pill: 'Actual + forecast' })}
+      ${C.box('c-fc', 'Actuals and forecast', 'Grey = recorded, blue = forecast. The bold line is the trend; it turns dashed where the forecast starts. The backtest check below shows how close the engine got on recent days it did not see.', { tall: true, pill: 'Actual + forecast' })}
       <div class="grid g2" style="margin-top:16px">
         <div class="card"><h3>Outlook</h3><div class="stack" style="gap:8px;margin-top:10px">
           <div>Trend: <span class="badge ${o.trend === 'rising' ? 'good' : o.trend === 'falling' ? 'bad' : 'info'}">${esc(o.trend)}</span> ${o.trend_change_pct != null ? fmt.delta(o.trend_change_pct) + ' vs recent' : ''}</div>
