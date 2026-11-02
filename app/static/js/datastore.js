@@ -67,6 +67,7 @@
     predictTvr: (b) => open().then(() => call('predictTvr', b)),
     predictMarket: (b) => open().then(() => call('predictMarket', b)),
     vaultRows: (b) => open().then(() => call('vaultRows', b)),
+    sponsorshipList: (b) => open().then(() => call('sponsorshipList', b)),
     sponsorshipOptions: (b) => open().then(() => call('sponsorshipOptions', b)),
     sponsorshipReport: (b) => open().then(() => call('sponsorshipReport', b)),
     spotlightIndex: (b) => open().then(() => call('spotlightIndex', b)),

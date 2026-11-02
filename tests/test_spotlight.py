@@ -30,19 +30,8 @@ def billboard(t):
 
 
 def expected_roles(sub):
-    sp = sub[sub["sp"]].groupby("Advertiser").agg(spend=("Cost", "sum"), bb=("bb", "sum"))
-    tot = sp["spend"].sum()
-    with_bb = sp[sp["bb"] > 0]
-    title = with_bb["spend"].idxmax() if len(with_bb) and with_bb["spend"].max() >= 0.25 * tot else None
-    out = {}
-    for a in sub["Advertiser"].unique():
-        if a not in sp.index:
-            out[a] = "Regular Spot"
-        elif sp.loc[a, "bb"] > 0:
-            out[a] = "Title Sponsor" if a == title else "Co-Sponsor"
-        else:
-            out[a] = "Logo Placement"
-    return out
+    sponsors = set(sub[sub["sp"]]["Advertiser"])
+    return {a: ("Sponsorship" if a in sponsors else "Regular Spot") for a in sub["Advertiser"].unique()}
 
 
 @pytest.fixture(scope="module")
@@ -95,7 +84,7 @@ def test_programme_spotlight_matches_pandas(sheet):
     assert t["fib_pct"] == pytest.approx((sub["PosinBrk"] == 1).mean() * 100)
     roles = {b["name"]: b["role"] for b in d["brands"]}
     assert roles == expected_roles(sub)
-    assert roles["Lanka Tea Co"] == "Title Sponsor" and roles["Ceylon Biscuits"] == "Logo Placement" and "Co-Sponsor" in roles.values()
+    assert roles["Lanka Tea Co"] == "Sponsorship" and roles["Ceylon Biscuits"] == "Sponsorship" and "Regular Spot" in roles.values()
     f = d["focus"]
     assert f["name"] == "Lanka Tea Co"                      # the title sponsor is focused by default
     fs = sub[sub["Advertiser"] == "Lanka Tea Co"]
@@ -107,7 +96,7 @@ def test_programme_spotlight_matches_pandas(sheet):
     if tl["gran"] == "day":
         assert fin in [tl["labels"][j] for j in tl["peaks"]]
     lead = d["brief"][0]["text"]
-    assert lead.startswith("Lanka Tea Co holds the primary sponsorship for Teledrama Night with a total investment of LKR")
+    assert lead.startswith("Lanka Tea Co has a sponsorship in Teledrama Night with a total investment of LKR")
     assert f"{len(fs):,} spots" in lead and "First-in-Break" in lead and "—" not in " ".join(x["text"] for x in d["brief"])
     # pick another brand and every channel airing the programme
     d2 = node("programme", p, {"program": PROG, "brand": "Nestle Lanka Ltd", "gran": "month"})
@@ -137,8 +126,8 @@ def test_matrix_rows_and_filters(sheet):
     assert sum(r["spots"] for r in d10["rows"]) == len(s10)
     assert all(r["dur_split"]["10s"] == r["spots"] for r in d10["rows"])
     # role tags come from all lengths and filter rows
-    title = node("matrix", p, {"tag": "Title Sponsor"})
-    assert any(r["advertiser"] == "Lanka Tea Co" and r["program"] == PROG for r in title["rows"]) and all(r["role"] == "Title Sponsor" for r in title["rows"])
+    title = node("matrix", p, {"tag": "Sponsorship"})
+    assert any(r["advertiser"] == "Lanka Tea Co" and r["program"] == PROG for r in title["rows"]) and all(r["role"] == "Sponsorship" for r in title["rows"])
     ch = node("matrix", p, {"channel": "SIRASA", "search": "nestle"})
     assert ch["rows"] and all(r["channel"] == "SIRASA" and r["advertiser"] == "Nestle Lanka Ltd" for r in ch["rows"])
 
@@ -191,9 +180,9 @@ def test_report_channel_programme_advertiser(sheet):
                 assert a["sov_spend"] == pytest.approx(x["Cost"].sum() / allp["Cost"].sum() * 100)
                 assert a["role"] == roles[a["advertiser"]], (c["channel"], pr["program"], a["advertiser"], allp[allp.sp].groupby("Advertiser").agg(spend=("Cost", "sum"), bb=("bb", "sum")).to_dict())
     tea = next(pr for c in d["channels"] if c["channel"] == "DERANA" for pr in c["programmes"] if pr["program"] == PROG)
-    assert tea["title_sponsor"] == "Lanka Tea Co"
+    assert "Lanka Tea Co" in tea["sponsors"]
     adv = {a["advertiser"]: a for a in d["advertisers"]}
-    assert set(adv) == set(opts["advertisers"]) and adv["Lanka Tea Co"]["title"] >= 1
+    assert set(adv) == set(opts["advertisers"]) and adv["Lanka Tea Co"]["sponsored"] >= 1
     m = d["monthly"]
     assert m["months"] == ["2026-06", "2026-07"]
     for r in m["rows"]:
@@ -224,7 +213,49 @@ def test_report_pdf_endpoint(sheet):
     assert c.post("/api/spotlight/pdf", json={"report": {"empty": True}}).status_code == 422
     pdf = pytest.importorskip("pypdf").PdfReader(io.BytesIO(r.content))
     text = " ".join(pg.extract_text() for pg in pdf.pages)
-    for s in ("Programme & Sponsorship Report", "2026-06-01 to 2026-07-31", "Channel", "Teledrama Night", "Lanka Tea Co", "Title Sponsor", "Sponsorship highlights",
-              "holds the primary sponsorship", "Month by month", "Advertisers"):
+    for s in ("Programme & Sponsorship Report", "2026-06-01 to 2026-07-31", "Channel", "Teledrama Night", "Lanka Tea Co", "Sponsorship", "Sponsorship highlights",
+              "has a sponsorship in", "Sponsorships and frequency buys", "Month by month", "Advertisers"):
         assert s in text, s
     assert "—" not in text
+
+
+def test_frequency_buys(tmp_path):
+    lm = synth.make_lmrb(days=40, start="2026-06-01", seed=4)
+    base = lm[lm["Channel"] == "SIRASA"].drop_duplicates(subset=["Dd", "Mn", "Yr"]).head(20)
+    # Lanka Tea Co runs the same 5 second tag 12 times a day on Sirasa for 20 days: a frequency buy
+    tag = pd.concat([base.assign(Advertiser="Lanka Tea Co", Product="Island Tea", Advt_Theme="Island Tea Reminder (5)", Dur=5, Cost=9000 + k, AdPos=200 + k, BrkNo=20 + k) for k in range(12)])
+    # same daily count but 30 seconds: not a frequency buy (too long)
+    long_ = pd.concat([base.assign(Advertiser="Ceylon Foods", Product="Spice Pot", Advt_Theme="Spice Pot Long (30)", Dur=30, Cost=30000 + k, AdPos=300 + k, BrkNo=40 + k) for k in range(12)])
+    # 10 second, but only 4 a day: not a frequency buy (too few)
+    few = pd.concat([base.assign(Advertiser="Unilever Sri Lanka", Product="Knorr Cubes", Advt_Theme="Knorr Short (10)", Dur=10, Cost=12000 + k, AdPos=400 + k, BrkNo=60 + k) for k in range(4)])
+    p = tmp_path / "f.csv"; pd.concat([lm, tag, long_, few], ignore_index=True).to_csv(p, index=False)
+    d = node("list", p, {"channel": "SIRASA", "show": "all"})
+    rows = {(r["advertiser"], r["theme"]): r for r in d["rows"]}
+    t = rows[("Lanka Tea Co", "Island Tea Reminder (5)")]
+    assert t["frequency"] and t["spots"] == 240 and t["days"] == 20 and t["daily_avg"] == pytest.approx(12) and t["length"] == 5 and "Frequency" in t["types"]
+    assert not rows[("Ceylon Foods", "Spice Pot Long (30)")]["frequency"]
+    assert not rows[("Unilever Sri Lanka", "Knorr Short (10)")]["frequency"]
+    assert d["totals"]["frequency_buys"] == 1
+    # the rule is editable: 4 a day now counts
+    d2 = node("list", p, {"channel": "SIRASA", "show": "all", "min_daily": 4})
+    assert {(r["advertiser"]) for r in d2["rows"] if r["frequency"]} >= {"Lanka Tea Co", "Unilever Sri Lanka"}
+    # default view keeps only sponsorships and frequency buys
+    d3 = node("list", p, {"channel": "SIRASA", "advertiser": "Lanka Tea Co"})
+    assert d3["rows"] and all(r["sponsorship"] or r["frequency"] for r in d3["rows"])
+    # matrix marks programme rows that carry the frequency buy, and the Frequency tag filters to them
+    m = node("matrix", p, {"tag": "Frequency", "limit": 5000})
+    assert m["rows"] and all(r["frequency"] for r in m["rows"]) and {r["advertiser"] for r in m["rows"]} == {"Lanka Tea Co"}
+
+
+def test_list_matches_pandas(sheet):
+    p, df, _ = sheet
+    d = node("list", p, {"channel": "DERANA", "show": "all", "limit": 5000})
+    sub = df[df["ch"] == "DERANA"]
+    g = sub.groupby(["Advertiser", "Advt_Theme"]).agg(spots=("Cost", "size"), days=("t", "nunique"), dur=("Dur", "median"))
+    assert len(d["rows"]) == len(g)
+    for r in d["rows"]:
+        x = g.loc[(r["advertiser"], r["theme"])]
+        assert r["spots"] == x["spots"] and r["days"] == x["days"]
+        assert r["daily_avg"] == pytest.approx(x["spots"] / x["days"])
+        assert r["sponsorship"] == bool(is_sponsor_theme(r["theme"]))
+        assert sum(pp["spots"] for pp in r["programmes"]) == r["spots"]

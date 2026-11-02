@@ -279,6 +279,7 @@ const OPS = {
     if (vaultCache.sig !== k) vaultCache.rows = kind === 'tv' ? MR.vaultRowsTv(T) : MR.vaultRowsLmrb(T), vaultCache.sig = k;
     return { total: vaultCache.rows.length, rows: vaultCache.rows.slice(offset || 0, (offset || 0) + (limit || 20000)) };
   },
+  sponsorshipList({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipList(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   sponsorshipOptions({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipOptions(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   sponsorshipReport({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipReport(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   spotlightIndex({ filters }) { table('lmrb'); const L = tables.lmrb; return MR.spotlightIndex(L, MR.applyFilters(L, 'lmrb', filters || {})); },

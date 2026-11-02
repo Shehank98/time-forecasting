@@ -299,33 +299,22 @@ The numbers are computed in the browser (`app/static/js/engine/negotiation.js`).
 A tab with two views. Both use the same rules for sorting spots.
 
 **How spots are sorted**
-- **Sponsorship items** are worked out from the theme. There are two kinds:
-  - **Billboards:** -BB, -Intro, -Extro, Com Break, Next Card.
-  - **Logo items:** -LLogo, Tag, Time Check, DJ, -Tr.
-- **Special placement** is any other spot that is 60 seconds or longer and costs 3x or more the programme's median spot.
-
-**The role of each brand in a programme** (a programme is one channel + programme; the role is judged on all spot lengths):
-- **Title Sponsor:** has billboards and the largest sponsorship spend in the programme, at least 25% of it.
-- **Co-Sponsor:** has billboards but is not the title sponsor.
-- **Logo Placement:** has only logo items.
-- **Regular Spot:** has no sponsorship items.
+- **Sponsorship:** the theme is a sponsorship item. These are billboards (-BB, Intro, Extro, Com Break, Next Card) and logo items (LLogo, Tag, Time Check, DJ, -Tr). Any advertiser with these items in a programme is marked **Sponsorship** for that programme.
+- **Frequency:** the same ad (theme) on one channel is a frequency buy when its usual length is 10 seconds or less and it averages 10 or more ads a day on air. Both numbers can be changed in the tab.
+- **Special placement:** any other spot that is 60 seconds or longer and costs 3x or more the programme's median spot.
+- **Regular Spot:** everything else.
 
 **Programme Spotlight**
-- Search for any programme, on one channel or on all channels that air it. Then pick the brand to focus on. The default is the title sponsor, or your brand if it appears in the programme.
-- The headline numbers are:
-  - total sponsored investment;
-  - total spot count;
-  - the brand's share of voice inside the programme;
-  - first in break;
-  - average break clutter.
-- The charts and tables are:
-  - sponsorship vs special vs regular spend per advertiser;
-  - an ad count by episode chart (by airing, week or month), where peak episodes are marked in red;
-  - where the brand's spots sat in the break;
-  - a period breakdown;
-  - every advertiser in the programme.
-- A peak episode has at least 1.5x the usual spots per airing, and at least 3 more.
-- The **Sponsorship Impact Brief** writes the buyer's talking points from these numbers, for example: "Brand X holds the primary sponsorship for Programme Y with a total investment of LKR Z and N spots ... P% were positioned as First-in-Break ...".
+- Pick a **Channel** and an **Advertiser** (or leave either on All). The table shows one row per advertiser, channel and theme:
+  - advertiser and product;
+  - channel;
+  - theme, and whether it is a billboard, logo/tag or spot;
+  - type: Sponsorship, Frequency or Regular Spot;
+  - the programmes it ran in, with ad counts;
+  - ad count, days on air, daily average and busiest day;
+  - spot length and the dates it ran.
+- "Show" switches between sponsorships and frequency buys only (the default) and every ad. The table can be downloaded as CSV.
+- **Open** on a row shows the programme in detail with that brand in focus: headline numbers, sponsorship vs regular spend, ad count by episode with peak episodes, break position, and the Sponsorship Impact Brief.
 
 **Short-form & Sponsorship Matrix**
 - One row per programme and brand. Each row shows:

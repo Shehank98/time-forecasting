@@ -20,7 +20,7 @@ from .export_pdf import MUTED, _logo, safe
 
 log = logging.getLogger(__name__)
 DURS = ["5s", "10s", "15s", "20s", "30s", "30s+"]
-ROLE_COLOR = {"Title Sponsor": "#4F46E5", "Co-Sponsor": "#0b8fb8", "Logo Placement": "#c27a06", "Regular Spot": "#646A8A"}
+ROLE_COLOR = {"Sponsorship": "#4F46E5", "Frequency": "#c27a06", "Regular Spot": "#646A8A"}
 BAND_WORD = {"good": "Good", "fair": "Fair", "poor": "Poor"}
 HEALTH_COLOR = {"good": GOOD, "fair": colors.HexColor("#c27a06"), "poor": WARN}
 
@@ -100,6 +100,28 @@ def build_spotlight_pdf(rep: dict, meta: dict, client: dict, branding: dict, log
                             ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
     el.append(kt)
 
+
+    # ---------------- sponsorships and frequency buys: advertiser, channel, theme, programmes, ad count, daily average
+    sl = rep.get("sponsorships") or []
+    rule = rep.get("rule") or {}
+    if sl:
+        el += [PageBreak(), Paragraph("Sponsorships and frequency buys", s.h2),
+               Paragraph(f"One row per advertiser, channel and theme (the same ad). Sponsorship = a sponsorship theme (billboard, logo, tag, time check). Frequency = {rule.get('max_dur', 10)} seconds or shorter "
+                         f"and {rule.get('min_daily', 10)} or more ads per day on air. Daily average = ads per day the theme was on air.", s.small), Spacer(1, 3)]
+        rows = [["Advertiser", "Channel", "Theme", "Type", "Sponsorship programmes", "Ad count", "Days on air", "Daily average", "Length", "Ran"]]
+        style = []
+        for r in sl[:150]:
+            progs = "; ".join(f"{_title(x['program'])} ({x['spots']:,})" for x in (r.get("programmes") or [])[:5]) + (f"; +{len(r['programmes']) - 5} more" if len(r.get("programmes") or []) > 5 else "")
+            types = " + ".join(r.get("types") or [])
+            rows.append([r["advertiser"], _title(r["channel"]), f"{r['theme']} ({r.get('item', '')})", types, progs, _n(r.get("spots")), _n(r.get("days")), _n(r.get("daily_avg"), "dec"),
+                         f"{r['length']:.0f}s" if r.get("length") else "n/a", f"{r.get('first_seen', '')} to {r.get('last_seen', '')}"])
+            if r.get("frequency"):
+                style.append(("TEXTCOLOR", (7, len(rows) - 1), (7, len(rows) - 1), colors.HexColor("#c27a06")))
+                style.append(("FONTNAME", (7, len(rows) - 1), (7, len(rows) - 1), "Helvetica-Bold"))
+        el.append(_table(rows, [3.4, 2.0, 4.0, 2.2, 5.2, 1.4, 1.4, 1.5, 1.1, 2.8], s, brand, style))
+        if len(sl) > 150:
+            el.append(Paragraph(f"Showing 150 of {len(sl)} rows. Narrow the channels or advertisers for the rest.", s.small))
+
     # ---------------- sponsorship highlights per programme
     briefs = [b for b in (rep.get("briefs") or []) if b.get("points")]
     if briefs:
@@ -110,7 +132,7 @@ def build_spotlight_pdf(rep: dict, meta: dict, client: dict, branding: dict, log
 
     # ---------------- Channel -> Programme -> Advertiser
     el += [PageBreak(), Paragraph("Channel &rsaquo; Programme &rsaquo; Advertiser", s.h2),
-           Paragraph("Role: Title Sponsor = billboards and the largest sponsorship spend in the programme; Co-Sponsor = billboards; Logo Placement = logo or tag items only; Regular Spot = no sponsorship items. "
+           Paragraph("Role: Sponsorship = the advertiser has sponsorship items (billboards, logos, tags, time checks) in the programme; Regular Spot = commercial spots only. "
                      "SoV = share of all money in the programme. Health 0 to 100 = low clutter (40) + first or last in break (35) + price vs the programme's going rate (25): Good 65+, Fair 40 to 64, Poor below 40.", s.small), Spacer(1, 3)]
     head = ["Channel / programme / advertiser", "Role", "Sponsorship LKR", "Items", "Regular LKR", "Total LKR", "Spots", "Per day", "SoV", "Spot lengths", "Ads in break", "First in break", "Health"]
     rows: list = [head]
@@ -120,7 +142,7 @@ def build_spotlight_pdf(rep: dict, meta: dict, client: dict, branding: dict, log
         style.append(("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), colors.HexColor("#e1e3fb")))
         for p in c.get("programmes") or []:
             sp = p.get("selected") or {}
-            note = f"{p.get('airing_days', 0)} airing days" + (f", title sponsor {p['title_sponsor']}" if p.get("title_sponsor") else "")
+            note = f"{p.get('airing_days', 0)} airing days" + (f", sponsors: {', '.join(p['sponsors'][:4])}" + (" and more" if len(p["sponsors"]) > 4 else "") if p.get("sponsors") else "")
             rows.append([Paragraph(f"&nbsp;&nbsp;<b>{safe(_title(p['program']))}</b><br/>&nbsp;&nbsp;<font size=6.5 color='#646A8A'>{safe(note)}</font>", s.cell), "", _n(sp.get("sponsor_spend")), _n(sp.get("sponsor_items")),
                          _n(sp.get("regular_spend")), _n(sp.get("spend")), _n(sp.get("spots")), "", "", "", _n(p.get("avg_clutter"), "dec"), _n(p.get("fib_pct"), "pct"), ""])
             style.append(("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), colors.HexColor("#f1f2fc")))
@@ -148,11 +170,11 @@ def build_spotlight_pdf(rep: dict, meta: dict, client: dict, branding: dict, log
         img = _chart(advs)
         if img:
             el += [img, Spacer(1, 6)]
-        rows = [["Advertiser", "Programmes", "Title sponsor", "Co-sponsor", "Logo placement", "Regular only", "Sponsorship LKR", "Regular LKR", "Total LKR", "Share", "Spots", "First in break"]]
+        rows = [["Advertiser", "Programmes", "With sponsorship", "Regular spots only", "Sponsorship LKR", "Regular LKR", "Total LKR", "Share", "Spots", "First in break"]]
         for a in advs[:30]:
-            rows.append([a["advertiser"], _n(a.get("programmes")), _n(a.get("title")), _n(a.get("co")), _n(a.get("logo")), _n(a.get("regular")), _n(a.get("sponsor_spend")),
+            rows.append([a["advertiser"], _n(a.get("programmes")), _n(a.get("sponsored")), _n(a.get("regular")), _n(a.get("sponsor_spend")),
                          _n(a.get("regular_spend")), _n(a.get("spend")), _n(a.get("share_pct"), "pct"), _n(a.get("spots")), _n(a.get("fib_pct"), "pct")])
-        el.append(_table(rows, [4.4, 1.4, 1.4, 1.4, 1.5, 1.4, 2.3, 2.3, 2.3, 1.2, 1.2, 1.4], s, brand))
+        el.append(_table(rows, [4.6, 1.5, 1.8, 1.8, 2.4, 2.4, 2.4, 1.3, 1.3, 1.5], s, brand))
 
     # ---------------- month by month
     m = rep.get("monthly") or {}

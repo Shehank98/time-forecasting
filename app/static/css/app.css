@@ -728,3 +728,7 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .rp-tbl tr.rp-ad td:first-child { padding-left: 40px; }
 .rp-range { font-size: .62em; line-height: 1.3; display: inline-block; }
 @media (max-width: 900px) { .rp-grid { grid-template-columns: 1fr; } }
+.badge.role-freq { background: var(--warn-soft); color: var(--warn); font-weight: 700; }
+.sp-freq { color: var(--warn); }
+.sp-pick2 { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(200px, 1.3fr) auto minmax(150px, .7fr) minmax(150px, .7fr); gap: 12px; align-items: end; }
+@media (max-width: 900px) { .sp-pick2 { grid-template-columns: 1fr; } }
