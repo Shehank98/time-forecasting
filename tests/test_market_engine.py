@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
 
-def run(lm, tv=None):
-    args = ["node", str(ROOT / "tests/js/market.js"), str(lm)] + ([str(tv)] if tv else [])
+def run(lm, tv=None, mode="monthly"):
+    args = ["node", str(ROOT / "tests/js/market.js"), str(lm), str(tv) if tv else "", mode]
     out = subprocess.run(args, capture_output=True, text=True, timeout=300)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
@@ -66,3 +66,11 @@ def test_timeband_bridge_ignores_programme_names_and_aliases_channels(sheets):
     assert b["rated_profile"] > 0                       # LMRB history reaches back years before the TVR sheet: day-of-week profile used
     assert r["has_grp"] and r["slots"] and all(" " in s and "-" in s for s in r["slots"])
     assert b["not_rated_pct"] > 0                       # Hiru/other channels without matching timeband stay unrated, not guessed
+
+
+def test_programme_buy_series_for_the_market_view(sheets):
+    days = run(sheets[0], mode="daily")
+    assert {"prog_spots", "adv_prog"} <= set(days["weeklyGroups"]) and days["buy"]["gran"] == "weekly"       # days mode: programme series are weekly
+    assert days["buy"]["pairs"] > 0 and len(days["buy"]["programs"]) > 0 and all(" / " in p for p in days["buy"]["programs"])
+    months = run(sheets[0])
+    assert months["buy"]["gran"] == "monthly" and months["groups"].get("prog_spots", 0) > 0 and months["groups"].get("adv_prog", 0) > 0

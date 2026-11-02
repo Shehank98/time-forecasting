@@ -84,7 +84,7 @@ def test_a_calendar_method_that_wins_is_chosen(monkeypatch):
     specs, notes = F.specs_from_payload(payload(d, y), "daily")
     res = F.run_specs(specs, notes, "lmrb", {"horizon_days": 14, "covariates": True})
     eng = res["results"][0]["backtest"]["engine"]
-    assert eng["chosen"] in ("timesfm + xreg", "xreg + timesfm") and res["results"][0]["backtest"]["accuracy"] > 85
+    assert eng["chosen"] in ("timesfm + xreg", "xreg + timesfm", "blend") and res["results"][0]["backtest"]["accuracy"] > 85
 
 
 def test_guard_can_be_switched_off_for_debugging(monkeypatch):

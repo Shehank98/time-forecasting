@@ -584,38 +584,53 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
     contexts, holds = [], []
     for sp in specs:
         y = sp.values[-MAX_CONTEXT:]
-        h = min(int(params.get("holdout") or default_hold), len(y) // 3)
+        h = max(2, min(int(params.get("holdout") or default_hold), len(y) // 3))
         contexts.append(y)
-        holds.append(h if h >= 2 and len(y) - h >= 4 else 0)
-    # One batched call: full contexts, then the truncated contexts used for backtests and band monitoring, then a short-context candidate
-    # (the model sees only the recent window, which helps after a level shift).
-    bt_idx = [i for i, h in enumerate(holds) if h]
+        holds.append(h if len(y) - h >= 6 else 0)          # every series with at least 8 points gets a backtest
     W = {"daily": 28, "weekly": 13, "monthly": 12}[gran]
-    rec_idx = [i for i in bt_idx if len(contexts[i]) - holds[i] >= 2 * W]
-    n0 = len(specs)
-    bt_pos = {i: n0 + k for k, i in enumerate(bt_idx)}
-    rec_pos = {i: n0 + len(bt_idx) + k for k, i in enumerate(rec_idx)}
-    recbt_pos = {i: n0 + len(bt_idx) + len(rec_idx) + k for k, i in enumerate(rec_idx)}
-    batch = contexts + [contexts[i][:-holds[i]] for i in bt_idx] + [contexts[i][-W:] for i in rec_idx] + [contexts[i][:-holds[i]][-W:] for i in rec_idx]
-    horizon_all = max([H] + [holds[i] for i in bt_idx])
-    log.info("[forecast] step 2/6 batch: %d contexts (%d full, %d backtest, %d recent-window x2), longest context %d, horizon %d, backtest holdouts %s",
-             len(batch), n0, len(bt_idx), len(rec_idx), max(len(c) for c in contexts), horizon_all, sorted({holds[i] for i in bt_idx}))
+    nfold = max(1, int(params.get("folds", 2)))
+    # cuts[i] = how many points are removed from the end for each backtest window: the most recent window first, then older ones
+    cuts: dict[int, list[int]] = {}
+    for i, h in enumerate(holds):
+        if h:
+            cuts[i] = [h * (f + 1) for f in range(nfold) if f == 0 or len(contexts[i]) - h * (f + 1) >= max(8, 2 * h)]
+    # One batched call. Rows: the full context; each backtest window's truncated context; and a short-context (recent weeks only) version of each.
+    batch: list[np.ndarray] = []
+    pos: dict[tuple, int] = {}
+
+    def add(key: tuple, ctx: np.ndarray) -> None:
+        pos[key] = len(batch); batch.append(ctx)
+    for i in range(len(specs)):
+        add(("plain", i, 0), contexts[i])
+    for i, cl in cuts.items():
+        for c in cl:
+            add(("plain", i, c), contexts[i][:-c])
+    recent_ok = {i for i, cl in cuts.items() if len(contexts[i]) - cl[-1] >= 2 * W}
+    for i in sorted(recent_ok):
+        add(("recent", i, 0), contexts[i][-W:])
+        for c in cuts[i]:
+            add(("recent", i, c), contexts[i][:-c][-W:])
+    horizon_all = max([H] + [holds[i] for i in cuts])
+    log.info("[forecast] step 2/6 batch: %d contexts (%d full, %d backtest windows over %d series, %d recent-window), longest context %d, horizon %d, holdouts %s, folds<=%d",
+             len(batch), len(specs), sum(len(v) for v in cuts.values()), len(cuts), 2 * len(recent_ok) + sum(len(cuts[i]) for i in recent_ok) - len(recent_ok) if recent_ok else 0,
+             max(len(c) for c in contexts), horizon_all, sorted({holds[i] for i in cuts}), nfold)
     prog(0.2, "Starting the forecast engine" if model._tfm is None and not model._failed else "Forecasting")
     t_model = time.time()
     q, backend = model.predict(batch, horizon_all, gran)
     log.info("[forecast] step 3/6 model: backend=%s took %.2fs output=%s%s", backend, time.time() - t_model, tuple(q.shape), (" (fallback: " + str(model.error) + ")") if backend != "timesfm" else "")
     prog(0.65, "Applying calendar covariates")
     plain_q = q.copy()
-    cov_q: dict[str, np.ndarray] = {}                   # covariate-aware candidates, one per method
+    cov_q: dict[str, np.ndarray] = {}                   # calendar-aware candidates, one array of rows per method
     cov_used, cov_msg = ([], None)
     if params.get("covariates", True) and backend == "timesfm":
         ev = params.get("major_events")
+        bt_items = [(i, c) for i, cl in cuts.items() for c in cl]
         for mode in params.get("xreg_modes") or ("timesfm + xreg", "xreg + timesfm"):
             qm = plain_q.copy()
-            used, msg = _apply_covariates(specs, contexts, H, gran, qm, ev, mode=mode)
-            if msg is None and bt_idx:      # the accuracy check uses the same covariate-aware method as the forecast
-                _apply_covariates([specs[i] for i in bt_idx], [contexts[i][:-holds[i]] for i in bt_idx], H, gran, qm, ev, rows=[bt_pos[i] for i in bt_idx],
-                                  horizons=[holds[i] for i in bt_idx], cut=[holds[i] for i in bt_idx], mode=mode)
+            used, msg = _apply_covariates(specs, contexts, H, gran, qm, ev, rows=[pos[("plain", i, 0)] for i in range(len(specs))], mode=mode)
+            if msg is None and bt_items:      # the accuracy check uses the same calendar method as the forecast
+                _apply_covariates([specs[i] for i, c in bt_items], [contexts[i][:-c] for i, c in bt_items], H, gran, qm, ev, rows=[pos[("plain", i, c)] for i, c in bt_items],
+                                  horizons=[holds[i] for i, c in bt_items], cut=[c for i, c in bt_items], mode=mode)
             if msg is None:
                 cov_q[mode] = qm; cov_used = cov_used or used
                 log.info("[forecast] step 4/6 calendar method '%s' ran with covariates %s", mode, used)
@@ -627,52 +642,90 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
     else:
         log.info("[forecast] step 4/6 calendar covariates not used (covariates=%s, backend=%s)", params.get("covariates", True), backend)
     results = []
-    names = {"plain": "Forecast engine alone", "recent": "Forecast engine on the recent weeks only", "timesfm + xreg": "Forecast engine with calendar effects", "xreg + timesfm": "Calendar effects first, then forecast engine"}
+    names = {"plain": "Forecast engine alone", "recent": "Forecast engine on the recent weeks only", "timesfm + xreg": "Forecast engine with calendar effects",
+             "xreg + timesfm": "Calendar effects first, then forecast engine", "blend": "Average of the two best methods"}
+
+    def rows_of(name: str, i: int, c: int) -> np.ndarray | None:
+        """Raw quantile rows of one candidate for series i with c points removed (c=0 is the real forecast)."""
+        n = H if c == 0 else holds[i]
+        if name == "plain":
+            return plain_q[pos[("plain", i, c)], :n]
+        if name == "recent":
+            return plain_q[pos[("recent", i, c)], :n] if ("recent", i, c) in pos else None
+        if name in cov_q:
+            return cov_q[name][pos[("plain", i, c)], :n]
+        return None
     for i, sp in enumerate(specs):
         prog(0.7 + 0.25 * (i + 1) / len(specs), f"Analysing {sp.entity}")
         y, nonneg = sp.values, bool(sp.mdef and sp.mdef.nonneg)
         fd = S.future_dates(sp.dates[-1], H, gran)
         med = lambda a: (np.clip(np.sort(a, axis=-1), 0, None) if nonneg else np.sort(a, axis=-1))
-        # candidates for this series: rows of the full forecast and, when there is a backtest, of the held-out check
-        cands: dict[str, tuple[np.ndarray, np.ndarray | None]] = {"plain": (plain_q[i, :H], plain_q[bt_pos[i], :holds[i]] if i in bt_pos else None)}
-        if i in rec_pos:
-            cands["recent"] = (plain_q[rec_pos[i], :H], plain_q[recbt_pos[i], :holds[i]])
-        for mode, qm in cov_q.items():
-            cands[mode] = (qm[i, :H], qm[bt_pos[i], :holds[i]] if i in bt_pos else None)
-        choice, errs = "plain", {}
-        if i in bt_pos:
-            actual = contexts[i][-holds[i]:]
-            errs = {k: mae(actual, med(b)[:, 1]) for k, (f_, b) in cands.items() if b is not None}
+        cl = cuts.get(i, [])
+        method_names = ["plain"] + (["recent"] if i in recent_ok else []) + list(cov_q)
+        # held-out error of every method, pooled over all of this series' backtest windows
+        def pooled_err(getter) -> float:
+            tot = 0.0
+            for c in cl:
+                tot += float(np.abs(contexts[i][-c:][:holds[i]] - med(getter(c))[:, 1]).sum())
+            return tot
+        errs: dict[str, float] = {}
+        if cl:
+            for m_ in method_names:
+                errs[m_] = pooled_err(lambda c, m_=m_: rows_of(m_, i, c))
+            top2 = sorted(errs, key=errs.get)[:2]
+            if len(top2) == 2:
+                errs["blend"] = pooled_err(lambda c: (rows_of(top2[0], i, c) + rows_of(top2[1], i, c)) / 2.0)
+        def get_rows(name: str, c: int) -> np.ndarray:
+            if name == "blend":
+                return (rows_of(top2[0], i, c) + rows_of(top2[1], i, c)) / 2.0
+            return rows_of(name, i, c)
+        choice = "plain"
+        if errs:
             best = min(errs, key=errs.get)
-            plain_sum = float(med(cands["plain"][0])[:, 1].sum())
-            if best != "plain" and errs[best] <= 0.95 * errs["plain"]:     # an alternative has to clearly beat the plain forecast
-                drift = float(med(cands[best][0])[:, 1].sum()) / plain_sum if plain_sum > 0 else 1.0
+            plain_sum = float(med(get_rows("plain", 0))[:, 1].sum())
+            if best != "plain" and errs[best] <= 0.95 * errs["plain"]:         # an alternative has to clearly beat the plain forecast
+                drift = float(med(get_rows(best, 0))[:, 1].sum()) / plain_sum if plain_sum > 0 else 1.0
                 if 0.4 <= drift <= 2.5:                                       # and must not wander off the level the plain forecast sees
                     choice = best
-        if errs:
-            log.info("[forecast] step 5/6 series '%s' (n=%d, holdout=%d) held-out MAE by method: %s -> best=%s chosen=%s",
-                     sp.entity, len(y), holds[i], {k: round(v, 3) for k, v in errs.items()}, best, choice)
+            log.info("[forecast] step 5/6 series '%s' (n=%d, holdout=%d, windows=%d) pooled held-out error by method: %s -> best=%s chosen=%s",
+                     sp.entity, len(y), holds[i], len(cl), {k: round(v, 3) for k, v in errs.items()}, best, choice)
         else:
-            log.info("[forecast] step 5/6 series '%s' (n=%d): no backtest (history too short), plain forecast used", sp.entity, len(y))
+            log.info("[forecast] step 5/6 series '%s' (n=%d): fewer than 8 points, no backtest possible, plain forecast used", sp.entity, len(y))
         if params.get("covariate_guard", True) is False and cov_q:      # debugging switch: always use the calendar-aware forecast
             choice = "timesfm + xreg" if "timesfm + xreg" in cov_q else next(iter(cov_q))
-        fq, bq_raw = cands[choice]
-        qq = med(fq)
+        qq = med(get_rows(choice, 0))
         p10, p50, p90 = qq[:, 0], qq[:, 1], qq[:, 2]
         bt, breaches = None, []
-        if i in bt_pos:
+        if cl:
             h = holds[i]
-            train, actual = contexts[i][:-h], contexts[i][-h:]
-            bq = med(bq_raw)
-            m = S.season_length(gran, len(train))
-            base = seasonal_naive(train, h, m)
+            act_all, pred_all, lo_all, hi_all, base_all, wk_a, wk_p = [], [], [], [], [], [], []
+            for c in cl:
+                train, actual = contexts[i][:-c], contexts[i][-c:][:h]
+                bq_c = med(get_rows(choice, c))
+                act_all.append(actual); pred_all.append(bq_c[:, 1]); lo_all.append(bq_c[:, 0]); hi_all.append(bq_c[:, 2])
+                base_all.append(seasonal_naive(train, h, S.season_length(gran, len(train))))
+                if gran == "daily" and h >= 7:                  # planners buy weekly: judge the weekly totals too
+                    k7 = (h // 7) * 7
+                    wk_a.append(actual[:k7].reshape(-1, 7).sum(1)); wk_p.append(bq_c[:k7, 1].reshape(-1, 7).sum(1))
+            actual, pred = np.concatenate(act_all), np.concatenate(pred_all)
+            lo, hi, base = np.concatenate(lo_all), np.concatenate(hi_all), np.concatenate(base_all)
+            train0 = contexts[i][:-h]
+            m = S.season_length(gran, len(train0))
+            acc, basis = accuracy(actual, pred, train0)
+            plan_acc, plan_grain = acc, f"each {gran[:-2] if gran.endswith('ly') else gran}"
+            if wk_a:
+                wa, wp = np.concatenate(wk_a), np.concatenate(wk_p)
+                w_ = wape(wa, wp)
+                plan_acc, plan_grain = (None if w_ is None else float(np.clip(100 - w_, 0, 100))), "weekly totals"
             bdates = [str(d.date()) for d in sp.dates[-h:]]
-            acc, basis = accuracy(actual, bq[:, 1], train)
-            bt = {"dates": bdates, "actual": actual, "pred": bq[:, 1], "p10": bq[:, 0], "p90": bq[:, 2], "holdout": h, "accuracy": acc, "accuracy_basis": basis,
-                  "model": {"smape": smape(actual, bq[:, 1]), "wape": wape(actual, bq[:, 1]), "mae": mae(actual, bq[:, 1]), "mase": mase(actual, bq[:, 1], train, m), "coverage": coverage(actual, bq[:, 0], bq[:, 2])},
-                  "baseline": {"smape": smape(actual, base), "mae": mae(actual, base), "mase": mase(actual, base, train, m), "name": "Seasonal naive"},
+            f0 = cl[0]
+            bq0 = med(get_rows(choice, f0))
+            bt = {"dates": bdates, "actual": contexts[i][-f0:][:h], "pred": bq0[:, 1], "p10": bq0[:, 0], "p90": bq0[:, 2], "holdout": h, "folds": len(cl),
+                  "accuracy": acc, "accuracy_basis": basis, "accuracy_planning": plan_acc, "planning_grain": plan_grain,
+                  "model": {"smape": smape(actual, pred), "wape": wape(actual, pred), "mae": mae(actual, pred), "mase": mase(actual, pred, train0, m), "coverage": coverage(actual, lo, hi)},
+                  "baseline": {"smape": smape(actual, base), "mae": mae(actual, base), "mase": mase(actual, base, train0, m), "name": "Seasonal naive"},
                   "engine": {"chosen": choice, "label": names[choice], "mae_by_method": {names[k]: v for k, v in errs.items()}}}
-            breaches = band_breaches(bdates, actual, bq[:, 0], bq[:, 2])
+            breaches = band_breaches(bdates, contexts[i][-f0:][:h], bq0[:, 0], bq0[:, 2])
         all_zero = not np.any(y)
         warnings = list(sp.notes)
         if len(y) < mp:

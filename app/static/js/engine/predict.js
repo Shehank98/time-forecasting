@@ -71,7 +71,7 @@
     const monthly = opt.mode === 'monthly', G = monthly ? 'monthly' : 'daily', recentDays = monthly ? 91 : 28;
     // premium position (PosinBrk 1 or 2) as a 100/0 flag so its mean is a percentage
     { const P = L.cols.posinbrk, f = new Float32Array(L.n); for (let i = 0; i < L.n; i++) f[i] = P[i] >= 1 ? (P[i] <= 2 ? 100 : 0) : NaN; L = { ...L, cols: { ...L.cols, first2: f } }; }
-    const daily = [], notes = [];
+    const daily = [], weekly = [], notes = [];
     const ctx = { mode: monthly ? 'monthly' : 'daily', gran: G, rows: idx.length, has_grp: !!(L.cols.grp && hasValues(L, 'grp', idx)) };
     if (!idx.length) return { daily, weekly: [], notes: ['No LMRB rows match the current filters.'], ctx, gran: G };
     const [lo, hi] = MR.minMax(L.cols.date, idx);
@@ -127,6 +127,14 @@
     ctx.top_dayparts = topBy(L, gIdx, (i) => S(L, 'daypart', i), cost, 5); ctx.top_langs = topBy(L, gIdx, (i) => S(L, 'lng', i), cost, 3);
     run('adv_daypart', gIdx, 'advertiser', 'spend', { entity: advDp, entities: pairsOf(null, ctx.top_dayparts) });
     run('adv_lang', gIdx, 'advertiser', 'spend', { entity: advLg, entities: pairsOf(null, ctx.top_langs) });
+    // programmes: how many commercials each rival is expected to buy in each programme (weekly series, monthly in months mode)
+    { const gW = monthly ? 'monthly' : 'weekly', target = monthly ? daily : weekly, recentP = MR.where(L, gIdx, (i) => L.cols.date[i] > hi - 180);
+      const progKey = (L2) => (i) => `${S(L2, 'channel', i)} / ${S(L2, 'program', i)}`, apKey = (L2) => (i) => `${S(L2, 'advertiser', i)} | ${S(L2, 'channel', i)} / ${S(L2, 'program', i)}`;
+      const base = recentP.length ? recentP : gIdx, pgs = topBy(L, base, progKey(L), () => 1, 12); ctx.buy_programs = pgs; ctx.buy_gran = gW;
+      const runW = (g2, entFn, ents) => { const r = MR.buildSeries(L, gIdx, 'lmrb', 'program', 'spots', gW, { entity: entFn, entities: ents }); target.push(...items(r, g2)); return r; };
+      if (pgs.length) runW('prog_spots', progKey, pgs);
+      const pairs = []; for (const a of comp) { const mine = MR.where(L, base, (i) => S(L, 'advertiser', i) === a); for (const pg of topBy(L, mine, progKey(L), () => 1, 4)) pairs.push(a + ' | ' + pg); }
+      ctx.buy_pairs = pairs.length; if (pairs.length) runW('adv_prog', apKey, pairs); }
     // break clutter and premium positions per channel and daypart, for any medium that records them
     { const cdE = (L2) => (i) => `${S(L2, 'channel', i)} | ${S(L2, 'daypart', i)}`;
       const cdIdx = MR.where(L, idx, (i) => L.cols.adsinbrk[i] >= 0 || L.cols.posinbrk[i] >= 1);
@@ -154,7 +162,7 @@
       run('slot_cost', idx, 'slot', 'cost_spot', { entity: matchedOf, entities: slots, metricDef: costSpot });
     } else notes.push('Load the TVR sheet as well to see programme ratings, CPRP and the optimal buying zone.');
     if (opt.vault) attachVault(daily, 'lmrb', ctx.product_group);
-    return { daily, weekly: [], notes, ctx, gran: G };
+    return { daily, weekly, notes, ctx, gran: G };
   }
 
 

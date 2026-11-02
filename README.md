@@ -253,3 +253,11 @@ Every forecast writes its steps to two places so problems are easy to find.
 
 - **Server log (Railway, or the terminal):** lines starting `[forecast]`: the request (series, granularity, horizon, stored history used), step 1 start, step 2 batch sizes, step 3 model backend and time, step 4 which calendar methods ran or were skipped (and why), step 5 per series the held-out error of each method and the one chosen, one summary line per series (method, forecast min/mean/max, zero days, accuracy, sMAPE, WAPE, MASE, warnings) and step 6 totals. A `CHECK` warning appears when half or more of the forecast days are zero although recent history is not. Set `LOG_LEVEL=DEBUG` for more.
 - **Browser console (F12):** a collapsed group `[forecast] ...` per run with the same steps, a table with one row per series, and warnings. Turn it off with `localStorage.setItem('mr:trace', '0')`.
+
+## Programme buys (Market card)
+
+The **Programme buys** view forecasts how many commercials each tracked rival will place in each of the top programmes (weekly counts, monthly in months view), and the total per programme. A burst is a forecast at least 25% above the last 4 weeks (40% for a single rival in a single programme). Click any bar or heatmap cell for the rivals behind it. Only the top rivals and the 12 busiest programmes are forecast, to keep a run fast.
+
+## How accuracy is measured
+
+Every series with at least 8 points is backtested, on up to two past windows, and the method that does best across those windows is used (including an average of the two best). Trust is measured on the level planners buy at: weekly totals for daily series (the daily figure is shown next to it). It is the measured result, not a target: noisy, intermittent or short series will score lower, and the badge says so.

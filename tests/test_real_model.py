@@ -56,7 +56,7 @@ def test_covariates_run_through_the_real_xreg_path(tfm, monkeypatch):
     # with the safety check on, every series reports which method won the held-out check, among all four candidates
     guarded = F.run_specs(*F.specs_from_payload(_items(), "daily"), "lmrb", {"horizon_days": 30, "holdout": 30, "covariates": True})
     eng = guarded["results"][0]["backtest"]["engine"]
-    assert eng["chosen"] in ("plain", "recent", "timesfm + xreg", "xreg + timesfm") and len(eng["mae_by_method"]) == 4
+    assert eng["chosen"] in ("plain", "recent", "timesfm + xreg", "xreg + timesfm", "blend") and len(eng["mae_by_method"]) == 5 and guarded["results"][0]["backtest"]["folds"] == 2
 
 
 def test_monthly_covariates(tfm, monkeypatch):

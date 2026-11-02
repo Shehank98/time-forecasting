@@ -107,9 +107,9 @@ def test_backtest_uses_the_same_covariates(monkeypatch):
     res = F.run_specs(specs, notes, "lmrb", {"horizon_days": 30, "holdout": 30})
     assert len(fake.cov_calls) == 4                                           # forecast and accuracy check, for each of the two calendar methods
     n, H, lens, _ = fake.cov_calls[1]
-    assert H == 30 and all(L == 150 - 30 + 30 for L in sum(lens.values(), []))     # truncated context plus the held-out days
+    assert H == 30 and set(sum(lens.values(), [])) == {150, 120}     # two backtest windows: context cut by 30 and by 60, plus the held-out days
     bt = res["results"][0]["backtest"]
-    assert bt["holdout"] == 30 and bt["model"]["smape"] is not None and len(bt["pred"]) == 30
+    assert bt["holdout"] == 30 and bt["folds"] == 2 and bt["model"]["smape"] is not None and len(bt["pred"]) == 30
 
 
 def test_pins_endpoint_needs_sign_in_and_returns_pins():
