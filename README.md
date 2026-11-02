@@ -269,3 +269,27 @@ Long histories open on a recent window (3 months of a daily series, 1 year of a 
 The same controls (range, daily or weekly, 7-day average, range band, overview strip) are on the time charts of the TVR and Market cards: Total audience, Reach outlook, Channel share path, Competitor spend and next move, Cost per second and Cost per rating point. Recurring Poya and salary pins are shown only on short daily views.
 
 `tests/tools/validate_numbers.py` recomputes the forecast inputs, tiles, share charts, programme buy counts, alignment and backtests from the raw sheets and compares them with what the browser sent, received and drew.
+
+## Deep Negotiation & Brand Intelligence (Market card)
+
+A tab on the LMRB card for rate negotiations. It drills down in three levels: Channel, then Advertiser / brand (with a Product group filter), then Advt_Theme.
+
+- **Channel to Brand to Theme table.** Click a row to open it. Each row shows spend, spots, average ads in break, first-in-break %, a vulnerability index, the dates it ran and the spot-length mix (for example 30s 60%, 10s 40%).
+- **Share of wallet matrix.** Brand x channel. Switch between three views:
+  - **Share of wallet:** a brand's spend on a channel as a share of that brand's total spend.
+  - **Share of channel:** a brand's share of everyone's spend on that channel.
+  - **Spend:** the amount in LKR.
+- **Theme rotation tracker.** Shows how long each theme ran and how much was invested in it. A theme counts as on air if it was seen in the last 14 days. A second table shows whether each brand moved to 10s-and-under reminder spots between the first and second half of its run.
+- **Clutter and position vulnerability.** A bubble chart of each brand on each channel: average ads in break (AdsinBrk) against first-in-break share (PosinBrk = 1). The vulnerability index runs from 0 to 100. It rises when a spot sits in the middle of a crowded break. A table also shows clutter by channel and timeband.
+- **Negotiation leverage.** Both thresholds can be edited in the tab:
+  - **Volume rebate:** when one brand spends the threshold or more on one channel (default LKR 10,000,000), it shows "Retroactive Volume Discount Opportunity (10-15%)" with the LKR value to ask for.
+  - **Clutter penalty:** when the average ads in break is above the threshold (default 35), it advises: "demand 3 free bonus spots or priority First-in-Break placement".
+- **Download Negotiation PDF Report.** The browser sends only the filtered summary to `POST /api/negotiation/pdf`. The server builds an A4 landscape ReportLab PDF with:
+  - a cover page and headline numbers;
+  - the negotiation highlights;
+  - the channel table, the Channel to Brand to Theme table and the share of wallet matrix;
+  - theme rotation, clutter by timeband, and how each number is worked out.
+
+  A copy is saved under Reports.
+
+The numbers are computed in the browser (`app/static/js/engine/negotiation.js`). `tests/test_negotiation.py` checks them against pandas.

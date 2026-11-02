@@ -4,7 +4,7 @@
  */
 /* global MR */
 importScripts('/js/vendor/xlsx.full.min.js', '/js/engine/core.js', '/js/engine/ingest.js', '/js/engine/filters.js', '/js/engine/analytics_tv.js',
-  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js');
+  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js', '/js/engine/negotiation.js');
 
 const DB_NAME = 'media-radar', DB_VER = 1, MAX_CSV_ROWS = 1000000;
 let scope = null;                       // "u<user>:c<client>"
@@ -278,6 +278,11 @@ const OPS = {
     const T = table(kind === 'tv' ? 'tv' : 'lmrb'), k = kind + '|' + (T.sig || T.n);
     if (vaultCache.sig !== k) vaultCache.rows = kind === 'tv' ? MR.vaultRowsTv(T) : MR.vaultRowsLmrb(T), vaultCache.sig = k;
     return { total: vaultCache.rows.length, rows: vaultCache.rows.slice(offset || 0, (offset || 0) + (limit || 20000)) };
+  },
+  negotiation({ filters, options }) {
+    table('lmrb');
+    const L = tables.lmrb, idx = MR.applyFilters(L, 'lmrb', filters || {});
+    return MR.negotiationHub(L, idx, options || {});
   },
   predictStealth({ filters, options }) {
     table('lmrb');

@@ -118,6 +118,7 @@
     flighting: { text: 'When each competitor is on air, in bursts or always on.', icon: '<path d="M3 17l18-6-6 10-3-6z"/>' },
     creatives: { text: 'New, returning, paused and dropped creatives.', icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/>' },
     pricing: { text: 'Cost per second, discounts and price outliers.', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5c0-1 1-1.5 2.5-1.5s2.5.6 2.5 1.7c0 2.3-5 1.3-5 3.6 0 1.1 1 1.7 2.5 1.7s2.5-.5 2.5-1.5"/>' },
+    negotiation: { text: 'Channel to brand to theme drill-down, share of wallet, clutter vulnerability and the rebate and bonus points to negotiate.', icon: '<path d="M4 12l4-4 4 4 4-4 4 4"/><path d="M4 18h16"/><circle cx="12" cy="5" r="1.5"/>' },
     position: { text: 'Who buys first and last position in the break.', icon: '<path d="M5 6h14M5 12h14M5 18h14"/><circle cx="5" cy="6" r="1.2"/>' },
     grp: { text: 'GRPs, CPRP and share of GRPs from matched ratings.', icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>' },
     alerts: { text: 'Competitor moves in the last 7 days.', icon: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"/><path d="M10 20a2 2 0 004 0"/>' },
