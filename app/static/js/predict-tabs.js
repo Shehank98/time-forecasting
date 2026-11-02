@@ -55,7 +55,7 @@
   }
   function eventsEditor(onSave) {
     const rows = readEvents();
-    const m = App.modal('Major events', `<p class="small muted">Flag cricket tournaments, elections or special broadcasts. The forecast engine learns from past events and expects the same lift or dip in future ones. Events are saved on this computer for this client.</p>
+    const m = App.modal('Major events', `<p class="small muted">Flag cricket tournaments, elections or special broadcasts. The forecast engine learns the effect of an event from past ones, so add earlier events too (for example last year's cricket season). An event that has never happened in your history cannot be learned and is ignored. Events are saved on this computer for this client.</p>
       <div id="me-rows" class="stack"></div><div class="row" style="margin-top:12px"><button class="btn sm" type="button" id="me-add">Add event</button><button class="btn primary" type="button" id="me-save">Save and refresh</button></div>`);
     const draw = () => { m.querySelector('#me-rows').innerHTML = rows.map((e, i) => `<div class="row" data-i="${i}"><input class="me-name" placeholder="Event name" value="${esc(e.name || '')}" style="min-width:200px"><input class="me-a" type="date" value="${esc(e.start || '')}"><span class="muted small">to</span><input class="me-b" type="date" value="${esc(e.end || e.start || '')}"><button class="btn sm ghost me-x" type="button">Remove</button></div>`).join('') || '<div class="muted small">No events yet.</div>';
       m.querySelectorAll('.me-x').forEach((b) => { b.onclick = () => { rows.splice(+b.closest('[data-i]').dataset.i, 1); draw(); }; }); };
