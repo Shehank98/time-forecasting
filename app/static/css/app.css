@@ -762,3 +762,9 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .ex-dcard h4 { margin: 0 0 8px; }
 .ex-dcard .dt-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 1100px) { .ex-dgrid { grid-template-columns: 1fr; } }
+.ex-tbl tr.ex-z > td, .ex-dt tr.ex-z > td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.ex-tbl tr.ex-row:hover > td { background: var(--accent-soft); }
+.ex-tbl tfoot td { font-weight: 800; border-top: 2px solid var(--border-strong, var(--border)); background: var(--surface-2); position: sticky; bottom: 0; }
+.ex-rules { display: grid; gap: 6px; margin: 0 0 10px; color: var(--muted); }
+.ex-cls { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 14px; } .ex-cls h4 { margin: 0 0 8px; }
+.ex-cls-sum { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-bottom: 10px; font-size: 13px; }

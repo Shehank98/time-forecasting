@@ -17,6 +17,7 @@ from .export_pdf import MUTED, _logo, safe
 
 log = logging.getLogger(__name__)
 FREQ = colors.HexColor("#c27a06")
+HFR, EXCL, SPNL = "High-Frequency Reminders", "Exclusive Sponsorship / Value-Add", "Sponsorship / Value-Add"
 
 
 def _t(s: Any) -> str:
@@ -26,12 +27,37 @@ def _t(s: Any) -> str:
 def _pick(xs: list, n: int = 8) -> str:
     return (", ".join(map(str, xs[:n])) + (f" and {len(xs) - n} more" if len(xs) > n else "")) if xs else "All"
 
+LABEL_COLOR = {"High-Frequency Reminders": "#c27a06", "Exclusive Sponsorship / Value-Add": "#4F46E5", "Sponsorship / Value-Add": "#0b8fb8", "Regular": "#646A8A"}
+PLACE = lambda p: f"{p.get('first', 0):,} first, {p.get('middle', 0):,} middle, {p.get('last', 0):,} last"  # noqa: E731
+
+
+def _durs(sp: dict | None) -> str:
+    sp = sp or {}
+    return ", ".join(f"{k} {sp[k]:,}" for k in ("5s", "10s", "15s", "20s", "30s", "30s+") if sp.get(k)) or "n/a"
+
+
+def _class_table(rows: list[dict], s: _Styles, brand, with_programme: bool = True) -> RlTable:
+    """Classified ads: class, advertiser and theme, spots, days present, daily average, durations and placements in the break."""
+    head = (["Channel / programme"] if with_programme else []) + ["Classification", "Advertiser: theme", "Spots", "Days present", "Daily avg", "Durations", "Placements in break", "Spend"]
+    data = [head]
+    style = []
+    for r in rows:
+        cls = " + ".join(f"<font color='{LABEL_COLOR.get(t, '#646A8A')}'><b>{safe(t)}</b></font>" for t in r.get("types") or [])
+        data.append(([f"{_t(r.get('channel'))}: {_t(r.get('program'))}"] if with_programme else []) + [Paragraph(cls, s.cell), f"{r['advertiser']}: {r['theme']} ({r.get('item', '')})", _n(r.get("spots")),
+                    f"{_n(r.get('days'))} of {_n(r.get('airings'))}", _n(r.get("daily_avg"), "dec"), _durs(r.get("dur_split")), PLACE(r.get("placement") or {}), _n(r.get("spend"))])
+        if r.get("frequency"):
+            col = 5 if with_programme else 4
+            style.append(("TEXTCOLOR", (col, len(data) - 1), (col, len(data) - 1), FREQ))
+    w = ([3.0] if with_programme else []) + [3.6, 4.4, 1.2, 1.7, 1.2, 3.0, 3.8, 1.8]
+    return _table(data, w, s, brand, style)
+
+
 
 def _split_rows(rows: list[dict], label: str) -> list[list[str]]:
     return [[label, "Spots", "Spend (LKR)", "Share of spend"]] + [[str(r.get("name")), _n(r.get("spots")), _n(r.get("spend")), _n(r.get("spend_share"), "pct")] for r in rows]
 
 
-def _detail_block(d: dict, title: str, s: _Styles, brand) -> list:
+def _detail_block(d: dict, title: str, s: _Styles, brand, title_has_programme: bool = False) -> list:
     """Commercial details, ratings and volume, sponsorship details for one channel or programme."""
     c, v, sp = d.get("commercial") or {}, d.get("volume") or {}, d.get("sponsorship") or {}
     rt = v.get("ratings")
@@ -49,24 +75,19 @@ def _detail_block(d: dict, title: str, s: _Styles, brand) -> list:
     kt.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.25, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.25, LINE), ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8f9fe")),
                             ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
     out.append(kt)
-    # durations and sponsorship tags side by side
+    k = d.get("classification") or {}
+    out.append(Paragraph(f"<b>High-frequency spots vs logo, intro and outro sponsorships:</b> {_n(k.get('exclusive_ads'))} exclusive ad(s) ({_n(k.get('exclusive_spots'))} spots), "
+                         f"{_n(k.get('sponsorship_ads'))} other sponsorship ad(s) ({_n(k.get('sponsorship_spots'))} spots), {_n(k.get('frequency_ads'))} high-frequency ad(s) ({_n(k.get('frequency_spots'))} spots).", s.small))
+    cls = d.get("classified") or []
+    if cls:
+        out += [Spacer(1, 2), _class_table(cls[:14], s, brand, with_programme=title_has_programme is False)]
     dur = [["Length", "Commercial spots", "Spend", "Share"]] + [[r["name"], _n(r["spots"]), _n(r["spend"]), _n(r.get("spot_share"), "pct")] for r in c.get("by_duration") or []]
-    tags = [["Sponsorship tag (advertiser, theme)", "Type", "Ads", "Daily avg"]] + [[f"{r['advertiser']}: {r['theme']}", r.get("item", ""), _n(r["spots"]), _n(r.get("daily_avg"), "dec")] for r in (sp.get("tags") or [])[:8]]
-    freq = [["Frequency buy (advertiser, theme)", "Length", "Ads", "Daily avg"]] + [[f"{r['advertiser']}: {r['theme']}", f"{r['length']:.0f}s" if r.get("length") else "", _n(r["spots"]), _n(r.get("daily_avg"), "dec")] for r in (sp.get("frequency") or [])[:6]]
     from reportlab.platypus import Table as T2
-
-    def small(rows, widths):
-        if len(rows) == 1:
-            return Paragraph("None.", s.small)
-        t = T2([[Paragraph(safe(x), s.hdr if i == 0 else s.cell) for x in r] for i, r in enumerate(rows)], colWidths=widths, repeatRows=1)
-        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), brand), ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f5fb")]),
-                               ("LINEBELOW", (0, 0), (-1, -1), 0.25, LINE), ("TOPPADDING", (0, 0), (-1, -1), 1.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5)]))
-        return t
-    w3 = WIDTH / 3 - 0.2 * cm
-    grid = RlTable([[small(dur, [w3 * x for x in (0.3, 0.27, 0.27, 0.16)]), small(tags, [w3 * x for x in (0.56, 0.18, 0.12, 0.14)]), small(freq, [w3 * x for x in (0.56, 0.14, 0.14, 0.16)])]],
-                   colWidths=[WIDTH / 3] * 3)
-    grid.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 6), ("TOPPADDING", (0, 0), (-1, -1), 4)]))
-    out.append(grid)
+    if len(dur) > 1:
+        t = T2([[Paragraph(safe(x), s.hdr if i == 0 else s.cell) for x in r] for i, r in enumerate(dur)], colWidths=[WIDTH * 0.1, WIDTH * 0.12, WIDTH * 0.14, WIDTH * 0.08], repeatRows=1, hAlign="LEFT")
+        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), brand), ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f5fb")]), ("LINEBELOW", (0, 0), (-1, -1), 0.25, LINE),
+                               ("TOPPADDING", (0, 0), (-1, -1), 1.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5), ("ALIGN", (1, 1), (-1, -1), "RIGHT")]))
+        out += [Spacer(1, 4), t]
     return out
 
 
@@ -99,9 +120,9 @@ def build_executive_pdf(d: dict, meta: dict, client: dict, branding: dict, logos
     el += [lt, Spacer(1, 0.4 * cm), band, Spacer(1, 0.3 * cm), Paragraph("Executive Negotiation Summary", s.h1),
            Paragraph(f"Prepared for <b>{safe(cname)}</b> by {safe(agency)}", s.lead), Spacer(1, 0.25 * cm), it, Spacer(1, 0.3 * cm)]
     tiles = [("Active brands", f"{_n(o.get('brands'))} ({_n(o.get('products'))} products)"), ("Total monitored spend", _n(o.get("spend"), "lkr")),
-             ("Commercial spend", f"{_n(o.get('commercial_spend'), 'lkr')} ({_n(o.get('commercial_share'), 'pct')})"), ("Value-add / sponsorship", f"{_n(o.get('value_add_spend'), 'lkr')} ({_n(o.get('value_add_share'), 'pct')})"),
+             ("Commercial only", f"{_n(o.get('commercial_spend'), 'lkr')} ({_n(o.get('commercial_share'), 'pct')})"), ("Value addition / sponsorship", f"{_n(o.get('value_add_spend'), 'lkr')} ({_n(o.get('value_add_share'), 'pct')})"),
              ("Spots", f"{_n(o.get('commercial_spots'))} commercial, {_n(o.get('value_add_items'))} sponsorship items"), ("Programmes", f"{_n(o.get('programmes'))} ({_n(d.get('sponsored_programmes'))} sponsored)"),
-             ("Frequency buys", _n(o.get("frequency_buys")))] + ([("GRPs / CPRP", f"{_n(rt.get('grps'), 'dec')} / {_n(rt.get('cprp'), 'lkr')}")] if rt else [])
+             ("Exclusive sponsorships", f"{_n(o.get('exclusive_ads'))} ads, {_n(o.get('exclusive_spots'))} spots"), ("High-frequency reminders", f"{_n(o.get('frequency_ads'))} ads, {_n(o.get('frequency_spots'))} spots")] + ([("GRPs / CPRP", f"{_n(rt.get('grps'), 'dec')} / {_n(rt.get('cprp'), 'lkr')}")] if rt else [])
     kt = RlTable([[Paragraph(f"<font size=6.5 color='#646A8A'>{safe(a.upper())}</font><br/><font size=9.5><b>{safe(b)}</b></font>", s.body) for a, b in tiles]], colWidths=[WIDTH / len(tiles)] * len(tiles))
     kt.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.25, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.25, LINE), ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8f9fe")),
                             ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
@@ -117,45 +138,66 @@ def build_executive_pdf(d: dict, meta: dict, client: dict, branding: dict, logos
                 colWidths=[WIDTH / 4] * 4)
     g.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 6)]))
     el += [g, Paragraph("Commercial = regular and special spots. Value-add = sponsorship items (billboards, logos, tags, time checks). Medium is worked out from the channel name. "
-                        f"Frequency buy = the same theme on one channel, {rule.get('max_dur', 10)} seconds or shorter, {rule.get('min_daily', 10)} or more ads a day on air.", s.small)]
+                        f"High-Frequency Reminders = the same ad averaged more than {rule.get('min_daily', 10)} spots a day in a programme, or {rule.get('max_dur', 10)} seconds or shorter at {rule.get('min_daily', 10)}+ a day. "
+                        f"Exclusive Sponsorship / Value-Add = a logo, intro, outro, billboard, tag or time-check item on at least {rule.get('consistent_share', 50):.0f}% of the programme's airing days.", s.small)]
 
     # ---------------- section 2: channels
-    el += [PageBreak(), Paragraph("2. TV channel-wise breakdown", s.h2), Paragraph("Ranked by total monitored spend. Share of wallet = the channel's share of all monitored spend in this selection.", s.small), Spacer(1, 3)]
+    el += [PageBreak(), Paragraph("2. TV channel-wise breakdown", s.h2), Paragraph("Ranked by total monitored spend, highest first. Share of wallet = the channel's share of all monitored spend in this selection.", s.small), Spacer(1, 3)]
     has_r = bool(d.get("has_ratings"))
+    chs = d.get("channels") or []
     head = ["#", "Channel", "Medium", "Commercial spend", "Value-add spend", "Total monitored", "Commercial spots", "Sponsorship items", "Total spots", "Share of wallet", "Spots per day", "First in break"] + (["GRPs"] if has_r else [])
     rows = [head] + [[str(c["rank"]), _t(c["channel"]), c.get("medium", ""), _n(c.get("commercial_spend")), _n(c.get("value_add_spend")), _n(c.get("spend")), _n(c.get("commercial_spots")), _n(c.get("value_add_items")),
                       _n(c.get("spots")), _n(c.get("sow_pct"), "pct"), _n(c.get("spots_per_day"), "dec"), _n(c.get("fib_pct"), "pct")] + ([_n((c.get("ratings") or {}).get("grps"), "dec")] if has_r else [])
-                     for c in d.get("channels") or []]
-    el.append(_table(rows, [0.6, 3, 1.2, 2.4, 2.4, 2.4, 1.6, 1.6, 1.5, 1.5, 1.4, 1.4] + ([1.3] if has_r else []), s, brand))
+                     for c in chs]
+    sm = lambda k: sum((c.get(k) or 0) for c in chs)  # noqa: E731
+    rows.append(["", "Total", "", _n(sm("commercial_spend")), _n(sm("value_add_spend")), _n(sm("spend")), _n(sm("commercial_spots")), _n(sm("value_add_items")), _n(sm("spots")), "100.0%", "", ""]
+                + ([_n(sum(((c.get("ratings") or {}).get("grps") or 0) for c in chs), "dec")] if has_r else []))
+    last = len(rows) - 1
+    tot_style = [("FONTNAME", (0, last), (-1, last), "Helvetica-Bold"), ("LINEABOVE", (0, last), (-1, last), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, last), (-1, last), colors.HexColor("#e1e3fb"))]
+    num_cols = list(range(3, 12 + (1 if has_r else 0)))
+    el.append(_table([[Paragraph(f"<b>{safe(x)}</b>", s.cell) if (i == last and isinstance(x, str) and x) else x for x in r] for i, r in enumerate(rows)],
+                     [0.6, 3, 1.2, 2.4, 2.4, 2.4, 1.6, 1.6, 1.5, 1.5, 1.4, 1.4] + ([1.3] if has_r else []), s, brand, tot_style + [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in num_cols]))
 
     # ---------------- section 3: programmes
     el += [Spacer(1, 8), CondPageBreak(5 * cm), Paragraph("3. Programmes &amp; sponsorship intelligence", s.h2),
-           Paragraph(f"{d.get('n_programmes', 0)} programmes, {d.get('sponsored_programmes', 0)} with sponsorship. Sponsored programmes first.", s.small), Spacer(1, 3)]
-    rows = [["Channel", "Programme", "Sponsorship", "Sponsors (items)", "Sponsorship items", "Commercial spots", "Total spots", "Airing days", "Spots per airing", "Frequency buys"]]
+           Paragraph(f"{d.get('n_programmes', 0)} programmes, {d.get('sponsored_programmes', 0)} with sponsorship. Programmes with an exclusive sponsorship come first. "
+                     f"Classification: {EXCL} = a logo, intro, outro or similar item on at least {rule.get('consistent_share', 50):.0f}% of airing days; {HFR} = more than {rule.get('min_daily', 10)} spots a day, "
+                     f"or {rule.get('max_dur', 10)}s or shorter at {rule.get('min_daily', 10)}+ a day.", s.small), Spacer(1, 3)]
+    rows = [["Channel", "Programme", "Classification", "Sponsors (spots)", "Sponsorship items", "High-frequency spots", "Commercial spots", "Total spots", "Airing days", "Spots per airing"]]
     style = []
-    for r in (d.get("programmes") or [])[:60]:
-        rows.append([_t(r["channel"]), _t(r["program"]), "Sponsorship" if r.get("sponsored") else "Spots only",
+    pgs = (d.get("programmes") or [])[:60]
+    for r in pgs:
+        cl = [x for x in (EXCL if r.get("exclusive_ads") else (SPNL if r.get("sponsored") else None), HFR if r.get("frequency_ads") else None) if x] or ["Spots only"]
+        rows.append([_t(r["channel"]), _t(r["program"]), " + ".join(cl),
                      ", ".join(f"{x['advertiser']} ({x['items']:,})" for x in (r.get("sponsors") or [])[:3]) + (f" +{len(r['sponsors']) - 3} more" if len(r.get("sponsors") or []) > 3 else ""),
-                     _n(r.get("value_add_items")), _n(r.get("commercial_spots")), _n(r.get("spots")), _n(r.get("airing_days")), _n(r.get("spots_per_airing"), "dec"),
-                     f"{r['frequency_buys']} ({', '.join(r.get('frequency_advertisers') or [])})" if r.get("frequency_buys") else "0"])
-        if r.get("sponsored"):
+                     _n(r.get("value_add_items")), _n(r.get("frequency_spots")), _n(r.get("commercial_spots")), _n(r.get("spots")), _n(r.get("airing_days")), _n(r.get("spots_per_airing"), "dec")])
+        if r.get("exclusive_ads"):
             style.append(("TEXTCOLOR", (2, len(rows) - 1), (2, len(rows) - 1), brand))
-        if r.get("frequency_buys"):
-            style.append(("TEXTCOLOR", (9, len(rows) - 1), (9, len(rows) - 1), FREQ))
-    el.append(_table(rows, [2.2, 3.2, 1.6, 5.0, 1.5, 1.5, 1.2, 1.2, 1.4, 2.6], s, brand, style))
+        if r.get("frequency_spots"):
+            style.append(("TEXTCOLOR", (5, len(rows) - 1), (5, len(rows) - 1), FREQ))
+    smp = lambda k: sum((r.get(k) or 0) for r in pgs)  # noqa: E731
+    rows.append(["Total", "", "", "", _n(smp("value_add_items")), _n(smp("frequency_spots")), _n(smp("commercial_spots")), _n(smp("spots")), "", ""])
+    lp = len(rows) - 1
+    style += [("FONTNAME", (0, lp), (-1, lp), "Helvetica-Bold"), ("LINEABOVE", (0, lp), (-1, lp), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, lp), (-1, lp), colors.HexColor("#e1e3fb"))] + [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(4, 10)]
+    el.append(_table(rows, [2.2, 3.0, 3.6, 4.6, 1.5, 1.6, 1.5, 1.2, 1.2, 1.4], s, brand, style))
     if (d.get("n_programmes") or 0) > 60:
         el.append(Paragraph(f"Showing 60 of {d['n_programmes']} programmes.", s.small))
+    cl_all = d.get("classified") or []
+    if cl_all:
+        el += [PageBreak(), Paragraph("Classified ads: exclusive sponsorships and high-frequency reminders", s.h2),
+               Paragraph(f"Every sponsorship item and high-frequency ad, by programme ({_n(d.get('n_classified'))} in total, the top {len(cl_all[:60])} shown). Exclusive sponsorships first.", s.small), Spacer(1, 3),
+               _class_table(cl_all[:60], s, brand, with_programme=True)]
 
     # ---------------- drill-down details
     cds, pds = d.get("channel_details") or [], d.get("programme_details") or []
     if cds:
-        el += [PageBreak(), Paragraph("Detailed breakdown: channels", s.h2), Paragraph("For each channel: commercial details with duration split, ratings and volume, and sponsorship tags and frequency buys.", s.small)]
+        el += [PageBreak(), Paragraph("Detailed breakdown: channels", s.h2), Paragraph("For each channel: volume and ratings, commercial duration split, and the high-frequency and sponsorship ads behind it.", s.small)]
         for x in cds:
             el += _detail_block(x, _t(x["channel"]), s, brand)
     if pds:
         el += [PageBreak(), Paragraph("Detailed breakdown: programmes", s.h2), Paragraph("The top programmes of section 3, sponsored programmes first.", s.small)]
         for x in pds:
-            el += _detail_block(x, f"{_t(x['program'])} on {_t(x['channel'])}", s, brand)
+            el += _detail_block(x, f"{_t(x['program'])} on {_t(x['channel'])}", s, brand, title_has_programme=True)
     el += [Spacer(1, 8), Paragraph("Spend is monitored rate-card spend, not invoiced cost. Ratings come from the TVR sheet matched to each spot's channel and 30-minute timeband, when a TVR sheet is loaded.", s.small)]
 
     footer_txt = safe(f"{agency} | {cname} | Executive negotiation summary | {branding.get('report_footer', '')}")

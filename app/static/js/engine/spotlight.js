@@ -13,7 +13,9 @@
 (function (root) {
   const MR = root.MR;
   const { isoFromDay } = MR;
-  const BILLBOARD = ['-bb', 'com break', '-extro', '-intro', 'next card'];
+  const BILLBOARD = ['-bb', 'com break', '-extro', '-intro', '-outro', 'next card'];
+  // keywords that mark a sponsorship item even when the theme is not in the core list (whole words only: "Intro Offer" still counts, "Introduction" does not)
+  const EXTRA_BILLBOARD = /\b(intro|outro|extro)\b/i, EXTRA_LOGO = /\blogo\b/i;
   const DUR = ['5s', '10s', '15s', '20s', '30s', '30s+'];
   const durIdx = (d) => (!(d > 0) ? -1 : d <= 7 ? 0 : d <= 12 ? 1 : d <= 17 ? 2 : d <= 25 ? 3 : d <= 30 ? 4 : 5);
   const DUR_FILTER = { all: () => true, 5: (d) => durIdx(d) === 0, 10: (d) => durIdx(d) === 1, le10: (d) => d > 0 && d <= 12, 15: (d) => durIdx(d) === 2, 20: (d) => durIdx(d) === 3, 30: (d) => durIdx(d) === 4, '30p': (d) => durIdx(d) === 5 };
@@ -25,7 +27,7 @@
   /** Per theme code: 0 = not sponsorship, 1 = billboard kind, 2 = logo kind. */
   function themeKinds(L) {
     return L.dicts.theme.map((t) => {
-      if (!MR.isSponsorTheme(t)) return 0;
+      if (!MR.isSponsorTheme(t)) return EXTRA_BILLBOARD.test(String(t)) ? 1 : EXTRA_LOGO.test(String(t)) ? 2 : 0;
       const x = String(t).trim().toLowerCase();
       return BILLBOARD.some((k) => x === k || (k[0] === '-' && x.endsWith(k))) ? 1 : 2;
     });

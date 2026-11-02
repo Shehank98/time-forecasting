@@ -360,18 +360,27 @@ A table-first summary for agency heads and brand managers. It is the second tab,
 **Filters:** advertisers, channels and a From/To date (with quick ranges). These narrow everything on the page and in the PDF, together with the page filters.
 
 1. **Overall campaign summary:**
-   - headline numbers: active brands and products, total monitored spend, commercial spend vs value-add (sponsorship) spend, spots and sponsorship items, programmes, frequency buys, and GRPs/CPRP when a TVR sheet is loaded;
+   - active brands and products, total monitored spend, **commercial only** vs **value addition / sponsorship** spend, spots and sponsorship items, programmes;
+   - exclusive sponsorships and high-frequency reminders;
+   - GRPs and CPRP when a TVR sheet is loaded;
    - duration, language and medium splits, and the top brands.
-2. **TV channel-wise breakdown:** ranked by total monitored spend. Each channel shows commercial spend, value-add spend, total, commercial spots, sponsorship items, total spots, share of wallet, and GRPs when a TVR sheet is loaded.
-3. **Programmes & sponsorship intelligence:** each programme shows its channel, whether it has sponsorship, the sponsors with item counts, sponsorship items, commercial spots, total spots, airing days, spots per airing and frequency buys. Sponsored programmes come first.
+2. **TV channel-wise breakdown:** ranked by total monitored spend, highest first. Each channel shows commercial spend, value-add spend, total, commercial spots, sponsorship items, total spots and share of wallet (and GRPs with a TVR sheet). A bold totals row closes the table, with zebra rows and right-aligned numbers.
+3. **Programmes & sponsorship intelligence:** each programme shows its classification, the sponsors with spot counts, sponsorship items, high-frequency spots, commercial spots, total spots, airing days and spots per airing. Programmes with an exclusive sponsorship come first. A totals row closes the table.
+
+**How ads are classified.** This is worked out for each ad (advertiser + theme) inside each programme (a channel and programme name):
+- **High-Frequency Reminders:** on the days the ad ran in the programme it averaged **more than 10** spots a day, or it was **10 seconds or shorter** and averaged **10 or more** a day. Both numbers can be changed in the Programme Spotlight tab.
+- **Exclusive Sponsorship / Value-Add:** a sponsorship item that appears consistently in the programme, meaning on at least **half of the programme's airing days** (and at least 3 days, or every airing when there are fewer). Sponsorship items are found from the theme: Logo, Intro, Outro or Extro (whole words), -BB, Com Break, Next Card, LLogo, Tag, Time Check, DJ and -Tr.
+- **Sponsorship / Value-Add:** a sponsorship item that does not recur consistently.
+- An ad can be both, for example a logo shown 12 times an episode.
 
 **Click any channel or programme row** to open its details underneath:
-- **Commercial details:** commercial spots and spend, the duration split (5s, 10s, 15s, 20s, 30s, 30s+), dayparts and the top advertisers.
-- **Ratings & volume:** GRPs, average spot rating, CPRP and the share of spots rated (from the TVR sheet, matched by channel and 30-minute timeband); also spots per day, active days, busiest day, ads in break, first in break and average length.
-- **Sponsorship details:** sponsorship items, billboards, logos and tags, sponsorship spend, each sponsorship tag with its ad count and daily average, and frequency buys.
+- **High-frequency spots vs logo, intro and outro sponsorships:** a mini-table of every classified ad with its classification, spots, days present out of airing days, daily average, duration split (5s, 10s, 30s and so on) and placements in the break (first, middle, last).
+- **Commercial details:** commercial spots and spend, the duration split and dayparts.
+- **Ratings & volume:** GRPs, average spot rating, CPRP and the share of spots rated (from the TVR sheet, matched by channel and 30-minute timeband), plus spots per day, busiest day, ads in break and first in break.
+- **Sponsorship details:** sponsorship items, billboards, logos and tags, sponsorship spend and the top advertisers.
 
 **Medium** is worked out from the channel name: "FM" or "Radio" counts as Radio, everything else as TV. The LMRB sheet has no medium column.
 
-**Export Executive Summary PDF** (`POST /api/executive/pdf`) contains the three summary sections, then the full drill-down for the top 10 channels and the top 12 programmes. A copy is kept under Reports.
+**Export Executive Summary PDF** (`POST /api/executive/pdf`) contains the three summary sections with totals, a table of the classified ads, then the full drill-down for the top 10 channels and the top 12 programmes. A copy is kept under Reports.
 
-The numbers are computed in the browser (`app/static/js/engine/executive.js`). `tests/test_executive.py` checks them against pandas.
+The numbers are computed in the browser (`app/static/js/engine/executive.js`). `tests/test_executive.py` checks them against pandas and tests each edge case of the classification.
