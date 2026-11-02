@@ -698,3 +698,26 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .neg-hot { color: var(--bad); font-weight: 700; }
 @media (max-width: 640px) { .neg-lev { grid-template-columns: 1fr; } .neg-lev-v { text-align: left; } }
 .neg-tree td.neg-nw { white-space: nowrap; }
+
+/* Programme & Sponsorship Spotlight */
+.sp-pick { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(180px, 1fr) auto; gap: 12px; align-items: end; }
+.linkish { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.sp-eyebrow { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+.sp-focus { display: flex; gap: 10px; align-items: center; }
+.sp-brief { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 6px; } .sp-brief li { line-height: 1.5; } .sp-brief li.k-lead { font-weight: 600; font-size: 1.02em; }
+.sp-pos { display: grid; gap: 8px; margin-top: 10px; }
+.sp-pos-r { display: grid; grid-template-columns: 110px 1fr 44px 50px; gap: 10px; align-items: center; }
+.sp-pos-b { height: 10px; border-radius: 6px; background: var(--surface-2); overflow: hidden; } .sp-pos-b i { display: block; height: 100%; border-radius: 6px; }
+.sp-pos-b i.good { background: var(--good); } .sp-pos-b i.info { background: var(--accent-2); } .sp-pos-b i.bad { background: var(--bad); } .sp-pos-b i.warn { background: var(--warn); }
+.badge.role-title { background: var(--grad); color: var(--on-grad); } .badge.role-co { background: var(--info-soft); color: var(--accent-2); }
+.badge.role-logo { background: var(--warn-soft); color: var(--warn); } .badge.role-reg { background: var(--surface-2); color: var(--muted); }
+.sf-bar { display: grid; grid-template-columns: auto minmax(150px, 1fr) minmax(150px, 1fr) minmax(180px, 1.4fr) auto; gap: 12px; align-items: end; }
+.sf-exp { gap: 6px; }
+.sf-scroll { max-height: 680px; }
+.sf-tbl td { vertical-align: middle; } .sf-tbl tr.sf-row { cursor: pointer; } .sf-tbl tr.sf-row[aria-expanded="true"] td { background: var(--accent-soft); }
+.sf-dur { display: flex; height: 9px; width: 130px; border-radius: 5px; overflow: hidden; background: var(--surface-2); } .sf-dur i { display: block; height: 100%; }
+.sf-dur-l { margin-top: 3px; color: var(--muted); white-space: nowrap; }
+.sf-exp-row > td { background: var(--surface-2); }
+.sf-d-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; padding: 6px 2px; }
+.sf-d-h { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; font-weight: 700; }
+@media (max-width: 900px) { .sp-pick, .sf-bar, .sf-d-grid { grid-template-columns: 1fr; } }

@@ -1,0 +1,10 @@
+// node tests/js/spotlight.js <op> <lmrb.csv> '<options json>'   op = index | programme | matrix | row
+const { load, fileOf } = require('./load.js');
+const MR = load();
+(async () => {
+  const [op, file, opts] = process.argv.slice(2);
+  const L = await MR.parseFile('lmrb', fileOf(file)); const idx = MR.applyFilters(L, 'lmrb', {});
+  const o = JSON.parse(opts || '{}');
+  const f = { index: () => MR.spotlightIndex(L, idx), programme: () => MR.programmeSpotlight(L, idx, o), matrix: () => MR.shortFormMatrix(L, idx, o), row: () => MR.shortFormRow(L, idx, o) }[op];
+  process.stdout.write(JSON.stringify(f()));
+})().catch((e) => { console.error(e.stack); process.exit(1); });

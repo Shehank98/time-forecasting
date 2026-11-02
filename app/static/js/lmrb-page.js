@@ -280,7 +280,7 @@
   const tabs = [
     { id: 'overview', label: 'Overview', render: overview }, { id: 'spend', label: 'Spend breakdown', render: spend }, { id: 'mix', label: 'Channel and programme mix', render: mix },
     { id: 'flighting', label: 'Flighting', render: flighting }, { id: 'creatives', label: 'Creatives', render: creatives }, { id: 'pricing', label: 'Pricing', render: pricing },
-    { id: 'position', label: 'Position strategy', render: position }, { id: 'grp', label: 'GRPs and CPRP', render: grps, hidden: (ctx) => !(ctx.data && ctx.data.grp) }, { id: 'negotiation', label: 'Deep Negotiation & Brand Intelligence', render: (p, ctx) => App.negotiation.tab(p, ctx), hidden: () => !App.negotiation }, { id: 'alerts', label: 'Alerts', render: alerts }, { id: 'h2h', label: 'Head to head', render: head },
+    { id: 'position', label: 'Position strategy', render: position }, { id: 'grp', label: 'GRPs and CPRP', render: grps, hidden: (ctx) => !(ctx.data && ctx.data.grp) }, { id: 'spotlight', label: 'Programme & Sponsorship Spotlight', render: (p, ctx) => App.spotlight.tab(p, ctx), hidden: () => !App.spotlight }, { id: 'negotiation', label: 'Deep Negotiation & Brand Intelligence', render: (p, ctx) => App.negotiation.tab(p, ctx), hidden: () => !App.negotiation }, { id: 'alerts', label: 'Alerts', render: alerts }, { id: 'h2h', label: 'Head to head', render: head },
   ];
   if (App.forecast) tabs.push({ id: 'forecast', label: 'Forecast studio', alwaysRender: true, render: (p, ctx) => App.forecast.tab(p, ctx) });
   if (App.insights) tabs.push({ id: 'ai', label: 'AI insights', alwaysRender: true, render: (p, ctx) => App.insights.tab(p, ctx) });

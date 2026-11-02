@@ -293,3 +293,56 @@ A tab on the LMRB card for rate negotiations. It drills down in three levels: Ch
   A copy is saved under Reports.
 
 The numbers are computed in the browser (`app/static/js/engine/negotiation.js`). `tests/test_negotiation.py` checks them against pandas.
+
+## Programme & Sponsorship Spotlight (Market card)
+
+A tab with two views. Both use the same rules for sorting spots.
+
+**How spots are sorted**
+- **Sponsorship items** are worked out from the theme. There are two kinds:
+  - **Billboards:** -BB, -Intro, -Extro, Com Break, Next Card.
+  - **Logo items:** -LLogo, Tag, Time Check, DJ, -Tr.
+- **Special placement** is any other spot that is 60 seconds or longer and costs 3x or more the programme's median spot.
+
+**The role of each brand in a programme** (a programme is one channel + programme; the role is judged on all spot lengths):
+- **Title Sponsor:** has billboards and the largest sponsorship spend in the programme, at least 25% of it.
+- **Co-Sponsor:** has billboards but is not the title sponsor.
+- **Logo Placement:** has only logo items.
+- **Regular Spot:** has no sponsorship items.
+
+**Programme Spotlight**
+- Search for any programme, on one channel or on all channels that air it. Then pick the brand to focus on. The default is the title sponsor, or your brand if it appears in the programme.
+- The headline numbers are:
+  - total sponsored investment;
+  - total spot count;
+  - the brand's share of voice inside the programme;
+  - first in break;
+  - average break clutter.
+- The charts and tables are:
+  - sponsorship vs special vs regular spend per advertiser;
+  - an ad count by episode chart (by airing, week or month), where peak episodes are marked in red;
+  - where the brand's spots sat in the break;
+  - a period breakdown;
+  - every advertiser in the programme.
+- A peak episode has at least 1.5x the usual spots per airing, and at least 3 more.
+- The **Sponsorship Impact Brief** writes the buyer's talking points from these numbers, for example: "Brand X holds the primary sponsorship for Programme Y with a total investment of LKR Z and N spots ... P% were positioned as First-in-Break ...".
+
+**Short-form & Sponsorship Matrix**
+- One row per programme and brand. Each row shows:
+  - channel and programme;
+  - advertiser and product;
+  - sponsorship type;
+  - a duration split of 5s, 10s, 15s, 20s, 30s and 30s+;
+  - spots per day and per month;
+  - average ads in break;
+  - first in break, and first or last in break.
+- The **Negotiation health** score runs from 0 to 100. It adds three parts:
+  - low clutter, worth 40 points;
+  - first or last in break, worth 35 points;
+  - price per second against the programme's going rate, worth 25 points.
+- The health badge is green at 65 or more, amber at 40 to 64, and red below 40. The clutter threshold is shared with the Negotiation tab.
+- Quick filters: spot length (5s, 10s, 10s and under, 15s, 30s, 30s+), channel, sponsorship tag and search.
+- Click a column heading to sort. Click a row to see its daily spots and cost efficiency.
+- **Export CSV** and **Export Excel** download the table.
+
+The numbers are computed in the browser (`app/static/js/engine/spotlight.js`). `tests/test_spotlight.py` checks them against pandas.

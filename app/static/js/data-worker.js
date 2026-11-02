@@ -4,7 +4,7 @@
  */
 /* global MR */
 importScripts('/js/vendor/xlsx.full.min.js', '/js/engine/core.js', '/js/engine/ingest.js', '/js/engine/filters.js', '/js/engine/analytics_tv.js',
-  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js', '/js/engine/negotiation.js');
+  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js', '/js/engine/negotiation.js', '/js/engine/spotlight.js');
 
 const DB_NAME = 'media-radar', DB_VER = 1, MAX_CSV_ROWS = 1000000;
 let scope = null;                       // "u<user>:c<client>"
@@ -279,6 +279,10 @@ const OPS = {
     if (vaultCache.sig !== k) vaultCache.rows = kind === 'tv' ? MR.vaultRowsTv(T) : MR.vaultRowsLmrb(T), vaultCache.sig = k;
     return { total: vaultCache.rows.length, rows: vaultCache.rows.slice(offset || 0, (offset || 0) + (limit || 20000)) };
   },
+  spotlightIndex({ filters }) { table('lmrb'); const L = tables.lmrb; return MR.spotlightIndex(L, MR.applyFilters(L, 'lmrb', filters || {})); },
+  programmeSpotlight({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.programmeSpotlight(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
+  shortFormMatrix({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.shortFormMatrix(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
+  shortFormRow({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.shortFormRow(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   negotiation({ filters, options }) {
     table('lmrb');
     const L = tables.lmrb, idx = MR.applyFilters(L, 'lmrb', filters || {});

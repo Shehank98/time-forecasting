@@ -118,6 +118,7 @@
     flighting: { text: 'When each competitor is on air, in bursts or always on.', icon: '<path d="M3 17l18-6-6 10-3-6z"/>' },
     creatives: { text: 'New, returning, paused and dropped creatives.', icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/>' },
     pricing: { text: 'Cost per second, discounts and price outliers.', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5c0-1 1-1.5 2.5-1.5s2.5.6 2.5 1.7c0 2.3-5 1.3-5 3.6 0 1.1 1 1.7 2.5 1.7s2.5-.5 2.5-1.5"/>' },
+    spotlight: { text: 'Who sponsors each programme, how many spots they run in it, peak episodes, and a scannable short-form and sponsorship table.', icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5L19 19M5 19l2.5-2.5M16.5 7.5L19 5"/>' },
     negotiation: { text: 'Channel to brand to theme drill-down, share of wallet, clutter vulnerability and the rebate and bonus points to negotiate.', icon: '<path d="M4 12l4-4 4 4 4-4 4 4"/><path d="M4 18h16"/><circle cx="12" cy="5" r="1.5"/>' },
     position: { text: 'Who buys first and last position in the break.', icon: '<path d="M5 6h14M5 12h14M5 18h14"/><circle cx="5" cy="6" r="1.2"/>' },
     grp: { text: 'GRPs, CPRP and share of GRPs from matched ratings.', icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>' },
