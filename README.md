@@ -261,3 +261,9 @@ The **Programme buys** view forecasts how many commercials each tracked rival wi
 ## How accuracy is measured
 
 Every series with at least 8 points is backtested, on up to two past windows, and the method that does best across those windows is used (including an average of the two best). Trust is measured on the level planners buy at: weekly totals for daily series (the daily figure is shown next to it). It is the measured result, not a target: noisy, intermittent or short series will score lower, and the badge says so.
+
+## Actuals and forecast chart (Forecast studio)
+
+Long histories open on a recent window (3 months of a daily series, 1 year of a weekly one, 2 years of a monthly one) with the forecast. Buttons switch the range (up to All) and, for daily data, between daily values and weekly totals. A thin strip under the chart shows the whole history with the visible window highlighted. Daily data is drawn as a 7-day average over the faint daily line; switch it off to see raw days. Range band, backtest and alerts can be toggled. In the weekly view, incomplete first and last weeks are left out and weekly ranges combine the daily ranges as if days vary independently (approximate).
+
+`tests/tools/validate_numbers.py` recomputes the forecast inputs, tiles, share charts, programme buy counts, alignment and backtests from the raw sheets and compares them with what the browser sent, received and drew.

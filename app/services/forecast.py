@@ -514,6 +514,33 @@ MAX_SERIES = 300
 MAX_POINTS = 6000
 
 
+def _incomplete_last_day(items: list[dict], gran: str, notes: list[str]) -> dict[tuple[str, str], bool]:
+    """Per chart group: is the newest day only part of a day? Judged on the group's total so every series in the group keeps the same dates.
+
+    True when the group's total on its last day is under a quarter of the median of the 7 days before it.
+    """
+    out: dict[tuple[str, str], bool] = {}
+    if gran != "daily":
+        return out
+    tot: dict[tuple[str, str], dict[str, float]] = {}
+    for it in items:
+        if (it.get("agg") or "mean") not in ("sum", "count") or len(it.get("dates") or []) < 21:
+            continue
+        key = (str(it.get("group") or ""), str(it["dates"][-1])[:10])
+        t = tot.setdefault(key, {})
+        for d, v in zip(it["dates"][-8:], it["values"][-8:]):
+            if v is not None and np.isfinite(v):
+                t[str(d)[:10]] = t.get(str(d)[:10], 0.0) + float(v)
+    for (g, last), t in tot.items():
+        prev = [v for d, v in sorted(t.items()) if d != last][-7:]
+        ref = float(np.median(prev)) if prev else 0.0
+        if ref > 0 and t.get(last, 0.0) < 0.25 * ref:
+            out[(g, last)] = True
+            log.info("[forecast] input: dropped incomplete last day %s for group '%s' (total %.0f vs about %.0f)", last, g, t.get(last, 0.0), ref)
+            notes.append(f"The last day ({last}) looks incomplete ({t.get(last, 0.0):,.0f} against about {ref:,.0f} on the days before) and was left out{f' for {g}' if g else ''}.")
+    return out
+
+
 def specs_from_payload(items: list[dict], gran: str) -> tuple[list[S.SeriesSpec], list[str]]:
     """Series built in the browser: [{entity, group, metric, label, unit, agg, zero_fill, dates, values}].
 
@@ -526,6 +553,7 @@ def specs_from_payload(items: list[dict], gran: str) -> tuple[list[S.SeriesSpec]
     if len(items) > MAX_SERIES:
         raise ValueError(f"At most {MAX_SERIES} series per request.")
     specs, notes = [], []
+    drop_last = _incomplete_last_day(items, gran, notes)
     for it in items:
         dates = pd.DatetimeIndex(pd.to_datetime(it.get("dates") or [], errors="coerce"))
         vals = np.array([np.nan if v is None else float(v) for v in (it.get("values") or [])], dtype=float)
@@ -546,13 +574,9 @@ def specs_from_payload(items: list[dict], gran: str) -> tuple[list[S.SeriesSpec]
         if n_obs == 0:
             notes.append(f"{it.get('entity')}: no data in the selected window, skipped.")
             continue
-        # the newest day of an upload is often only part of a day: leave it out when it is far below the days before it
-        if gran == "daily" and agg in ("sum", "count") and len(vals) >= 21 and np.isfinite(vals[-1]):
-            ref = float(np.nanmedian(vals[-8:-1]))
-            if ref > 0 and vals[-1] < 0.25 * ref:
-                log.info("[forecast] input: dropped incomplete last day %s for '%s' (%.0f vs about %.0f)", dates[-1].date(), it.get("entity"), vals[-1], ref)
-                notes.append(f"{it.get('entity')}: the last day ({dates[-1].date()}) looks incomplete ({vals[-1]:,.0f} against about {ref:,.0f} on the days before) and was left out.")
-                dates, vals = dates[:-1], vals[:-1]
+        # the newest day of an upload is often only part of a day: decided once per chart group (see below) so series stay aligned
+        if drop_last.get((str(it.get("group") or ""), str(dates[-1].date()))) and agg in ("sum", "count") and len(vals) > 1:
+            dates, vals = dates[:-1], vals[:-1]
         s = pd.Series(vals, index=dates)
         s = s.fillna(0.0) if zero_fill else s.interpolate(limit_direction="both")
         v = s.to_numpy(dtype=float)

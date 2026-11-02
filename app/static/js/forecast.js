@@ -25,38 +25,126 @@
     const { ctx, chartArea: ar, scales: { x } } = chart; ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = C.css('--bad') || '#d6364f'; ctx.lineWidth = 1;
     opts.lines.forEach((l) => { const px = x.getPixelForValue(l.index); if (px >= ar.left && px <= ar.right) { ctx.beginPath(); ctx.moveTo(px, ar.top); ctx.lineTo(px, ar.bottom); ctx.stroke(); } }); ctx.restore(); } };
 
+  /* Chart view state, kept while the page is open. Big histories open on a recent window so the forecast stays readable. */
+  const VIEW = { range: null, weekly: false, smooth: true, band: true, backtest: false, alerts: true };
+  const RANGES = { daily: [['3m', '3 months', 91], ['6m', '6 months', 182], ['1y', '1 year', 365], ['all', 'All', Infinity]],
+    weekly: [['6m', '6 months', 26], ['1y', '1 year', 52], ['2y', '2 years', 104], ['all', 'All', Infinity]],
+    monthly: [['1y', '1 year', 12], ['2y', '2 years', 24], ['3y', '3 years', 36], ['all', 'All', Infinity]] };
+  const defaultRange = (gran, n) => (gran === 'daily' ? (n > 120 ? '3m' : 'all') : gran === 'weekly' ? (n > 60 ? '1y' : 'all') : (n > 30 ? '2y' : 'all'));
+  const weekStart = (iso) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
+  /** Sums (or averages) daily points into Monday-start weeks. */
+  function toWeeks(dates, vals, additive) {
+    const m = new Map();
+    dates.forEach((d, i) => { const k = weekStart(d), v = vals[i]; if (v == null || !Number.isFinite(v)) return; const g = m.get(k) || { s: 0, n: 0 }; g.s += v; g.n++; m.set(k, g); });
+    const keys = [...m.keys()].sort();
+    return { dates: keys, vals: keys.map((k) => (additive ? m.get(k).s : m.get(k).s / m.get(k).n)), counts: keys.map((k) => m.get(k).n) };
+  }
+  const rolling = (a, k) => a.map((_, i) => { const w = a.slice(Math.max(0, i - k + 1), i + 1).filter((v) => v != null && Number.isFinite(v)); return w.length ? w.reduce((x, y) => x + y, 0) / w.length : null; });
+  const tickFmt = (gran) => (iso) => { const d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z'); if (Number.isNaN(d.getTime())) return iso;
+    return gran === 'monthly' ? d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' }) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }); };
+
+  /** The series as drawn: optional weekly totals for daily data, then the history window. */
+  function shape(r) {
+    const add = !!(r.outlook && r.outlook.additive), daily = r.granularity === 'daily', weekly = daily && VIEW.weekly;
+    let hd = r.history.dates, hv = r.history.values, fd = r.forecast.dates, f10 = r.forecast.p10, f50 = r.forecast.p50, f90 = r.forecast.p90, gran = r.granularity, partialNote = '';
+    if (weekly) {
+      const h = toWeeks(hd, hv, add), f = toWeeks(fd, f50, add);
+      // forecast range of a week: days are combined as if they vary independently, which is far closer than adding up daily low and high cases
+      const m = new Map(); fd.forEach((d, i) => { const k = weekStart(d), g = m.get(k) || { lo: 0, hi: 0 }; g.lo += (f50[i] - f10[i]) ** 2; g.hi += (f90[i] - f50[i]) ** 2; m.set(k, g); });
+      let lo = f.dates.map((k, j) => (add ? Math.max(0, f.vals[j] - Math.sqrt(m.get(k).lo)) : f.vals[j] - Math.sqrt(m.get(k).lo) / f.counts[j]));
+      let hi = f.dates.map((k, j) => (add ? f.vals[j] + Math.sqrt(m.get(k).hi) : f.vals[j] + Math.sqrt(m.get(k).hi) / f.counts[j]));
+      const notes = [];
+      if (add) {
+        // a week split between history and forecast is shown once, as the forecast week including its recorded days
+        if (h.dates.length && f.dates.length && h.dates[h.dates.length - 1] === f.dates[0]) {
+          const part = h.vals[h.vals.length - 1]; f.vals[0] += part; lo[0] += part; hi[0] += part; f.counts[0] += h.counts[h.counts.length - 1];
+          h.dates.pop(); h.vals.pop(); h.counts.pop(); notes.push('The first forecast week includes the recorded days of that week.');
+        }
+        if (h.counts.length && h.counts[0] < 7) { h.dates.shift(); h.vals.shift(); h.counts.shift(); notes.push('The first, incomplete week of history is left out.'); }
+        if (f.counts.length > 1 && f.counts[f.counts.length - 1] < 7) { f.dates.pop(); f.vals.pop(); f.counts.pop(); lo.pop(); hi.pop(); notes.push('The last forecast week is incomplete and is left out.'); }
+      }
+      partialNote = notes.join(' ');
+      hd = h.dates; hv = h.vals; fd = f.dates; f50 = f.vals; f10 = lo; f90 = hi; gran = 'weekly';
+    }
+    const opts = RANGES[gran], key = VIEW.range && opts.some((o) => o[0] === VIEW.range) ? VIEW.range : defaultRange(gran, hd.length);
+    const keep = (opts.find((o) => o[0] === key) || opts[opts.length - 1])[2], start = Math.max(0, hd.length - keep);
+    return { gran, weekly, add, key, start, hd: hd.slice(start), hv: hv.slice(start), allHd: hd, allHv: hv, fd, f10, f50, f90, partialNote };
+  }
+
   function drawChart(id, r) {
-    const hd = r.history.dates, fd = r.forecast.dates, labels = hd.concat(fd), nh = hd.length;
-    const pad = (arr, off) => Array(off).fill(null).concat(arr);
-    const last = r.history.values[nh - 1];
-    const p10 = pad(r.forecast.p10, nh), p90 = pad(r.forecast.p90, nh), p50 = pad(r.forecast.p50, nh);
-    p10[nh - 1] = p50[nh - 1] = p90[nh - 1] = last;
-    const col = C.PALETTE[0], vf = unitFmt(r.unit);
-    const ds = [
-      { label: 'High case', data: p90, borderColor: 'transparent', backgroundColor: col + '30', fill: '+1', pointRadius: 0, order: 5 },
-      { label: 'Low case', data: p10, borderColor: 'transparent', backgroundColor: col + '30', fill: false, pointRadius: 0, order: 5 },
-      { label: 'Most likely forecast', data: p50, borderColor: col, borderDash: [6, 4], pointRadius: 0, order: 2 },
-      { label: 'Actual', data: r.history.values.concat(Array(fd.length).fill(null)), borderColor: C.css('--text') || '#222', backgroundColor: C.css('--text') || '#222', pointRadius: nh > 60 ? 0 : 2, order: 1 },
-    ];
-    if (r.backtest) {
-      const arr = Array(labels.length).fill(null), lo = arr.slice(), hi = arr.slice();
-      r.backtest.dates.forEach((d, k) => { const i = labels.indexOf(d); if (i >= 0) { arr[i] = r.backtest.pred[k]; lo[i] = r.backtest.p10[k]; hi[i] = r.backtest.p90[k]; } });
-      ds.push({ label: 'Expected band (monitoring)', data: hi, borderColor: 'transparent', backgroundColor: C.PALETTE[2] + '28', fill: '+1', pointRadius: 0, order: 6 });
-      ds.push({ label: 'lo', data: lo, borderColor: 'transparent', fill: false, pointRadius: 0, order: 6 });
-      ds.push({ label: 'Backtest forecast', data: arr, borderColor: C.PALETTE[2], pointRadius: 3, borderDash: [2, 3], order: 3 });
+    const v = shape(r), nh = v.hd.length, labels = v.hd.concat(v.fd);
+    const pad = (arr) => Array(nh - 1).fill(null).concat([v.hv[nh - 1]], arr);
+    const col = C.PALETTE[0], txt = C.css('--text') || '#222', vf = unitFmt(r.unit), daily = v.gran === 'daily';
+    const smooth = daily && VIEW.smooth && nh > 21;
+    const ds = [];
+    if (VIEW.band) {
+      ds.push({ label: 'High case', data: pad(v.f90), borderColor: 'transparent', backgroundColor: col + '30', fill: '+1', pointRadius: 0, order: 5 });
+      ds.push({ label: 'Low case', data: pad(v.f10), borderColor: 'transparent', backgroundColor: col + '30', fill: false, pointRadius: 0, order: 5 });
     }
-    const marks = Array(labels.length).fill(null);
-    r.anomalies.forEach((a) => { const i = labels.indexOf(a.date); if (i >= 0) marks[i] = a.value; });
-    (r.band_breaches || []).forEach((b) => { const i = labels.indexOf(b.date); if (i >= 0) marks[i] = b.actual; });
-    if (marks.some((v) => v != null)) ds.push({ label: 'Alert', data: marks, showLine: false, pointStyle: 'triangle', pointRadius: 7, borderColor: C.css('--bad') || 'red', backgroundColor: C.css('--bad') || 'red', order: 0 });
-    const ch = C.line({ id, labels, datasets: ds, valueFmt: vf });
-    if (ch) {
-      ch.options.plugins.cp = { lines: r.change_points.map((c) => ({ index: labels.indexOf(c.date) })).filter((l) => l.index >= 0) };
-      const hide = ['Low case', 'High case', 'lo'];
-      ch.options.plugins.legend.labels.filter = (i) => !hide.includes(i.text);
-      ch.options.plugins.tooltip.filter = (i) => !hide.includes(i.dataset.label);
-      ch.options.plugins.nowLine = { index: nh - 1 }; ch.config.plugins = [cpPlugin, C.nowLine]; ch.update();
+    ds.push({ label: 'Most likely forecast', data: pad(v.f50), borderColor: col, borderDash: [6, 4], borderWidth: 2.5, pointRadius: nh + v.fd.length > 120 ? 0 : 2, order: 2 });
+    if (smooth) {
+      ds.push({ label: 'Actual (each day)', data: v.hv.concat(Array(v.fd.length).fill(null)), borderColor: txt + '40', borderWidth: 1, pointRadius: 0, order: 3 });
+      ds.push({ label: 'Actual, 7-day average', data: rolling(v.hv, 7).concat(Array(v.fd.length).fill(null)), borderColor: txt, borderWidth: 2.2, pointRadius: 0, order: 1 });
+    } else {
+      ds.push({ label: v.weekly ? 'Actual (weekly total)' : 'Actual', data: v.hv.concat(Array(v.fd.length).fill(null)), borderColor: txt, backgroundColor: txt, borderWidth: 2, pointRadius: nh > 60 ? 0 : 2, order: 1 });
     }
+    if (VIEW.backtest && r.backtest && !v.weekly) {
+      const arr = Array(labels.length).fill(null);
+      r.backtest.dates.forEach((d, k) => { const i = labels.indexOf(d); if (i >= 0) arr[i] = r.backtest.pred[k]; });
+      ds.push({ label: 'Backtest: what the engine would have said', data: arr, borderColor: C.css('--warn') || '#ffb547', pointRadius: 3, borderDash: [2, 3], order: 0 });
+    }
+    if (VIEW.alerts && !v.weekly) {
+      const marks = Array(labels.length).fill(null);
+      r.anomalies.forEach((a) => { const i = labels.indexOf(a.date); if (i >= 0) marks[i] = a.value; });
+      (r.band_breaches || []).forEach((b) => { const i = labels.indexOf(b.date); if (i >= 0) marks[i] = b.actual; });
+      if (marks.some((x) => x != null)) ds.push({ label: 'Alert', data: marks, showLine: false, pointStyle: 'triangle', pointRadius: 7, borderColor: C.css('--bad') || 'red', backgroundColor: C.css('--bad') || 'red', order: 0 });
+    }
+    const hide = ['Low case', 'High case'], tf = tickFmt(v.gran);
+    C.make(id, { type: 'line', data: { labels, datasets: ds }, plugins: [cpPlugin, C.nowLine],
+      options: { interaction: { mode: 'index', intersect: false }, animation: labels.length > 400 ? false : undefined,
+        plugins: { legend: { position: 'bottom', labels: { filter: (i) => !hide.includes(i.text) } }, nowLine: { index: nh - 1 },
+          cp: { lines: r.change_points.map((c) => ({ index: labels.indexOf(v.weekly ? weekStart(c.date) : c.date) })).filter((l) => l.index >= 0) },
+          tooltip: { filter: (i) => !hide.includes(i.dataset.label) && i.parsed.y != null, callbacks: { title: (it) => `${tf(it[0].label)}${v.weekly ? ' (week)' : ''}  ·  ${it[0].dataIndex >= nh ? 'FORECAST' : 'actual'}`,
+            label: (c) => `${c.dataset.label}: ${vf(c.parsed.y)}`, afterBody: (it) => { const k = it[0].dataIndex - nh; return k >= 0 && k < v.fd.length ? [`Range: ${vf(v.f10[k])} to ${vf(v.f90[k])}`] : []; } } } },
+        scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8, autoSkip: true, maxRotation: 0, callback(val) { return tf(this.getLabelForValue(val)); } } },
+          y: { beginAtZero: v.add, ticks: { maxTicksLimit: 6, callback: (x) => vf(x) } } } } });
+    drawOverview(id + '-ov', r, v);
+    const note = document.getElementById(id + '-note');
+    if (note) note.textContent = [v.start > 0 ? `Showing the last ${nh} of ${v.allHd.length} ${v.weekly ? 'weeks' : r.granularity === 'daily' ? 'days' : r.granularity === 'weekly' ? 'weeks' : 'months'} and the forecast. Pick a range to see more.` : '', v.weekly ? 'Weekly ranges combine the daily ranges as if days vary independently, so they are approximate.' : '', v.partialNote].filter(Boolean).join(' ');
+  }
+  /** Small full-history strip under the chart, with the window that is shown above highlighted. */
+  function drawOverview(id, r, v) {
+    const el = document.getElementById(id); if (!el) return;
+    const labels = v.allHd.concat(v.fd), col = C.PALETTE[0], n = v.allHd.length;
+    const win = { id: 'win', beforeDatasetsDraw(chart) { const { ctx, chartArea: ar, scales: { x } } = chart; const x0 = x.getPixelForValue(v.start), x1 = x.getPixelForValue(n - 1);
+      ctx.save(); ctx.fillStyle = (C.css('--accent') || '#3de0ff') + '22'; ctx.strokeStyle = (C.css('--accent') || '#3de0ff') + '88'; ctx.fillRect(x0, ar.top, x1 - x0, ar.bottom - ar.top); ctx.strokeRect(x0, ar.top, x1 - x0, ar.bottom - ar.top);
+      ctx.fillStyle = C.css('--fc-zone') || 'rgba(139,92,246,.12)'; ctx.fillRect(x1, ar.top, ar.right - x1, ar.bottom - ar.top); ctx.restore(); } };
+    C.make(id, { type: 'line', noDetail: true, data: { labels, datasets: [
+      { data: v.allHv.concat(Array(v.fd.length).fill(null)), borderColor: C.css('--muted') || '#888', borderWidth: 1, pointRadius: 0 },
+      { data: Array(n - 1).fill(null).concat([v.allHv[n - 1]], v.f50), borderColor: col, borderWidth: 1.5, borderDash: [4, 3], pointRadius: 0 }] }, plugins: [win],
+      options: { animation: false, events: [], plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false, beginAtZero: v.add } } } });
+  }
+  /** Range, daily/weekly, smoothing and layer controls above the chart. */
+  function chartControls(r) {
+    const daily = r.granularity === 'daily', gran = daily && VIEW.weekly ? 'weekly' : r.granularity, n = daily && VIEW.weekly ? Math.ceil(r.history.dates.length / 7) : r.history.dates.length;
+    const cur = VIEW.range && RANGES[gran].some((o) => o[0] === VIEW.range) ? VIEW.range : defaultRange(gran, n);
+    const seg = (name, items, on) => `<div class="seg" data-ctl="${name}">${items.map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="${k === on}">${l}</button>`).join('')}</div>`;
+    const chk = (k, l, on, dis) => `<label class="row small" style="gap:4px"><input type="checkbox" data-layer="${k}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}> ${l}</label>`;
+    return `<div class="fc-controls">${seg('range', RANGES[gran].map((o) => [o[0], o[1]]), cur)}
+      ${daily ? seg('grain', [['day', 'Daily'], ['week', 'Weekly totals']], VIEW.weekly ? 'week' : 'day') : ''}
+      ${daily && !VIEW.weekly ? chk('smooth', '7-day average', VIEW.smooth) : ''}${chk('band', 'Range band', VIEW.band)}${chk('backtest', 'Backtest', VIEW.backtest, !r.backtest || VIEW.weekly)}${chk('alerts', 'Alerts', VIEW.alerts, VIEW.weekly)}</div>`;
+  }
+  function wireChart(box, r) {
+    const host = box.querySelector('[data-chart="c-fc"] .ff'); if (!host) return;
+    let ctl = host.querySelector('.fc-controls-host');
+    if (!ctl) { const wrap = host.querySelector('.chart-wrap'); wrap.insertAdjacentHTML('beforebegin', '<div class="fc-controls-host"></div>'); wrap.insertAdjacentHTML('afterend', '<div class="chart-wrap overview"><canvas id="c-fc-ov" aria-hidden="true"></canvas></div><div class="muted small" id="c-fc-note" style="margin-top:4px"></div>'); ctl = host.querySelector('.fc-controls-host'); }
+    const redraw = () => { ctl.innerHTML = chartControls(r); bind(); drawChart('c-fc', r); };
+    const bind = () => {
+      ctl.querySelectorAll('[data-ctl="range"] button').forEach((b) => { b.onclick = () => { VIEW.range = b.dataset.v; redraw(); }; });
+      ctl.querySelectorAll('[data-ctl="grain"] button').forEach((b) => { b.onclick = () => { VIEW.weekly = b.dataset.v === 'week'; VIEW.range = null; redraw(); }; });
+      ctl.querySelectorAll('[data-layer]').forEach((c) => { c.onchange = () => { VIEW[c.dataset.layer] = c.checked; redraw(); }; });
+    };
+    redraw();
   }
 
   function entityView(box, res, r) {
@@ -67,7 +155,7 @@
       <div class="row" style="margin-bottom:12px"><h3>${esc(r.entity)}: ${esc(r.metric_label)}</h3><span class="badge ${relCls[rel.level]}" title="${esc(rel.reasons.join(' '))}">Forecast reliability: ${rel.level}</span>
         <span class="badge info">${r.n_points} ${r.granularity} points</span><span class="badge ${res.backend === 'timesfm' ? 'good' : 'warn'}">${res.backend === 'timesfm' ? 'Forecast engine' : 'Fallback model'}</span></div>
       <ul class="muted small" style="margin:0 0 12px;padding-left:18px">${rel.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}${r.warnings.map((x) => `<li><b>Warning:</b> ${esc(x)}</li>`).join('')}</ul>
-      ${C.box('c-fc', 'Actuals and forecast', 'Solid line: actual data. Dashed line and hatched area: forecast. Blue band: likely range (low case to high case). Orange band: the range expected for the most recent periods. Red triangles: alerts. Dashed red lines: level shifts.', { tall: true, pill: 'Actual + forecast' })}
+      ${C.box('c-fc', 'Actuals and forecast', 'Solid: actual. Dashed: forecast with its low-to-high range. The strip below shows all history; the highlighted part is what the chart shows.', { tall: true, pill: 'Actual + forecast' })}
       <div class="grid g2" style="margin-top:16px">
         <div class="card"><h3>Outlook</h3><div class="stack" style="gap:8px;margin-top:10px">
           <div>Trend: <span class="badge ${o.trend === 'rising' ? 'good' : o.trend === 'falling' ? 'bad' : 'info'}">${esc(o.trend)}</span> ${o.trend_change_pct != null ? fmt.delta(o.trend_change_pct) + ' vs recent' : ''}</div>
@@ -91,7 +179,7 @@
           ${r.change_points.length ? r.change_points.map((c) => `<div>Level shift on <b>${esc(c.date)}</b>: ${vf(c.before)} to ${vf(c.after)} ${c.change_pct != null ? fmt.delta(c.change_pct) : ''}</div>`).join('') : ''}
           ${r.anomalies.length ? `<div style="margin-top:6px">${r.anomalies.length} unusual point${r.anomalies.length === 1 ? '' : 's'} in history: ${r.anomalies.slice(0, 4).map((a) => `${esc(a.date)} (${a.direction})`).join(', ')}${r.anomalies.length > 4 ? ', ...' : ''}</div>` : ''}</div></div></div>
       <div class="card" style="margin-top:16px"><h3>Forecast values</h3><div id="fc-table"></div></div>`;
-    drawChart('c-fc', r);
+    wireChart(box, r);
     T.create(box.querySelector('#fc-table'), { csv: 'forecast_' + r.entity.replace(/\W+/g, '_'), pageSize: 14, defaultSort: { key: 'date', desc: false },
       rows: r.forecast.dates.map((d, i) => ({ date: d, p10: r.forecast.p10[i], p50: r.forecast.p50[i], p90: r.forecast.p90[i] })),
       columns: [{ key: 'date', label: r.granularity === 'daily' ? 'Date' : r.granularity === 'weekly' ? 'Week starting' : 'Month' }, { key: 'p10', label: 'Low case', num: true, fmt: (v) => fmt.num(v, 2) }, { key: 'p50', label: 'Most likely', num: true, fmt: (v) => fmt.num(v, 2) }, { key: 'p90', label: 'High case', num: true, fmt: (v) => fmt.num(v, 2) }] });

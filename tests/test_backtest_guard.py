@@ -128,3 +128,15 @@ def test_incomplete_last_day_is_left_out():
 def test_level_shift_message():
     y = np.r_[np.full(40, 6e6), np.full(14, 1e6)]
     assert "Level shift" in F.level_shift(y, "daily") and F.level_shift(np.full(60, 5.0), "daily") is None
+
+
+def test_incomplete_last_day_is_decided_per_chart_group_so_series_stay_aligned():
+    d = pd.date_range("2026-08-01", periods=31)
+    a = np.full(31, 250_000.0); a[-1] = 20_000.0          # one advertiser's last day is tiny
+    b = np.full(31, 900_000.0)                            # the other's is normal, so the group's last day is complete
+    it = lambda e, v: {"entity": e, "group": "comp_spend", "agg": "sum", "dates": [str(x.date()) for x in d], "values": list(v)}
+    specs, notes = F.specs_from_payload([it("A", a), it("B", b)], "daily")
+    assert [len(s.values) for s in specs] == [31, 31] and not notes
+    b2 = b.copy(); b2[-1] = 30_000.0                      # now the whole group's last day is a part day
+    specs, notes = F.specs_from_payload([it("A", a), it("B", b2)], "daily")
+    assert [len(s.values) for s in specs] == [30, 30] and {str(s.dates[-1].date()) for s in specs} == {"2026-08-30"} and notes

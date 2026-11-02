@@ -679,3 +679,7 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .fb-mem { margin: 4px 0 10px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--fc-zone); border-radius: 0 10px 10px 0; font-size: 13px; }
 
 .sl-grid.four { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+
+/* Actuals and forecast: controls and overview strip */
+.fc-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0 0 10px; }
+.chart-wrap.overview { height: 64px; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 4px; }
