@@ -44,7 +44,7 @@ def _items(n=150):
 def test_covariates_run_through_the_real_xreg_path(tfm, monkeypatch):
     monkeypatch.setattr(F.model, "_tfm", tfm); monkeypatch.setattr(F.model, "_failed", False)
     specs, notes = F.specs_from_payload(_items(), "daily")
-    res = F.run_specs(specs, notes, "lmrb", {"horizon_days": 30, "holdout": 30, "covariates": True})
+    res = F.run_specs(specs, notes, "lmrb", {"horizon_days": 30, "holdout": 30, "covariates": True, "covariate_guard": False})
     assert res["ok"] and res["backend"] == "timesfm" and res["covariate_note"] is None
     assert {"is_poya_day", "is_salary_week", "is_festival_window", "is_weekend"} <= set(res["covariates_used"])
     r = res["results"][0]
@@ -53,6 +53,10 @@ def test_covariates_run_through_the_real_xreg_path(tfm, monkeypatch):
     assert r["backtest"]["holdout"] == 30 and len(r["backtest"]["pred"]) == 30 and r["backtest"]["model"]["smape"] is not None
     plain = F.run_specs(*F.specs_from_payload(_items(), "daily"), "lmrb", {"horizon_days": 30, "holdout": 30, "covariates": False})
     assert np.abs(np.array(f["p50"]) - np.array(plain["results"][0]["forecast"]["p50"])).max() > 1e-6          # the covariates really change the forecast
+    # with the safety check on, every series reports which method won the held-out check, among all four candidates
+    guarded = F.run_specs(*F.specs_from_payload(_items(), "daily"), "lmrb", {"horizon_days": 30, "holdout": 30, "covariates": True})
+    eng = guarded["results"][0]["backtest"]["engine"]
+    assert eng["chosen"] in ("plain", "recent", "timesfm + xreg", "xreg + timesfm") and len(eng["mae_by_method"]) == 4
 
 
 def test_monthly_covariates(tfm, monkeypatch):

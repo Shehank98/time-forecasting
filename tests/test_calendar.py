@@ -64,7 +64,7 @@ class FakeModel:
         base = np.array([c[-7:].mean() for c in contexts])[:, None, None]
         return np.concatenate([base * 0.8, base, base * 1.2], axis=2).repeat(horizon, axis=1), "timesfm"
 
-    def predict_covariates(self, contexts, horizon, dyn_num, dyn_cat=None):
+    def predict_covariates(self, contexts, horizon, dyn_num, dyn_cat=None, mode="xreg + timesfm"):
         self.cov_calls.append((len(contexts), horizon, {k: [len(a) for a in v] for k, v in dyn_num.items()}, dict(dyn_cat or {}).keys()))
         base = np.array([c[-7:].mean() for c in contexts])[:, None, None]
         return np.concatenate([base * 0.7, base, base * 1.3], axis=2).repeat(horizon, axis=1)
@@ -105,7 +105,7 @@ def test_backtest_uses_the_same_covariates(monkeypatch):
     fake = FakeModel(); monkeypatch.setattr(F, "model", fake)
     specs, notes = F.specs_from_payload(_series(150), "daily")
     res = F.run_specs(specs, notes, "lmrb", {"horizon_days": 30, "holdout": 30})
-    assert len(fake.cov_calls) == 2                                           # one for the forecast, one for the accuracy check
+    assert len(fake.cov_calls) == 4                                           # forecast and accuracy check, for each of the two calendar methods
     n, H, lens, _ = fake.cov_calls[1]
     assert H == 30 and all(L == 150 - 30 + 30 for L in sum(lens.values(), []))     # truncated context plus the held-out days
     bt = res["results"][0]["backtest"]

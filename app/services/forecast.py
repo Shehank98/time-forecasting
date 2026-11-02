@@ -140,7 +140,7 @@ class ModelService:
         return fallback_batch(contexts, horizon, gran), "fallback"
 
     def predict_covariates(self, contexts: list[np.ndarray], horizon: int, dyn_num: dict[str, list[np.ndarray]],
-                           dyn_cat: dict[str, list[np.ndarray]] | None = None) -> np.ndarray | None:
+                           dyn_cat: dict[str, list[np.ndarray]] | None = None, mode: str = "xreg + timesfm") -> np.ndarray | None:
         """Covariate-aware quantiles [N, H, 3] via XReg, or None when unsupported."""
         if self._tfm is None:
             return None
@@ -148,7 +148,7 @@ class ModelService:
             with self._infer_lock:
                 _, quants = self._tfm.forecast_with_covariates(
                     [np.asarray(c, dtype=float) for c in contexts], dynamic_numerical_covariates=dyn_num or None,
-                    dynamic_categorical_covariates=dyn_cat or None, xreg_mode="xreg + timesfm", ridge=1.0, normalize_xreg_target_per_input=True)
+                    dynamic_categorical_covariates=dyn_cat or None, xreg_mode=mode, ridge=1.0, normalize_xreg_target_per_input=True)
             self.xreg_ok = True
             return self._bands(np.stack([np.asarray(x)[-horizon:] for x in quants]), horizon)
         except Exception as exc:  # noqa: BLE001 - jax missing, shapes, singular design
@@ -209,6 +209,23 @@ def smape(a: np.ndarray, f: np.ndarray) -> float | None:
     den = np.abs(a) + np.abs(f)
     ok = den > 0
     return float(np.mean(2 * np.abs(a - f)[ok] / den[ok]) * 100) if ok.any() else 0.0
+
+
+def wape(a: np.ndarray, f: np.ndarray) -> float | None:
+    """Total absolute error as a share of total actual. Unlike sMAPE it does not explode on zero or near-zero days."""
+    t = float(np.abs(a).sum())
+    return float(np.abs(a - f).sum() / t * 100) if t > 0 else None
+
+
+def accuracy(actual: np.ndarray, pred: np.ndarray, train: np.ndarray) -> tuple[float | None, str]:
+    """Forecast accuracy % for the Trust badge. 100 minus sMAPE, or 100 minus WAPE when the series has near-zero days (sMAPE reads 200% on those)."""
+    ref = float(np.median(train[-28:])) if len(train) else 0.0
+    intermittent = ref > 0 and float(np.mean(actual < 0.1 * ref)) >= 0.15
+    if intermittent:
+        w = wape(actual, pred)
+        return (None if w is None else float(np.clip(100 - w, 0, 100)), "WAPE")
+    sm = smape(actual, pred)
+    return (None if sm is None else float(np.clip(100 - sm, 0, 100)), "sMAPE")
 
 
 def mae(a: np.ndarray, f: np.ndarray) -> float:
@@ -378,6 +395,20 @@ def min_points(gran: str) -> int:
     return int(cfg.get(gran, {"daily": 14, "weekly": 8, "monthly": 12}[gran]))
 
 
+def level_shift(y: np.ndarray, gran: str) -> str | None:
+    """Describes a sharp change of level in the latest weeks (older history then describes a different regime)."""
+    w = {"daily": 14, "weekly": 6, "monthly": 4}[gran]
+    if len(y) < 3 * w:
+        return None
+    new, old = float(np.mean(y[-w:])), float(np.mean(y[-3 * w:-w]))
+    if old <= 0:
+        return None
+    ratio = new / old
+    if ratio < 0.4 or ratio > 2.5:
+        return f"Level shift: the latest {w} {gran} points average {abs(ratio - 1) * 100:.0f}% {'below' if ratio < 1 else 'above'} the {2 * w} before. The forecast follows the new level only partly, so treat it with care."
+    return None
+
+
 def reliability(n_points: int, n_observed: int, gran: str, bt: dict | None, all_zero: bool) -> dict:
     mp = min_points(gran)
     reasons: list[str] = []
@@ -391,11 +422,13 @@ def reliability(n_points: int, n_observed: int, gran: str, bt: dict | None, all_
         level = "Low"; reasons.append("History is too short for a backtest, so accuracy is unknown.")
     else:
         m, base = bt["model"], bt["baseline"]
-        s, ms = m.get("smape"), m.get("mase")
+        ms, acc = m.get("mase"), bt.get("accuracy")
         beats = m["mae"] <= base["mae"]
-        if (ms is not None and ms >= 1.2) or (s is not None and s > 60):
-            level = "Low"; reasons.append(f"Backtest error is high (sMAPE {s:.0f}%" + (f", MASE {ms:.2f})." if ms is not None else ")."))
-        elif not (ms is not None and ms < 0.8 and (s is None or s < 30) and beats and n >= 2 * mp):
+        if (ms is not None and ms >= 1.2) or (acc is not None and acc < 40 and not (ms is not None and ms < 0.5)):
+            level = "Low"
+            tail = f", MASE {ms:.2f}" if ms is not None else ""
+            reasons.append(f"Backtest accuracy is low ({acc:.0f}% by {bt.get('accuracy_basis', 'sMAPE')}{tail})." if acc is not None else "Backtest error is high.")
+        elif not (ms is not None and ms < 0.8 and (acc is None or acc >= 70) and beats and n >= 2 * mp):
             if level == "High":
                 level = "Medium"
             reasons.append("Backtest is acceptable but not strong enough for High." if beats else "The model did not beat the seasonal naive baseline.")
@@ -431,7 +464,7 @@ def _cov_arrays(dates: pd.DatetimeIndex, n_hist: int, gran: str, events: list[di
 
 
 def _apply_covariates(specs: list[S.SeriesSpec], contexts: list[np.ndarray], H: int, gran: str, q: np.ndarray, events: list[dict] | None = None,
-                      rows: list[int] | None = None, horizons: list[int] | None = None, cut: list[int] | None = None) -> tuple[list[str], str | None]:
+                      rows: list[int] | None = None, horizons: list[int] | None = None, cut: list[int] | None = None, mode: str = "xreg + timesfm") -> tuple[list[str], str | None]:
     """Replace the plain quantiles in q with covariate-aware ones.
 
     rows[i] is the row of q for context i (default: i). horizons[i] is how many future points to keep (default H).
@@ -441,6 +474,8 @@ def _apply_covariates(specs: list[S.SeriesSpec], contexts: list[np.ndarray], H: 
     horizons = horizons if horizons is not None else [H] * len(contexts)
     cut = cut if cut is not None else [0] * len(contexts)
     min_cov = {"daily": 28, "weekly": 12, "monthly": 12}[gran]
+    if mode == "timesfm + xreg":
+        min_cov = max(min_cov, 40)          # the library fits this method on the points after the first 32-point patch, and fails on shorter contexts
     elig = [i for i, sp in enumerate(specs) if len(contexts[i]) >= min_cov]
     if not elig:
         return [], f"Covariates need at least {min_cov} {gran} points; skipped for thin history."
@@ -456,7 +491,7 @@ def _apply_covariates(specs: list[S.SeriesSpec], contexts: list[np.ndarray], H: 
     if not (names_num or names_cat):
         return [], "No calendar event varies across the history, so covariates were skipped."
     adj = model.predict_covariates([contexts[i] for i in elig], Hm, {n: [arrs[i][0][n] for i in elig] for n in names_num},
-                                   {n: [arrs[i][1][n] for i in elig] for n in names_cat})
+                                   {n: [arrs[i][1][n] for i in elig] for n in names_cat}, mode)
     if adj is None:
         return [], "Covariates could not be applied in this environment, so the plain forecast is shown."
     for j, i in enumerate(elig):
@@ -511,6 +546,12 @@ def specs_from_payload(items: list[dict], gran: str) -> tuple[list[S.SeriesSpec]
         if n_obs == 0:
             notes.append(f"{it.get('entity')}: no data in the selected window, skipped.")
             continue
+        # the newest day of an upload is often only part of a day: leave it out when it is far below the days before it
+        if gran == "daily" and agg in ("sum", "count") and len(vals) >= 21 and np.isfinite(vals[-1]):
+            ref = float(np.nanmedian(vals[-8:-1]))
+            if ref > 0 and vals[-1] < 0.25 * ref:
+                notes.append(f"{it.get('entity')}: the last day ({dates[-1].date()}) looks incomplete ({vals[-1]:,.0f} against about {ref:,.0f} on the days before) and was left out.")
+                dates, vals = dates[:-1], vals[:-1]
         s = pd.Series(vals, index=dates)
         s = s.fillna(0.0) if zero_fill else s.interpolate(limit_direction="both")
         v = s.to_numpy(dtype=float)
@@ -532,51 +573,85 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
     if H > MAX_HORIZON:
         H = MAX_HORIZON; notes.append(f"Horizon limited to {MAX_HORIZON} {gran} points.")
     mp = min_points(gran)
-    default_hold = {"daily": 7, "weekly": 2, "monthly": 2}[gran]
+    default_hold = {"daily": 14, "weekly": 3, "monthly": 3}[gran]
     contexts, holds = [], []
     for sp in specs:
         y = sp.values[-MAX_CONTEXT:]
         h = min(int(params.get("holdout") or default_hold), len(y) // 3)
         contexts.append(y)
         holds.append(h if h >= 2 and len(y) - h >= 4 else 0)
-    # one batched call: full contexts first, then the truncated contexts used for backtests and band monitoring
+    # One batched call: full contexts, then the truncated contexts used for backtests and band monitoring, then a short-context candidate
+    # (the model sees only the recent window, which helps after a level shift).
     bt_idx = [i for i, h in enumerate(holds) if h]
-    batch = contexts + [contexts[i][:-holds[i]] for i in bt_idx]
+    W = {"daily": 28, "weekly": 13, "monthly": 12}[gran]
+    rec_idx = [i for i in bt_idx if len(contexts[i]) - holds[i] >= 2 * W]
+    n0 = len(specs)
+    bt_pos = {i: n0 + k for k, i in enumerate(bt_idx)}
+    rec_pos = {i: n0 + len(bt_idx) + k for k, i in enumerate(rec_idx)}
+    recbt_pos = {i: n0 + len(bt_idx) + len(rec_idx) + k for k, i in enumerate(rec_idx)}
+    batch = contexts + [contexts[i][:-holds[i]] for i in bt_idx] + [contexts[i][-W:] for i in rec_idx] + [contexts[i][:-holds[i]][-W:] for i in rec_idx]
     horizon_all = max([H] + [holds[i] for i in bt_idx])
     prog(0.2, "Starting the forecast engine" if model._tfm is None and not model._failed else "Forecasting")
     q, backend = model.predict(batch, horizon_all, gran)
     prog(0.65, "Applying calendar covariates")
+    plain_q = q.copy()
+    cov_q: dict[str, np.ndarray] = {}                   # covariate-aware candidates, one per method
     cov_used, cov_msg = ([], None)
     if params.get("covariates", True) and backend == "timesfm":
         ev = params.get("major_events")
-        cov_used, cov_msg = _apply_covariates(specs, contexts, H, gran, q, ev)
-        if bt_idx and cov_msg is None:      # the accuracy check must use the same covariate-aware model as the forecast
-            bt_specs = [specs[i] for i in bt_idx]
-            _apply_covariates(bt_specs, [contexts[i][:-holds[i]] for i in bt_idx], H, gran, q, ev, rows=[len(specs) + k for k in range(len(bt_idx))],
-                              horizons=[holds[i] for i in bt_idx], cut=[holds[i] for i in bt_idx])
+        for mode in params.get("xreg_modes") or ("timesfm + xreg", "xreg + timesfm"):
+            qm = plain_q.copy()
+            used, msg = _apply_covariates(specs, contexts, H, gran, qm, ev, mode=mode)
+            if msg is None and bt_idx:      # the accuracy check uses the same covariate-aware method as the forecast
+                _apply_covariates([specs[i] for i in bt_idx], [contexts[i][:-holds[i]] for i in bt_idx], H, gran, qm, ev, rows=[bt_pos[i] for i in bt_idx],
+                                  horizons=[holds[i] for i in bt_idx], cut=[holds[i] for i in bt_idx], mode=mode)
+            if msg is None:
+                cov_q[mode] = qm; cov_used = cov_used or used
+            else:
+                cov_msg = cov_msg or msg
+        if cov_q:
+            cov_msg = None                  # at least one calendar method ran
     results = []
-    bt_pos = {i: len(specs) + k for k, i in enumerate(bt_idx)}
+    names = {"plain": "Forecast engine alone", "recent": "Forecast engine on the recent weeks only", "timesfm + xreg": "Forecast engine with calendar effects", "xreg + timesfm": "Calendar effects first, then forecast engine"}
     for i, sp in enumerate(specs):
         prog(0.7 + 0.25 * (i + 1) / len(specs), f"Analysing {sp.entity}")
         y, nonneg = sp.values, bool(sp.mdef and sp.mdef.nonneg)
         fd = S.future_dates(sp.dates[-1], H, gran)
-        qq = np.sort(q[i, :H, :], axis=-1)
-        if nonneg:
-            qq = np.clip(qq, 0, None)
+        med = lambda a: (np.clip(np.sort(a, axis=-1), 0, None) if nonneg else np.sort(a, axis=-1))
+        # candidates for this series: rows of the full forecast and, when there is a backtest, of the held-out check
+        cands: dict[str, tuple[np.ndarray, np.ndarray | None]] = {"plain": (plain_q[i, :H], plain_q[bt_pos[i], :holds[i]] if i in bt_pos else None)}
+        if i in rec_pos:
+            cands["recent"] = (plain_q[rec_pos[i], :H], plain_q[recbt_pos[i], :holds[i]])
+        for mode, qm in cov_q.items():
+            cands[mode] = (qm[i, :H], qm[bt_pos[i], :holds[i]] if i in bt_pos else None)
+        choice, errs = "plain", {}
+        if i in bt_pos:
+            actual = contexts[i][-holds[i]:]
+            errs = {k: mae(actual, med(b)[:, 1]) for k, (f_, b) in cands.items() if b is not None}
+            best = min(errs, key=errs.get)
+            plain_sum = float(med(cands["plain"][0])[:, 1].sum())
+            if best != "plain" and errs[best] <= 0.95 * errs["plain"]:     # an alternative has to clearly beat the plain forecast
+                drift = float(med(cands[best][0])[:, 1].sum()) / plain_sum if plain_sum > 0 else 1.0
+                if 0.4 <= drift <= 2.5:                                       # and must not wander off the level the plain forecast sees
+                    choice = best
+        if params.get("covariate_guard", True) is False and cov_q:      # debugging switch: always use the calendar-aware forecast
+            choice = "timesfm + xreg" if "timesfm + xreg" in cov_q else next(iter(cov_q))
+        fq, bq_raw = cands[choice]
+        qq = med(fq)
         p10, p50, p90 = qq[:, 0], qq[:, 1], qq[:, 2]
         bt, breaches = None, []
         if i in bt_pos:
-            h, k = holds[i], bt_pos[i]
+            h = holds[i]
             train, actual = contexts[i][:-h], contexts[i][-h:]
-            bq = np.sort(q[k, :h, :], axis=-1)
-            if nonneg:
-                bq = np.clip(bq, 0, None)
+            bq = med(bq_raw)
             m = S.season_length(gran, len(train))
             base = seasonal_naive(train, h, m)
             bdates = [str(d.date()) for d in sp.dates[-h:]]
-            bt = {"dates": bdates, "actual": actual, "pred": bq[:, 1], "p10": bq[:, 0], "p90": bq[:, 2], "holdout": h,
-                  "model": {"smape": smape(actual, bq[:, 1]), "mae": mae(actual, bq[:, 1]), "mase": mase(actual, bq[:, 1], train, m), "coverage": coverage(actual, bq[:, 0], bq[:, 2])},
-                  "baseline": {"smape": smape(actual, base), "mae": mae(actual, base), "mase": mase(actual, base, train, m), "name": "Seasonal naive"}}
+            acc, basis = accuracy(actual, bq[:, 1], train)
+            bt = {"dates": bdates, "actual": actual, "pred": bq[:, 1], "p10": bq[:, 0], "p90": bq[:, 2], "holdout": h, "accuracy": acc, "accuracy_basis": basis,
+                  "model": {"smape": smape(actual, bq[:, 1]), "wape": wape(actual, bq[:, 1]), "mae": mae(actual, bq[:, 1]), "mase": mase(actual, bq[:, 1], train, m), "coverage": coverage(actual, bq[:, 0], bq[:, 2])},
+                  "baseline": {"smape": smape(actual, base), "mae": mae(actual, base), "mase": mase(actual, base, train, m), "name": "Seasonal naive"},
+                  "engine": {"chosen": choice, "label": names[choice], "mae_by_method": {names[k]: v for k, v in errs.items()}}}
             breaches = band_breaches(bdates, actual, bq[:, 0], bq[:, 2])
         all_zero = not np.any(y)
         warnings = list(sp.notes)
@@ -584,6 +659,9 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
             warnings.append(f"Thin history: {len(y)} {gran} points, below the minimum of {mp}. The forecast still ran but is marked Low reliability.")
         if all_zero:
             warnings.append("All values are zero. The forecast is flat zero.")
+        shift = level_shift(y, gran)
+        if shift:
+            warnings.append(shift)
         results.append({
             "entity": sp.entity, "group": getattr(sp, "group", ""), "metric": sp.metric, "metric_label": sp.mdef.label if sp.mdef else sp.metric, "unit": sp.mdef.unit if sp.mdef else "number",
             "granularity": gran, "n_points": int(len(y)), "n_active": sp.n_active,

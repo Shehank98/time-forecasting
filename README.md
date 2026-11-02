@@ -233,3 +233,16 @@ Each prediction card works on its own sheet.
 - **Stealth anomaly detector** (LMRB Alerts tab and the Rivals shortlist): the last 14 recorded days against the expected P10 to P90 range; two or more days above the ceiling, or a new theme, raises an alert with root-cause numbers.
 - **History vault:** compact daily totals from every upload are saved under `data/vault/` (override with `VAULT_DIR`, switch off with `VAULT_ENABLED=0`), de-duplicated by key so overlapping uploads replace instead of double count. When a forecast runs with no filters, stored history for the same series is prepended before the dates in the current upload. Mount a volume at `data/` on Railway to keep it between deploys. Admins can clear it with `POST /api/vault/clear`.
 - **Incremental LoRA update:** `python scripts/incremental_lora_update.py --product-group "Detergents" --with-global` (add `--dry-run` to see what would train). Needs torch and the model checkpoint; set `LORA_ENABLED=1` to allow the Brand memory dialog to start it. It freezes the base model and trains only low-rank matrices on the attention layers (`attn.qkv_proj`, `attn.out`) with a quantile loss. Adapters (`models/lora_<ProductGroup>.pt`, `models/lora_global_sl.pt`) are saved and tracked in `models/lora_manifest.json` but are not applied at inference yet. Verified with the real timesfm architecture and random weights (`tests/test_real_model.py`, skipped when torch is not installed); not yet run on the released checkpoint.
+
+## How the forecast is chosen (and why a high sMAPE is not the whole story)
+
+Every series is forecast several ways and the method that does best on the held-out days is the one shown:
+
+1. the forecast engine alone,
+2. the engine on the most recent weeks only (helps after a level shift),
+3. the engine with calendar effects, fitted to the engine's own residuals,
+4. calendar effects first, then the engine.
+
+A calendar method is used only if it beats the plain forecast on the held-out days by at least 5% and stays within 0.4x to 2.5x of the plain forecast's level. This stops the failure where a regression fitted across an old, higher level pushed every weekday forecast to zero. The Numbers popup and the Backtest table say which method won.
+
+Accuracy % (the Trust badge) is 100 minus sMAPE, but 100 minus WAPE when at least 15% of the held-out days are near zero, because sMAPE reads about 200% on a zero day. MASE below 1 means the forecast beat repeating last week's pattern. Reliability uses MASE and that accuracy, not raw sMAPE. The newest day of a daily upload is left out when it is under a quarter of the days before it (usually a part day). Set `covariate_guard: false` in the forecast params to bypass the method choice when debugging.

@@ -158,7 +158,7 @@ def test_timesfm_path_uses_correct_quantiles_and_covariates(lm, monkeypatch):
     fake = FakeTfm()
     monkeypatch.setattr(F.model, "_tfm", fake)
     monkeypatch.setattr(F.model, "_failed", False)
-    r = F.run(lm, "lmrb", params(entity_type="total", horizon_days=7, granularity="daily"))
+    r = F.run(lm, "lmrb", params(entity_type="total", horizon_days=7, granularity="daily", covariate_guard=False))
     x = r["results"][0]
     assert r["backend"] == "timesfm" and fake.forecast_calls == 1
     assert "day_of_week" in r["covariates_used"] and fake.cov_kwargs["xreg_mode"] == "xreg + timesfm"
