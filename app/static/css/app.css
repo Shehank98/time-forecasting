@@ -721,3 +721,10 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .sf-d-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; padding: 6px 2px; }
 .sf-d-h { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; font-weight: 700; }
 @media (max-width: 900px) { .sp-pick, .sf-bar, .sf-d-grid { grid-template-columns: 1fr; } }
+.rp-grid { display: grid; grid-template-columns: repeat(3, minmax(170px, 1fr)) repeat(2, minmax(140px, 0.7fr)); gap: 12px; margin-top: 12px; align-items: end; }
+.rp-quick { flex-wrap: wrap; gap: 6px; align-items: center; }
+.rp-tbl tr.rp-ch td { background: var(--accent-soft); font-size: 1.02em; }
+.rp-tbl tr.rp-pg td { background: var(--surface-2); } .rp-tbl tr.rp-pg td:first-child { padding-left: 22px; }
+.rp-tbl tr.rp-ad td:first-child { padding-left: 40px; }
+.rp-range { font-size: .62em; line-height: 1.3; display: inline-block; }
+@media (max-width: 900px) { .rp-grid { grid-template-columns: 1fr; } }

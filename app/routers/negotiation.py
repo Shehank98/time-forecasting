@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from ..core import workspace
-from ..services import export_negotiation, repo
+from ..services import export_negotiation, export_spotlight, repo
 from ..services.store import Workspace
 
 log = logging.getLogger("app")
@@ -39,4 +39,30 @@ def negotiation_pdf(req: NegotiationReq, ws: Workspace = Depends(workspace)) -> 
     rid = repo.save_report(ws.client_id, "lmrb", "pdf", fname, content, {"kind": "negotiation", "format": "pdf", "title": "Negotiation report",
                                                                         "dataset": str(req.meta.get("dataset") or "")[:200]}, ws.user_id)
     log.info("[negotiation pdf] built %s (%d bytes) for client %s", fname, len(content), ws.client_id)
+    return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})
+
+
+class SpotlightReq(BaseModel):
+    report: dict[str, Any]
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/api/spotlight/pdf")
+def spotlight_pdf(req: SpotlightReq, ws: Workspace = Depends(workspace)) -> Response:
+    """Programme & sponsorship report: Channel -> Programme -> Advertiser for the chosen advertisers and dates."""
+    rep = req.report
+    if rep.get("empty") or not rep.get("channels"):
+        raise HTTPException(422, "No spots match the chosen channels, programmes, advertisers and dates, so there is nothing to put in the report.")
+    client = repo.get_client(ws.client_id) or {"name": "client"}
+    try:
+        content = export_spotlight.build_spotlight_pdf(rep, req.meta, client, repo.get_branding(),
+                                                       {"agency": repo.agency_logo(), "client": repo.client_logo(ws.client_id)})
+    except Exception:
+        log.exception("Programme and sponsorship PDF failed")
+        raise HTTPException(500, "The programme and sponsorship report could not be built. Try fewer programmes or a shorter date range.") from None
+    name = re.sub(r"[^A-Za-z0-9]+", "_", client.get("name") or "client").strip("_")[:40] or "client"
+    fname = f"{name}_programme_sponsorship_{dt.datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    rid = repo.save_report(ws.client_id, "lmrb", "pdf", fname, content, {"kind": "spotlight", "format": "pdf", "title": "Programme and sponsorship report",
+                                                                        "dataset": str(req.meta.get("dataset") or "")[:200]}, ws.user_id)
+    log.info("[spotlight pdf] built %s (%d bytes) for client %s", fname, len(content), ws.client_id)
     return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})

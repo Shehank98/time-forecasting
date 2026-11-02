@@ -346,3 +346,20 @@ A tab with two views. Both use the same rules for sorting spots.
 - **Export CSV** and **Export Excel** download the table.
 
 The numbers are computed in the browser (`app/static/js/engine/spotlight.js`). `tests/test_spotlight.py` checks them against pandas.
+
+**PDF report (third view in the Spotlight tab)**
+- **Choose what goes in:**
+  - Channel, Programme and Advertiser (pick one or several of each). Each list narrows the one after it.
+  - A From and To date. Quick range buttons fill in the last 30 days, last 3 months, last full month, this year or all dates.
+  - "PDF for this programme" on the Programme Spotlight view opens the report already set to that channel, programme, brand and dates.
+- **A live preview** shows the main table, in the same Channel › Programme › Advertiser order as the PDF.
+- **Download Programme & Sponsorship PDF** builds an A4 landscape report at `POST /api/spotlight/pdf`. It contains:
+  - a cover page with the chosen dates, channels, programmes and advertisers, and headline numbers;
+  - sponsorship talking points for the biggest programmes;
+  - the Channel › Programme › Advertiser table, with each advertiser's role, sponsorship and regular spend, items, spots, spots per day, share of voice, spot lengths, ads in break, first in break and health score;
+  - an advertiser summary with a chart;
+  - a month by month table;
+  - a list of peak episodes.
+
+  A copy is saved under Reports.
+- **Roles use everyone in the programme.** The advertiser pick only limits which rows are shown, so a brand's role stays the same however you filter.

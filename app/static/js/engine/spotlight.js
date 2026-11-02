@@ -74,7 +74,7 @@
     const roles = new Map();
     for (const [p, m] of sp) {
       const tot = [...m.values()].reduce((s, b) => s + b.spend, 0);
-      let best = null; for (const [a, b] of m) if (b.bb > 0 && (!best || b.spend > m.get(best).spend)) best = a;
+      let best = null; for (const [a, b] of m) if (b.bb > 0 && (best === null || b.spend > m.get(best).spend)) best = a;
       const r = new Map();
       for (const [a, b] of m) r.set(a, b.bb > 0 ? (a === best && b.spend >= 0.25 * tot ? 0 : 1) : 2);
       roles.set(p, r);
@@ -154,6 +154,7 @@
 
   const lkr = (v) => 'LKR ' + Math.round(v).toLocaleString('en-US');
   const f1 = (v) => (v == null ? 'n/a' : (Math.round(v * 10) / 10).toString());
+  const pl = (n, w) => `${Number(n).toLocaleString('en-US')} ${w}${n === 1 ? '' : 's'}`;
   const f0 = (v) => (v == null ? 'n/a' : Math.round(v).toString());
   function periodWords(a, b) {
     const m0 = a.slice(0, 7), m1 = b.slice(0, 7), nm = (m) => new Date(m + '-01T00:00:00Z').toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
@@ -167,8 +168,8 @@
     let pos = '';
     if (fib != null) pos = fib >= 25 ? ` Out of these, ${f0(fib)}% were positioned as First-in-Break, maximizing recall despite an average break clutter of ${f1(clut)} spots.`
       : ` Only ${f0(fib)}% were positioned as First-in-Break, so recall is at risk in an average break of ${f1(clut)} spots.`;
-    pts.push({ kind: 'lead', text: `${f.name} ${lead} with a total investment of ${lkr(f.spend)} and ${f.spots.toLocaleString('en-US')} spots ${when}.${pos}` });
-    if (f.sponsor_items) pts.push({ kind: 'split', text: `${f0(pct(f.sponsor_spend, f.spend))}% of ${f.name}'s money in this programme went on ${f.sponsor_items} sponsorship items (${f.billboard_items} billboards, ${f.logo_items} logo items) and ${f0(pct(f.regular_spend, f.spend))}% on ${f.regular_spots} regular spots.` });
+    pts.push({ kind: 'lead', text: `${f.name} ${lead} with a total investment of ${lkr(f.spend)} and ${pl(f.spots, 'spot')} ${when}.${pos}` });
+    if (f.sponsor_items) pts.push({ kind: 'split', text: `${f0(pct(f.sponsor_spend, f.spend))}% of ${f.name}'s money in this programme went on ${pl(f.sponsor_items, 'sponsorship item')} (${pl(f.billboard_items, 'billboard')}, ${pl(f.logo_items, 'logo item')}) and ${f0(pct(f.regular_spend, f.spend))}% on ${pl(f.regular_spots, 'regular spot')}.` });
     pts.push({ kind: 'sov', text: `${f.name} has ${f0(f.sov_spend)}% of the money and ${f0(f.sov_spots)}% of the spots in this programme block, among ${r.totals.brands} advertisers.` });
     const rivals = r.brands.filter((b) => b.name !== f.name && b.sponsor_items > 0).slice(0, 2);
     if (rivals.length) pts.push({ kind: 'rivals', text: `Other sponsors here: ${rivals.map((b) => `${b.name} (${b.role}, ${lkr(b.sponsor_spend)} on sponsorship)`).join('; ')}.` });
@@ -258,5 +259,94 @@
       themes: [...themes.entries()].sort((x, y) => y[1].spend - x[1].spend).slice(0, 8).map(([t, v]) => ({ theme: L.dicts.theme[t], spots: v.spots, spend: v.spend, type: v.kind === 1 ? 'Billboard' : v.kind === 2 ? 'Logo / tag' : 'Spot' })) };
   }
 
-  Object.assign(MR, { spotlightIndex, programmeSpotlight, shortFormMatrix, shortFormRow, SPOTLIGHT_ROLES: ROLES, SPOTLIGHT_DUR: DUR, spotlightThemeKinds: themeKinds });
+
+  /* ---------------- Programme & sponsorship report (PDF) ---------------- */
+  /** Rows inside an inclusive ISO date range (either end may be empty). */
+  function inDates(L, idx, from, to) {
+    const a = from ? MR.dayFromIso(from) : -Infinity, b = to ? MR.dayFromIso(to) : Infinity;
+    if (!Number.isFinite(a) && !Number.isFinite(b)) return idx;
+    return MR.where(L, idx, (i) => L.cols.date[i] >= a && L.cols.date[i] <= b);
+  }
+  const codes = (L, col, names) => new Set((names || []).map((n) => L.dicts[col].indexOf(n)).filter((c) => c >= 0));
+
+  /** Picker lists for the report: each level is narrowed by the levels above it. */
+  function sponsorshipOptions(L, idx, opts = {}) {
+    const C = L.cols, [lo, hi] = idx.length ? MR.minMax(C.date, idx) : [NaN, NaN];
+    const rows = inDates(L, idx, opts.date_from, opts.date_to);
+    const rank = (r, col) => { const m = new Map(); for (let k = 0; k < r.length; k++) { const i = r[k]; m.set(C[col][i], (m.get(C[col][i]) || 0) + C.cost[i]); } return [...m.entries()].filter((e) => e[0] >= 0).sort((a, b) => b[1] - a[1]).map((e) => L.dicts[col][e[0]]); };
+    const chs = codes(L, 'channel', opts.channels), r1 = chs.size ? MR.where(L, rows, (i) => chs.has(C.channel[i])) : rows;
+    const pgs = codes(L, 'program', opts.programs), r2 = pgs.size ? MR.where(L, r1, (i) => pgs.has(C.program[i])) : r1;
+    return { channels: rank(rows, 'channel'), programs: rank(r1, 'program').slice(0, 800), advertisers: rank(r2, 'advertiser').slice(0, 800),
+      data_from: Number.isFinite(lo) ? isoFromDay(lo) : null, data_to: Number.isFinite(hi) ? isoFromDay(hi) : null, rows: rows.length };
+  }
+
+  /**
+   * Channel -> Programme -> Advertiser summary for the PDF.
+   * opts: {channels, programs, advertisers, date_from, date_to, clutter_threshold, max_programmes}
+   * Roles are worked out from every advertiser in the programme (in the date range), then the advertiser pick is applied.
+   */
+  function sponsorshipReport(L, idx, opts = {}) {
+    const C = L.cols, thr = +opts.clutter_threshold > 0 ? +opts.clutter_threshold : 35;
+    const dated = inDates(L, idx, opts.date_from, opts.date_to);
+    const chs = codes(L, 'channel', opts.channels), pgs = codes(L, 'program', opts.programs), ads = codes(L, 'advertiser', opts.advertisers);
+    const prog = MR.where(L, dated, (i) => (!chs.size || chs.has(C.channel[i])) && (!pgs.size || pgs.has(C.program[i])));
+    const sel = { channels: opts.channels || [], programs: opts.programs || [], advertisers: opts.advertisers || [], date_from: opts.date_from || null, date_to: opts.date_to || null };
+    const rows = ads.size ? MR.where(L, prog, (i) => ads.has(C.advertiser[i])) : prog;
+    if (!rows.length) return { empty: true, selection: sel };
+    const sc = scan(L, prog), nA = L.dicts.advertiser.length + 1;
+    const tot = acc(), byP = new Map(), byPA = new Map(), byA = new Map(), byAM = new Map(), progDays = new Map();
+    const get = (m, k, mk) => { let a = m.get(k); if (!a) m.set(k, (a = mk())); return a; };
+    for (let k = 0; k < prog.length; k++) { const i = prog[k], p = sc.pkey(i); const m = get(progDays, p, () => new Map()); m.set(C.date[i], (m.get(C.date[i]) || 0) + 1);
+      const pa = get(byP, p, () => ({ ch: C.channel[i], pg: C.program[i], all: acc(), sel: acc() })); add(pa.all, L, i, sc.kinds[C.theme[i]], sc.isSpecial(i)); }
+    for (let k = 0; k < rows.length; k++) {
+      const i = rows[k], p = sc.pkey(i), a = C.advertiser[i], kd = sc.kinds[C.theme[i]], spc = sc.isSpecial(i);
+      add(tot, L, i, kd, spc); add(byP.get(p).sel, L, i, kd, spc);
+      const r = get(byPA, p * nA + a, () => ({ p, a, acc: acc(), prod: new Map() })); add(r.acc, L, i, kd, spc); r.prod.set(C.product[i], (r.prod.get(C.product[i]) || 0) + C.cost[i]);
+      add(get(byA, a, acc), L, i, kd, spc);
+      const mo = isoFromDay(C.date[i]).slice(0, 7), am = get(byAM, a, () => new Map()); const x = am.get(mo) || { spend: 0, spots: 0, items: 0 }; x.spend += C.cost[i]; x.spots++; if (kd) x.items++; am.set(mo, x);
+    }
+    // programme going rate for the health score
+    const cps = new Map(); for (const r of byPA.values()) if (r.acc.c_secs > 0) get(cps, r.p, () => []).push(r.acc.c_spend / r.acc.c_secs);
+    const nm = (col, c) => (c >= 0 ? L.dicts[col][c] : 'UNKNOWN');
+    const roleCount = new Map();
+    const programmes = [...byP.entries()].filter(([, v]) => v.sel.spots).map(([p, v]) => {
+      const all = out(v.all), mine = out(v.sel), med = cps.has(p) ? median(cps.get(p)) : null;
+      const advs = [...byPA.values()].filter((r) => r.p === p).map((r) => {
+        const o = out(r.acc), role = ROLES[sc.roleOf(p, r.a)];
+        const rc = get(roleCount, r.a, () => [0, 0, 0, 0]); rc[ROLES.indexOf(role)]++;
+        return { advertiser: nm('advertiser', r.a), products: [...r.prod.entries()].sort((x, y) => y[1] - x[1]).slice(0, 3).map((e) => L.dicts.product[e[0]]), role, ...o,
+          per_day: o.active_days ? o.spots / o.active_days : null, sov_spend: pct(o.spend, all.spend), sov_spots: pct(o.spots, all.spots), health: health(o, med, thr) };
+      }).sort((x, y) => ROLES.indexOf(x.role) - ROLES.indexOf(y.role) || y.spend - x.spend);
+      const days = progDays.get(p), counts = [...days.values()], mdn = median(counts) || 0;
+      const peaks = counts.length >= 5 ? [...days.entries()].filter(([, n]) => n >= 1.5 * mdn && n >= mdn + 3).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d, n]) => ({ date: isoFromDay(d), spots: n })) : [];
+      const title = advs.find((x) => x.role === 'Title Sponsor');
+      return { channel: nm('channel', v.ch), program: nm('program', v.pg), airing_days: days.size, programme_spend: all.spend, programme_spots: all.spots, programme_sponsor_spend: all.sponsor_spend,
+        avg_clutter: all.avg_clutter, fib_pct: all.fib_pct, title_sponsor: title ? title.advertiser : null, usual_spots_per_airing: mdn, peaks, selected: mine, advertisers: advs };
+    }).sort((a, b) => a.channel.localeCompare(b.channel) || b.selected.spend - a.selected.spend);
+    // keep the biggest programmes, then group by channel for the report
+    const maxP = opts.max_programmes || 60, keep = new Set(programmes.slice().sort((a, b) => b.selected.spend - a.selected.spend).slice(0, maxP));
+    const kept = programmes.filter((p) => keep.has(p));
+    const channels = [...new Set(kept.map((p) => p.channel))].map((c) => { const ps = kept.filter((p) => p.channel === c);
+      return { channel: c, spend: ps.reduce((s, p) => s + p.selected.spend, 0), spots: ps.reduce((s, p) => s + p.selected.spots, 0), sponsor_spend: ps.reduce((s, p) => s + p.selected.sponsor_spend, 0), programmes: ps }; })
+      .sort((a, b) => b.spend - a.spend);
+    const advertisers = [...byA.entries()].map(([a, ac]) => { const o = out(ac), rc = roleCount.get(a) || [0, 0, 0, 0];
+      return { advertiser: nm('advertiser', a), ...o, programmes: rc.reduce((s, x) => s + x, 0), title: rc[0], co: rc[1], logo: rc[2], regular: rc[3], share_pct: pct(o.spend, tot.spend) }; })
+      .sort((a, b) => b.spend - a.spend);
+    const months = [...new Set([...byAM.values()].flatMap((m) => [...m.keys()]))].sort();
+    const monthly = { months, rows: advertisers.slice(0, 15).map((a) => { const m = byAM.get(L.dicts.advertiser.indexOf(a.advertiser)); return { advertiser: a.advertiser, values: months.map((mo) => m.get(mo) || { spend: 0, spots: 0, items: 0 }) }; }) };
+    // talking points for the biggest programmes: focus = the picked advertiser with most spend there, else the title sponsor
+    const briefs = kept.slice().sort((a, b) => b.selected.spend - a.selected.spend).slice(0, 8).map((p) => {
+      const pr = MR.where(L, prog, (i) => C.channel[i] === L.dicts.channel.indexOf(p.channel) && C.program[i] === L.dicts.program.indexOf(p.program));
+      const focus = ads.size ? (p.advertisers[0] && p.advertisers.slice().sort((x, y) => y.spend - x.spend)[0].advertiser) : null;
+      const r = programmeSpotlight(L, pr, { program: p.program, channel: p.channel, brand: focus, gran: 'day', clutter_threshold: thr });
+      return { channel: p.channel, program: p.program, points: r.empty ? [] : r.brief.map((x) => x.text) };
+    });
+    const [lo, hi] = MR.minMax(C.date, rows);
+    return { empty: false, selection: sel, period: [isoFromDay(lo), isoFromDay(hi)], range: [opts.date_from || isoFromDay(MR.minMax(C.date, idx)[0]), opts.date_to || isoFromDay(MR.minMax(C.date, idx)[1])], clutter_threshold: thr,
+      totals: { ...out(tot), channels: channels.length, programmes: programmes.length, programmes_shown: kept.length, advertisers: byA.size,
+        title_sponsorships: [...roleCount.values()].reduce((s, r) => s + r[0], 0) },
+      channels, advertisers: advertisers.slice(0, 40), monthly, briefs };
+  }
+
+  Object.assign(MR, { sponsorshipOptions, sponsorshipReport, spotlightIndex, programmeSpotlight, shortFormMatrix, shortFormRow, SPOTLIGHT_ROLES: ROLES, SPOTLIGHT_DUR: DUR, spotlightThemeKinds: themeKinds });
 })(typeof self !== 'undefined' ? self : globalThis);

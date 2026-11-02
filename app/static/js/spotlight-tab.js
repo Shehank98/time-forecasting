@@ -16,17 +16,19 @@
       <div class="sf-dur-l small">${DURS.filter((k) => s[k]).slice(0, 4).map((k) => `${k} ${fmt.num(s[k])}`).join(' · ') || 'no length'}</div>`; };
   const alpha = (c, a) => (/^#[0-9a-f]{6}$/i.test(c) ? c + Math.round(a * 255).toString(16).padStart(2, '0') : /^hsl\(/.test(c) ? c.replace(')', ` / ${a})`) : c);
   const load = () => { try { return App.store.get(KEY, null) || {}; } catch (e) { return {}; } };
-  const st = Object.assign({ view: 'programme', program: null, channel: null, brand: '', gran: 'auto', dur: 'all', mchannel: '', tag: '', search: '', sort: 'spend', desc: true }, load());
+  const st = Object.assign({ view: 'programme', program: null, channel: null, brand: '', gran: 'auto', dur: 'all', mchannel: '', tag: '', search: '', sort: 'spend', desc: true, rep: {} }, load());
+  st.rep = Object.assign({ rp_channels: [], rp_programs: [], rp_advertisers: [], from: '', to: '' }, st.rep || {});
   const save = () => { try { App.store.set(KEY, st); } catch (e) { /* storage blocked */ } };
   const clutterThr = () => { try { return (App.store.get('neg:lmrb', {}) || {}).clutter_threshold || 35; } catch (e) { return 35; } };
 
   function tab(p, ctx) {
-    p.innerHTML = `<div class="card-head" style="margin-bottom:12px"><div class="seg" id="sp-view"><button type="button" data-v="programme" aria-pressed="${st.view === 'programme'}">Programme Spotlight</button><button type="button" data-v="matrix" aria-pressed="${st.view === 'matrix'}">Short-form &amp; Sponsorship Matrix</button></div>
+    p.innerHTML = `<div class="card-head" style="margin-bottom:12px"><div class="seg" id="sp-view"><button type="button" data-v="programme" aria-pressed="${st.view === 'programme'}">Programme Spotlight</button><button type="button" data-v="matrix" aria-pressed="${st.view === 'matrix'}">Short-form &amp; Sponsorship Matrix</button><button type="button" data-v="report" aria-pressed="${st.view === 'report'}">PDF report</button></div>
       <div class="muted small">Sponsorship items: -BB, Intro, Extro, Com Break, Next Card (billboards) and LLogo, Tag, Time Check, DJ, -Tr (logo items).</div></div><div id="sp-body"></div>`;
     p.querySelectorAll('#sp-view button').forEach((b) => { b.onclick = () => { st.view = b.dataset.v; save(); p.querySelectorAll('#sp-view button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); show(p, ctx); }; });
     show(p, ctx);
   }
-  const show = (p, ctx) => (st.view === 'matrix' ? matrix(p.querySelector('#sp-body'), ctx) : programme(p.querySelector('#sp-body'), ctx));
+  const show = (p, ctx) => { const b = p.querySelector('#sp-body'); return st.view === 'matrix' ? matrix(b, ctx) : st.view === 'report' ? report(b, ctx) : programme(b, ctx); };
+  const goView = (p, ctx, v) => { st.view = v; save(); p.querySelectorAll('#sp-view button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === v))); show(p, ctx); };
 
   /* ================= Programme Spotlight ================= */
   async function programme(el, ctx) {
@@ -70,7 +72,7 @@
     if (d.empty) { out.innerHTML = App.emptyState('No spots for this programme', 'Pick another programme or widen the filters.'); return; }
     const sel = el.querySelector('#sp-brand');
     sel.innerHTML = d.brands.map((b) => `<option value="${esc(b.name)}" ${b.name === d.focus.name ? 'selected' : ''}>${esc(b.name)} (${esc(b.role)})</option>`).join('');
-    drawProg(out, d);
+    out._ctx = ctx; drawProg(out, d);
   }
 
   function drawProg(out, d) {
@@ -78,7 +80,7 @@
     const pos = f.position, posT = pos.first + pos.early + pos.middle + pos.last;
     out.innerHTML = `<div class="card sp-hero"><div class="card-head"><div><div class="sp-eyebrow">Programme Spotlight</div><h3>${esc(prog)} <span class="muted">· ${esc(where)}</span></h3>
         <div class="sub">${d.period[0]} to ${d.period[1]} · ${fmt.num(t.episodes)} airing days · ${fmt.num(t.brands)} advertisers · ${fmt.num(t.sponsors)} with sponsorship items</div></div>
-        <div class="sp-focus">${role(f.role)}<div><b>${esc(f.name)}</b><div class="muted small">${esc((f.products || []).join(', '))}</div></div></div></div>
+        <div class="sp-focus">${role(f.role)}<div><b>${esc(f.name)}</b><div class="muted small">${esc((f.products || []).join(', '))}</div></div><button class="btn sm" type="button" id="sp-to-pdf">PDF for this programme</button></div></div>
       <div class="kpis">
         ${kpi('Total sponsored investment', `<span title="${fmt.lkr(t.sponsor_spend)}">${fmt.lkrc(t.sponsor_spend)}</span>`, `${fmt.num(t.sponsor_items)} sponsorship items, all brands`)}
         ${kpi('Total spot count', fmt.num(t.spots), `${fmt.lkrc(t.spend)} total spend in this block`)}
@@ -97,6 +99,7 @@
           <div class="sp-pos">${[['First in break', pos.first, 'good'], ['2nd or 3rd', pos.early, 'info'], ['Middle', pos.middle, 'bad'], ['Last in break', pos.last, 'warn']].map(([l, v, c]) => `<div class="sp-pos-r"><span>${l}</span><div class="sp-pos-b"><i class="${c}" style="width:${posT ? (v / posT) * 100 : 0}%"></i></div><b>${posT ? fmt.num((v / posT) * 100, 0) : 0}%</b><span class="muted small">${fmt.num(v)}</span></div>`).join('')}</div></div>
         <div class="card"><h3>${esc(f.name)} by ${d.timeline.gran === 'month' ? 'month' : d.timeline.gran === 'week' ? 'week' : 'airing day'}</h3><div id="sp-per"></div></div></div>
       <div class="card" style="margin-top:16px"><h3>Everyone in this programme</h3><div id="sp-brands"></div></div>`;
+    out.querySelector('#sp-to-pdf').onclick = () => { st.rep = { rp_channels: d.channel ? [d.channel] : d.channels.slice(), rp_programs: [d.program], rp_advertisers: [f.name], from: d.period[0], to: d.period[1] }; const tabEl = out.closest('[id^=panel-]'); goView(tabEl, out._ctx, 'report'); };
     out.querySelector('#sp-copy').onclick = () => { const txt = d.brief.map((x) => '- ' + x.text).join('\n'); (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => App.toast('Brief copied.', 'ok')).catch(() => App.toast('Copy is blocked in this browser.', 'error')); };
     // split chart
     const top = d.brands.slice().sort((a, b) => b.spend - a.spend).slice(0, 10);
@@ -122,6 +125,88 @@
       { key: 'name', label: 'Advertiser' }, { key: 'role', label: 'Role', html: role }, { key: 'spend', label: 'Spend', num: true, fmt: (v) => fmt.num(v) },
       { key: 'sponsor_spend', label: 'Sponsorship spend', num: true, fmt: (v) => fmt.num(v) }, { key: 'sponsor_items', label: 'Items', num: true }, { key: 'regular_spots', label: 'Regular spots', num: true },
       { key: 'sov_spend', label: 'SoV (spend)', num: true, fmt: pct }, { key: 'fib_pct', label: 'First in break', num: true, fmt: pct }, { key: 'avg_clutter', label: 'Avg ads in break', num: true, fmt: dec }] });
+  }
+
+
+  /* ================= PDF report: Channel > Programme > Advertiser ================= */
+  async function report(el, ctx) {
+    el.innerHTML = `<div class="card"><div class="card-head"><div><h3>Programme &amp; Sponsorship PDF</h3><div class="sub">Choose channels, programmes, advertisers and a date range. The PDF lists Channel &rsaquo; Programme &rsaquo; Advertiser with sponsorship and regular spend, spots, position and clutter.</div></div>
+        <button class="btn primary" type="button" id="rp-pdf">Download Programme &amp; Sponsorship PDF</button></div>
+      <div class="rp-grid"><div data-ms="rp_channels"></div><div data-ms="rp_programs"></div><div data-ms="rp_advertisers"></div>
+        <div class="field"><label for="rp-from">From</label><input id="rp-from" type="date" value="${esc(st.rep.from)}"></div>
+        <div class="field"><label for="rp-to">To</label><input id="rp-to" type="date" value="${esc(st.rep.to)}"></div></div>
+      <div class="row rp-quick" style="margin-top:8px"><span class="muted small">Quick range:</span>${[['30', 'Last 30 days'], ['90', 'Last 3 months'], ['month', 'Last full month'], ['year', 'This year'], ['all', 'All dates']].map(([v, l]) => `<button type="button" class="btn sm ghost" data-q="${v}">${l}</button>`).join('')}
+        <span class="muted small" id="rp-bounds"></span><button type="button" class="btn sm ghost" id="rp-reset" style="margin-left:auto">Clear choices</button></div></div>
+      <div id="rp-out" style="margin-top:16px">${App.skeleton(2)}</div>`;
+    const ctl = el.querySelector('.rp-grid'); ctl._sig = {};
+    let bounds = null, last = null, seq = 0;
+    const again = App.debounce(() => { save(); refresh(); }, 250);
+    const mount = (k, label, list) => {
+      const sig = JSON.stringify(list) + '|' + JSON.stringify(st.rep[k]);
+      const cur = ctl.querySelector(`[data-ms="${k}"]`); if (ctl._sig[k] === sig || (cur && cur.querySelector('.ms-pop'))) return;
+      ctl._sig[k] = sig; const m = App.filters.multi({ key: k, label }, list, st.rep, again); m.dataset.ms = k; cur.replaceWith(m);
+    };
+    const opts = () => ({ channels: st.rep.rp_channels || [], programs: st.rep.rp_programs || [], advertisers: st.rep.rp_advertisers || [], date_from: st.rep.from || null, date_to: st.rep.to || null, clutter_threshold: clutterThr() });
+    async function refresh() {
+      const my = ++seq, out = el.querySelector('#rp-out'); if (!out) return;
+      let o, r;
+      try { o = await App.data.sponsorshipOptions({ filters: ctx.filters(), options: opts() }); } catch (e) { out.innerHTML = App.emptyState('Choices could not be listed', e.message); return; }
+      if (my !== seq || !out.isConnected) return;
+      bounds = [o.data_from, o.data_to];
+      el.querySelector('#rp-from').min = el.querySelector('#rp-to').min = o.data_from || ''; el.querySelector('#rp-from').max = el.querySelector('#rp-to').max = o.data_to || '';
+      el.querySelector('#rp-bounds').textContent = o.data_from ? `Data runs ${o.data_from} to ${o.data_to}.` : '';
+      // drop picks the narrowed lists no longer contain
+      let dropped = false;
+      [['rp_channels', o.channels], ['rp_programs', o.programs], ['rp_advertisers', o.advertisers]].forEach(([k, list]) => { const ok = new Set(list), keep = (st.rep[k] || []).filter((x) => ok.has(x)); if (keep.length !== (st.rep[k] || []).length) { dropped = true; st.rep[k] = keep; } });
+      mount('rp_channels', 'Channel', o.channels); mount('rp_programs', 'Programme', o.programs.map((x) => x)); mount('rp_advertisers', 'Advertiser', o.advertisers);
+      if (dropped) { save(); return refresh(); }
+      out.innerHTML = App.skeleton(2);
+      try { r = await App.data.sponsorshipReport({ filters: ctx.filters(), options: opts() }); } catch (e) { out.innerHTML = App.emptyState('The report could not be built', e.message); return; }
+      if (my !== seq || !out.isConnected) return;
+      last = r; preview(out, r);
+    }
+    el.querySelector('#rp-from').onchange = (e) => { st.rep.from = e.target.value; again(); };
+    el.querySelector('#rp-to').onchange = (e) => { st.rep.to = e.target.value; again(); };
+    el.querySelector('#rp-reset').onclick = () => { st.rep = { rp_channels: [], rp_programs: [], rp_advertisers: [], from: '', to: '' }; ctl._sig = {}; el.querySelector('#rp-from').value = el.querySelector('#rp-to').value = ''; save(); refresh(); };
+    el.querySelectorAll('[data-q]').forEach((b) => { b.onclick = () => {
+      if (!bounds || !bounds[1]) return;
+      const end = bounds[1], d = (iso, n) => new Date(Date.parse(iso + 'T00:00:00Z') - n * 864e5).toISOString().slice(0, 10), q = b.dataset.q;
+      let from = '', to = '';
+      if (q === '30' || q === '90') { from = d(end, +q - 1); to = end; }
+      else if (q === 'month') { const e = new Date(Date.parse(end.slice(0, 8) + '01T00:00:00Z') - 864e5); to = e.toISOString().slice(0, 10); from = to.slice(0, 8) + '01'; }
+      else if (q === 'year') { from = end.slice(0, 4) + '-01-01'; to = end; }
+      st.rep.from = from; st.rep.to = to; el.querySelector('#rp-from').value = from; el.querySelector('#rp-to').value = to; save(); refresh(); }; });
+    el.querySelector('#rp-pdf').onclick = async () => {
+      const b = el.querySelector('#rp-pdf');
+      if (!last || last.empty) { App.toast('Nothing to export: no spots match these choices.', 'error'); return; }
+      b.disabled = true; const txt = b.textContent; b.textContent = 'Building PDF...';
+      try {
+        const chips = ((ctx.meta && ctx.meta.chips) || []).map((c) => `${c.label}: ${c.value}`), ds = (ctx.body && ctx.body().dataset) || '';
+        const res = await App.api.blob('/api/spotlight/pdf', { report: last, meta: { dataset: ds, filters: chips } });
+        App.download(res.blob, res.name); App.toast('Programme and sponsorship report downloaded. A copy is kept under Reports.', 'ok');
+      } catch (e) { App.toast('The PDF could not be built: ' + e.message, 'error'); } finally { b.disabled = false; b.textContent = txt; }
+    };
+    refresh();
+  }
+
+  function preview(out, r) {
+    if (r.empty) { out.innerHTML = App.emptyState('No spots match these choices', 'Widen the date range or clear a channel, programme or advertiser.'); return; }
+    const t = r.totals, rows = [];
+    r.channels.forEach((c) => {
+      rows.push(`<tr class="rp-ch"><td colspan="2"><b>${esc(tt(c.channel))}</b></td><td class="num">${fmt.num(c.sponsor_spend)}</td><td></td><td class="num">${fmt.num(c.spend)}</td><td class="num">${fmt.num(c.spots)}</td><td colspan="3"></td></tr>`);
+      c.programmes.forEach((p) => {
+        rows.push(`<tr class="rp-pg"><td colspan="2"><b>${esc(tt(p.program))}</b> <span class="muted small">${fmt.num(p.airing_days)} airing days${p.title_sponsor ? ` · title sponsor ${esc(p.title_sponsor)}` : ''}${p.peaks.length ? ` · ${p.peaks.length} peak episode${p.peaks.length > 1 ? 's' : ''}` : ''}</span></td>
+          <td class="num">${fmt.num(p.selected.sponsor_spend)}</td><td class="num">${fmt.num(p.selected.regular_spend)}</td><td class="num">${fmt.num(p.selected.spend)}</td><td class="num">${fmt.num(p.selected.spots)}</td><td class="num">${pct(p.fib_pct)}</td><td class="num">${dec(p.avg_clutter)}</td><td></td></tr>`);
+        p.advertisers.slice(0, 15).forEach((a) => rows.push(`<tr class="rp-ad"><td><span class="swatch" style="background:${C.colorFor(a.advertiser)}"></span>${esc(a.advertiser)}<div class="muted small">${esc((a.products || []).join(', '))}</div></td><td>${role(a.role)}</td>
+          <td class="num">${fmt.num(a.sponsor_spend)}${a.sponsor_items ? `<div class="muted small">${fmt.num(a.sponsor_items)} item${a.sponsor_items === 1 ? '' : 's'}</div>` : ''}</td><td class="num">${fmt.num(a.regular_spend)}</td><td class="num">${fmt.num(a.spend)}<div class="muted small">SoV ${pct(a.sov_spend)}</div></td>
+          <td class="num">${fmt.num(a.spots)}<div class="muted small">${fmt.num(a.per_day, 1)}/day</div></td><td class="num">${pct(a.fib_pct)}</td><td class="num ${a.avg_clutter > r.clutter_threshold ? 'neg-hot' : ''}">${dec(a.avg_clutter)}</td><td>${healthBadge(a.health)}</td></tr>`));
+      });
+    });
+    out.innerHTML = `<div class="kpis">${kpi('Date range', `<span class="rp-range">${esc(r.range[0])}<br>to ${esc(r.range[1])}</span>`, `Spots found ${r.period[0]} to ${r.period[1]}`)}
+        ${kpi('Total spend', `<span title="${fmt.lkr(t.spend)}">${fmt.lkrc(t.spend)}</span>`, `${fmt.num(t.spots)} spots`)}${kpi('Sponsorship investment', fmt.lkrc(t.sponsor_spend), `${fmt.num(t.sponsor_items)} items`)}
+        ${kpi('Channels / programmes', `${fmt.num(t.channels)} / ${fmt.num(t.programmes)}`, t.programmes > t.programmes_shown ? `PDF shows the ${t.programmes_shown} biggest` : '')}${kpi('Advertisers', fmt.num(t.advertisers), `${fmt.num(t.title_sponsorships)} title sponsorships`)}${kpi('First in break', pct(t.fib_pct), `Avg ads in break ${dec(t.avg_clutter)}`)}</div>
+      <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Preview: Channel &rsaquo; Programme &rsaquo; Advertiser</h3><div class="sub">This is the main table of the PDF. The PDF also has talking points, an advertiser summary, month by month and peak episodes.</div></div></div>
+        <div class="tbl-scroll" style="max-height:620px"><table class="tbl rp-tbl"><thead><tr><th>Channel / programme / advertiser</th><th>Role</th><th class="num">Sponsorship LKR</th><th class="num">Regular LKR</th><th class="num">Total LKR</th><th class="num">Spots</th><th class="num">First in break</th><th class="num">Avg ads in break</th><th>Health</th></tr></thead><tbody>${rows.join('')}</tbody></table></div></div>`;
   }
 
   /* ================= Short-form & Sponsorship matrix ================= */
@@ -171,7 +256,7 @@
       tb.innerHTML = rows.slice(0, shown).map((r, i) => `<tr class="sf-row" data-i="${d.rows.indexOf(r)}" tabindex="0" aria-expanded="false">
         <td><b>${esc(tt(r.channel))}</b><div class="small">${esc(tt(r.program))}</div></td>
         <td><span class="swatch" style="background:${C.colorFor(r.advertiser)}"></span>${esc(r.advertiser)}<div class="muted small">${esc(r.product || '')}</div></td>
-        <td>${role(r.role)}${r.sponsor_items ? `<div class="muted small">${fmt.num(r.sponsor_items)} items</div>` : ''}</td>
+        <td>${role(r.role)}${r.sponsor_items ? `<div class="muted small">${fmt.num(r.sponsor_items)} item${r.sponsor_items === 1 ? '' : 's'}</div>` : ''}</td>
         <td class="sf-durc">${durBar(r.dur_split)}</td>
         <td class="num"><b>${fmt.num(r.per_day, r.per_day < 10 ? 1 : 0)}</b>/day<div class="muted small">${fmt.num(r.per_month, 0)}/month · ${fmt.num(r.spots)} spots</div></td>
         <td class="num ${r.avg_clutter > d.clutter_threshold ? 'neg-hot' : ''}">${dec(r.avg_clutter)}</td>

@@ -162,3 +162,69 @@ def test_row_detail(sheet):
     assert sum(x["spots"] for x in d["daily"]) == (sub["Advertiser"] == "Lanka Tea Co").sum()
     assert sum(x["programme_spots"] for x in d["daily"]) == len(sub)
     assert d["themes"][0]["type"] == "Billboard"
+
+
+def test_report_channel_programme_advertiser(sheet):
+    p, df, _ = sheet
+    opts = {"advertisers": ["Lanka Tea Co", "Nestle Lanka Ltd"], "date_from": "2026-06-15", "date_to": "2026-07-31", "channels": ["DERANA", "SIRASA"]}
+    d = node("report", p, opts)
+    win = df[(df["t"] >= "2026-06-15") & (df["t"] <= "2026-07-31") & df["ch"].isin(["DERANA", "SIRASA"])]
+    sub = win[win["Advertiser"].isin(opts["advertisers"])]
+    assert d["totals"]["spend"] == pytest.approx(sub["Cost"].sum()) and d["totals"]["spots"] == len(sub)
+    assert d["range"] == ["2026-06-15", "2026-07-31"]
+    assert d["period"][0] >= "2026-06-15" and d["period"][1] <= "2026-07-31"
+    assert {c["channel"] for c in d["channels"]} == set(sub["ch"])
+    for c in d["channels"]:
+        assert c["spend"] == pytest.approx(sub[sub["ch"] == c["channel"]]["Cost"].sum())
+        for pr in c["programmes"]:
+            ps = sub[(sub["ch"] == c["channel"]) & (sub["prog"] == pr["program"])]
+            allp = win[(win["ch"] == c["channel"]) & (win["prog"] == pr["program"])]
+            assert pr["selected"]["spend"] == pytest.approx(ps["Cost"].sum())
+            assert pr["programme_spend"] == pytest.approx(allp["Cost"].sum())       # whole programme, all advertisers
+            assert pr["airing_days"] == allp["t"].nunique()
+            roles = expected_roles(allp)                                           # roles judged on everyone in the programme
+            for a in pr["advertisers"]:
+                x = ps[ps["Advertiser"] == a["advertiser"]]
+                assert a["advertiser"] in opts["advertisers"]
+                assert a["spend"] == pytest.approx(x["Cost"].sum()) and a["spots"] == len(x)
+                assert a["sponsor_spend"] == pytest.approx(x.loc[x["sp"], "Cost"].sum())
+                assert a["sov_spend"] == pytest.approx(x["Cost"].sum() / allp["Cost"].sum() * 100)
+                assert a["role"] == roles[a["advertiser"]], (c["channel"], pr["program"], a["advertiser"], allp[allp.sp].groupby("Advertiser").agg(spend=("Cost", "sum"), bb=("bb", "sum")).to_dict())
+    tea = next(pr for c in d["channels"] if c["channel"] == "DERANA" for pr in c["programmes"] if pr["program"] == PROG)
+    assert tea["title_sponsor"] == "Lanka Tea Co"
+    adv = {a["advertiser"]: a for a in d["advertisers"]}
+    assert set(adv) == set(opts["advertisers"]) and adv["Lanka Tea Co"]["title"] >= 1
+    m = d["monthly"]
+    assert m["months"] == ["2026-06", "2026-07"]
+    for r in m["rows"]:
+        x = sub[sub["Advertiser"] == r["advertiser"]]
+        assert [v["spend"] for v in r["values"]] == pytest.approx([x[x["t"].dt.strftime("%Y-%m") == mo]["Cost"].sum() for mo in m["months"]])
+    assert d["briefs"] and all(b["points"] for b in d["briefs"])
+
+
+def test_report_options_cascade(sheet):
+    p, df, _ = sheet
+    o = node("options", p, {"channels": ["DERANA"], "programs": [PROG], "date_from": "2026-07-01"})
+    sub = df[(df["ch"] == "DERANA") & (df["prog"] == PROG) & (df["t"] >= "2026-07-01")]
+    assert set(o["advertisers"]) == set(sub["Advertiser"])
+    assert set(o["programs"]) == set(df[(df["ch"] == "DERANA") & (df["t"] >= "2026-07-01")]["prog"])
+    assert len(o["channels"]) == df["ch"].nunique() and o["data_from"] == str(df["t"].min().date())
+    assert node("report", p, {"date_from": "2030-01-01"})["empty"] is True
+
+
+def test_report_pdf_endpoint(sheet):
+    import io
+    from helpers import api
+    p, _, _ = sheet
+    rep = node("report", p, {"advertisers": ["Lanka Tea Co", "Nestle Lanka Ltd"], "date_from": "2026-06-01", "date_to": "2026-07-31"})
+    c = api()
+    r = c.post("/api/spotlight/pdf", json={"report": rep, "meta": {"dataset": "lm.csv"}})
+    assert r.status_code == 200 and r.content[:5] == b"%PDF-" and r.headers["x-report-id"]
+    assert c.get("/api/reports").json()[0]["filename"].endswith(".pdf")
+    assert c.post("/api/spotlight/pdf", json={"report": {"empty": True}}).status_code == 422
+    pdf = pytest.importorskip("pypdf").PdfReader(io.BytesIO(r.content))
+    text = " ".join(pg.extract_text() for pg in pdf.pages)
+    for s in ("Programme & Sponsorship Report", "2026-06-01 to 2026-07-31", "Channel", "Teledrama Night", "Lanka Tea Co", "Title Sponsor", "Sponsorship highlights",
+              "holds the primary sponsorship", "Month by month", "Advertisers"):
+        assert s in text, s
+    assert "—" not in text
