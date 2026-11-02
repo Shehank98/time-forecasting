@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from ..core import workspace
-from ..services import export_negotiation, export_spotlight, repo
+from ..services import export_executive, export_negotiation, export_spotlight, repo
 from ..services.store import Workspace
 
 log = logging.getLogger("app")
@@ -65,4 +65,29 @@ def spotlight_pdf(req: SpotlightReq, ws: Workspace = Depends(workspace)) -> Resp
     rid = repo.save_report(ws.client_id, "lmrb", "pdf", fname, content, {"kind": "spotlight", "format": "pdf", "title": "Programme and sponsorship report",
                                                                         "dataset": str(req.meta.get("dataset") or "")[:200]}, ws.user_id)
     log.info("[spotlight pdf] built %s (%d bytes) for client %s", fname, len(content), ws.client_id)
+    return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})
+
+
+class ExecutiveReq(BaseModel):
+    summary: dict[str, Any]
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/api/executive/pdf")
+def executive_pdf(req: ExecutiveReq, ws: Workspace = Depends(workspace)) -> Response:
+    """Executive negotiation summary: overall, channels, programmes and sponsorship, plus the drill-down details."""
+    d = req.summary
+    if d.get("empty") or not d.get("channels"):
+        raise HTTPException(422, "No spots match the chosen advertisers, channels and dates, so there is nothing to put in the summary.")
+    client = repo.get_client(ws.client_id) or {"name": "client"}
+    try:
+        content = export_executive.build_executive_pdf(d, req.meta, client, repo.get_branding(), {"agency": repo.agency_logo(), "client": repo.client_logo(ws.client_id)})
+    except Exception:
+        log.exception("Executive summary PDF failed")
+        raise HTTPException(500, "The executive summary could not be built. Try fewer channels or a shorter date range.") from None
+    name = re.sub(r"[^A-Za-z0-9]+", "_", client.get("name") or "client").strip("_")[:40] or "client"
+    fname = f"{name}_executive_summary_{dt.datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    rid = repo.save_report(ws.client_id, "lmrb", "pdf", fname, content, {"kind": "executive", "format": "pdf", "title": "Executive negotiation summary",
+                                                                        "dataset": str(req.meta.get("dataset") or "")[:200]}, ws.user_id)
+    log.info("[executive pdf] built %s (%d bytes) for client %s", fname, len(content), ws.client_id)
     return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})

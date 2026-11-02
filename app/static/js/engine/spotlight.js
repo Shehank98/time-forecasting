@@ -415,5 +415,6 @@
       selection: { channel: opts.channel || null, advertiser: opts.advertiser || null, show: opts.show || 'sponsor' } };
   }
 
+  MR._spot = { scan, acc, add, out, themeRows, frequencyGroups, inDates, durIdx, DUR, median, pct };
   Object.assign(MR, { frequencyGroups, sponsorshipList, sponsorshipOptions, sponsorshipReport, spotlightIndex, programmeSpotlight, shortFormMatrix, shortFormRow, SPOTLIGHT_ROLES: ROLES, SPOTLIGHT_DUR: DUR, spotlightThemeKinds: themeKinds });
 })(typeof self !== 'undefined' ? self : globalThis);

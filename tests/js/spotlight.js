@@ -5,6 +5,6 @@ const MR = load();
   const [op, file, opts] = process.argv.slice(2);
   const L = await MR.parseFile('lmrb', fileOf(file)); const idx = MR.applyFilters(L, 'lmrb', {});
   const o = JSON.parse(opts || '{}');
-  const f = { index: () => MR.spotlightIndex(L, idx), programme: () => MR.programmeSpotlight(L, idx, o), matrix: () => MR.shortFormMatrix(L, idx, o), row: () => MR.shortFormRow(L, idx, o), options: () => MR.sponsorshipOptions(L, idx, o), report: () => MR.sponsorshipReport(L, idx, o), list: () => MR.sponsorshipList(L, idx, o) }[op];
+  const f = { index: () => MR.spotlightIndex(L, idx), programme: () => MR.programmeSpotlight(L, idx, o), matrix: () => MR.shortFormMatrix(L, idx, o), row: () => MR.shortFormRow(L, idx, o), options: () => MR.sponsorshipOptions(L, idx, o), report: () => MR.sponsorshipReport(L, idx, o), list: () => MR.sponsorshipList(L, idx, o), exec: () => MR.executiveSummary(L, idx, o), execDetail: () => MR.executiveDetail(L, idx, o) }[op];
   process.stdout.write(JSON.stringify(f()));
 })().catch((e) => { console.error(e.stack); process.exit(1); });

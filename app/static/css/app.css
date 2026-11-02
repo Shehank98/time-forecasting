@@ -745,3 +745,20 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .fc-bt-head { line-height: 1.6; }
 .fc-bt-kpis { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; margin-left: 6px; } .fc-bt-kpis b { color: var(--text); }
 .fc-bt-wrap { height: 190px; }
+
+/* Executive Negotiation Summary */
+.ex-h { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; } .ex-h h3 { margin: 0; }
+.ex-n { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--grad); color: var(--on-grad); font-weight: 800; }
+.ex-minis { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 14px; }
+.ex-mini h4 { margin: 0 0 6px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.ex-mini .tbl td, .ex-mini .tbl th, .ex-dt td, .ex-dt th { padding: 5px 8px; }
+.ex-bar { display: inline-block; width: 46px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-right: 6px; vertical-align: middle; } .ex-bar i { display: block; height: 100%; background: var(--accent); }
+.ex-tbl tr.ex-row { cursor: pointer; } .ex-tbl tr.ex-row:hover td { background: var(--accent-soft); } .ex-tbl tr.ex-row[aria-expanded="true"] td { background: var(--accent-soft); font-weight: 600; }
+.ex-tbl tr.ex-row td:first-child::before { content: "\25B8"; color: var(--accent); margin-right: 6px; } .ex-tbl tr.ex-row[aria-expanded="true"] td:first-child::before { content: "\25BE"; }
+.ex-exp > td { background: var(--surface-2); padding: 12px !important; }
+.ex-dh { font-weight: 700; margin-bottom: 10px; }
+.ex-dgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.ex-dcard { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px; min-width: 0; }
+.ex-dcard h4 { margin: 0 0 8px; }
+.ex-dcard .dt-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .ex-dgrid { grid-template-columns: 1fr; } }

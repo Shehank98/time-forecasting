@@ -13,7 +13,8 @@ from app.services import normalise as nz
 from app.services.analytics_lmrb import is_sponsor_theme
 
 ROOT = Path(__file__).resolve().parent.parent
-pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+needs_node_mark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+pytestmark = needs_node_mark
 KEY = ["Advertiser", "Product", "Advt_Theme", "ch", "t", "Advt_time", "BrkNo", "PosinBrk", "AdPos", "Cost"]
 PROG = "TELEDRAMA NIGHT"
 

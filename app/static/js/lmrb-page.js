@@ -278,7 +278,7 @@
   }
 
   const tabs = [
-    { id: 'overview', label: 'Overview', render: overview }, { id: 'spend', label: 'Spend breakdown', render: spend }, { id: 'mix', label: 'Channel and programme mix', render: mix },
+    { id: 'overview', label: 'Overview', render: overview }, { id: 'executive', label: 'Executive Negotiation Summary', render: (p, ctx) => App.executive.tab(p, ctx), hidden: () => !App.executive }, { id: 'spend', label: 'Spend breakdown', render: spend }, { id: 'mix', label: 'Channel and programme mix', render: mix },
     { id: 'flighting', label: 'Flighting', render: flighting }, { id: 'creatives', label: 'Creatives', render: creatives }, { id: 'pricing', label: 'Pricing', render: pricing },
     { id: 'position', label: 'Position strategy', render: position }, { id: 'grp', label: 'GRPs and CPRP', render: grps, hidden: (ctx) => !(ctx.data && ctx.data.grp) }, { id: 'spotlight', label: 'Programme & Sponsorship Spotlight', render: (p, ctx) => App.spotlight.tab(p, ctx), hidden: () => !App.spotlight }, { id: 'negotiation', label: 'Deep Negotiation & Brand Intelligence', render: (p, ctx) => App.negotiation.tab(p, ctx), hidden: () => !App.negotiation }, { id: 'alerts', label: 'Alerts', render: alerts }, { id: 'h2h', label: 'Head to head', render: head },
   ];

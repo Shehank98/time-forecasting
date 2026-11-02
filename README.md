@@ -352,3 +352,26 @@ The numbers are computed in the browser (`app/static/js/engine/spotlight.js`). `
 
   A copy is saved under Reports.
 - **Roles use everyone in the programme.** The advertiser pick only limits which rows are shown, so a brand's role stays the same however you filter.
+
+## Executive Negotiation Summary (Market card)
+
+A table-first summary for agency heads and brand managers. It is the second tab, right after Overview.
+
+**Filters:** advertisers, channels and a From/To date (with quick ranges). These narrow everything on the page and in the PDF, together with the page filters.
+
+1. **Overall campaign summary:**
+   - headline numbers: active brands and products, total monitored spend, commercial spend vs value-add (sponsorship) spend, spots and sponsorship items, programmes, frequency buys, and GRPs/CPRP when a TVR sheet is loaded;
+   - duration, language and medium splits, and the top brands.
+2. **TV channel-wise breakdown:** ranked by total monitored spend. Each channel shows commercial spend, value-add spend, total, commercial spots, sponsorship items, total spots, share of wallet, and GRPs when a TVR sheet is loaded.
+3. **Programmes & sponsorship intelligence:** each programme shows its channel, whether it has sponsorship, the sponsors with item counts, sponsorship items, commercial spots, total spots, airing days, spots per airing and frequency buys. Sponsored programmes come first.
+
+**Click any channel or programme row** to open its details underneath:
+- **Commercial details:** commercial spots and spend, the duration split (5s, 10s, 15s, 20s, 30s, 30s+), dayparts and the top advertisers.
+- **Ratings & volume:** GRPs, average spot rating, CPRP and the share of spots rated (from the TVR sheet, matched by channel and 30-minute timeband); also spots per day, active days, busiest day, ads in break, first in break and average length.
+- **Sponsorship details:** sponsorship items, billboards, logos and tags, sponsorship spend, each sponsorship tag with its ad count and daily average, and frequency buys.
+
+**Medium** is worked out from the channel name: "FM" or "Radio" counts as Radio, everything else as TV. The LMRB sheet has no medium column.
+
+**Export Executive Summary PDF** (`POST /api/executive/pdf`) contains the three summary sections, then the full drill-down for the top 10 channels and the top 12 programmes. A copy is kept under Reports.
+
+The numbers are computed in the browser (`app/static/js/engine/executive.js`). `tests/test_executive.py` checks them against pandas.

@@ -1,7 +1,7 @@
 // Loads the browser engine into Node for parity tests (same files the worker uses).
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const ROOT = path.resolve(__dirname, '../..');
-const ENGINE = ['core.js', 'ingest.js', 'filters.js', 'analytics_tv.js', 'analytics_lmrb.js', 'analytics_kpi.js', 'ingest_kpi.js', 'joins.js', 'series.js', 'predict.js', 'negotiation.js', 'spotlight.js'];
+const ENGINE = ['core.js', 'ingest.js', 'filters.js', 'analytics_tv.js', 'analytics_lmrb.js', 'analytics_kpi.js', 'ingest_kpi.js', 'joins.js', 'series.js', 'predict.js', 'negotiation.js', 'spotlight.js', 'executive.js'];
 function load() {
   globalThis.XLSX = require(path.join(ROOT, 'app/static/js/vendor/xlsx.full.min.js'));
   for (const f of ENGINE) {
