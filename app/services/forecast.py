@@ -550,6 +550,7 @@ def specs_from_payload(items: list[dict], gran: str) -> tuple[list[S.SeriesSpec]
         if gran == "daily" and agg in ("sum", "count") and len(vals) >= 21 and np.isfinite(vals[-1]):
             ref = float(np.nanmedian(vals[-8:-1]))
             if ref > 0 and vals[-1] < 0.25 * ref:
+                log.info("[forecast] input: dropped incomplete last day %s for '%s' (%.0f vs about %.0f)", dates[-1].date(), it.get("entity"), vals[-1], ref)
                 notes.append(f"{it.get('entity')}: the last day ({dates[-1].date()}) looks incomplete ({vals[-1]:,.0f} against about {ref:,.0f} on the days before) and was left out.")
                 dates, vals = dates[:-1], vals[:-1]
         s = pd.Series(vals, index=dates)
@@ -565,7 +566,9 @@ def specs_from_payload(items: list[dict], gran: str) -> tuple[list[S.SeriesSpec]
 def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: dict, progress: Progress | None = None) -> dict:
     """Forecast prepared series in one batched TimesFM call. Returns a JSON-safe result."""
     prog = progress or (lambda p, m: None)
+    t_start = time.time()
     if not specs:
+        log.warning("[forecast] no series to forecast: %s", notes[:3])
         return {"ok": False, "message": notes[0] if notes else "No series could be built.", "notes": notes}
     prog(0.05, "Preparing series")
     gran = specs[0].gran
@@ -573,6 +576,10 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
     if H > MAX_HORIZON:
         H = MAX_HORIZON; notes.append(f"Horizon limited to {MAX_HORIZON} {gran} points.")
     mp = min_points(gran)
+    log.info("[forecast] step 1/6 start: kind=%s series=%d granularity=%s horizon=%d points (%s days) covariates=%s guard=%s holdout=%s major_events=%d",
+             kind, len(specs), gran, H, params.get("horizon_days"), params.get("covariates", True), params.get("covariate_guard", True), params.get("holdout"), len(params.get("major_events") or []))
+    for n_ in notes[:10]:
+        log.info("[forecast] note: %s", n_)
     default_hold = {"daily": 14, "weekly": 3, "monthly": 3}[gran]
     contexts, holds = [], []
     for sp in specs:
@@ -591,8 +598,12 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
     recbt_pos = {i: n0 + len(bt_idx) + len(rec_idx) + k for k, i in enumerate(rec_idx)}
     batch = contexts + [contexts[i][:-holds[i]] for i in bt_idx] + [contexts[i][-W:] for i in rec_idx] + [contexts[i][:-holds[i]][-W:] for i in rec_idx]
     horizon_all = max([H] + [holds[i] for i in bt_idx])
+    log.info("[forecast] step 2/6 batch: %d contexts (%d full, %d backtest, %d recent-window x2), longest context %d, horizon %d, backtest holdouts %s",
+             len(batch), n0, len(bt_idx), len(rec_idx), max(len(c) for c in contexts), horizon_all, sorted({holds[i] for i in bt_idx}))
     prog(0.2, "Starting the forecast engine" if model._tfm is None and not model._failed else "Forecasting")
+    t_model = time.time()
     q, backend = model.predict(batch, horizon_all, gran)
+    log.info("[forecast] step 3/6 model: backend=%s took %.2fs output=%s%s", backend, time.time() - t_model, tuple(q.shape), (" (fallback: " + str(model.error) + ")") if backend != "timesfm" else "")
     prog(0.65, "Applying calendar covariates")
     plain_q = q.copy()
     cov_q: dict[str, np.ndarray] = {}                   # covariate-aware candidates, one per method
@@ -607,10 +618,14 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
                                   horizons=[holds[i] for i in bt_idx], cut=[holds[i] for i in bt_idx], mode=mode)
             if msg is None:
                 cov_q[mode] = qm; cov_used = cov_used or used
+                log.info("[forecast] step 4/6 calendar method '%s' ran with covariates %s", mode, used)
             else:
                 cov_msg = cov_msg or msg
+                log.warning("[forecast] step 4/6 calendar method '%s' skipped: %s", mode, msg)
         if cov_q:
             cov_msg = None                  # at least one calendar method ran
+    else:
+        log.info("[forecast] step 4/6 calendar covariates not used (covariates=%s, backend=%s)", params.get("covariates", True), backend)
     results = []
     names = {"plain": "Forecast engine alone", "recent": "Forecast engine on the recent weeks only", "timesfm + xreg": "Forecast engine with calendar effects", "xreg + timesfm": "Calendar effects first, then forecast engine"}
     for i, sp in enumerate(specs):
@@ -634,6 +649,11 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
                 drift = float(med(cands[best][0])[:, 1].sum()) / plain_sum if plain_sum > 0 else 1.0
                 if 0.4 <= drift <= 2.5:                                       # and must not wander off the level the plain forecast sees
                     choice = best
+        if errs:
+            log.info("[forecast] step 5/6 series '%s' (n=%d, holdout=%d) held-out MAE by method: %s -> best=%s chosen=%s",
+                     sp.entity, len(y), holds[i], {k: round(v, 3) for k, v in errs.items()}, best, choice)
+        else:
+            log.info("[forecast] step 5/6 series '%s' (n=%d): no backtest (history too short), plain forecast used", sp.entity, len(y))
         if params.get("covariate_guard", True) is False and cov_q:      # debugging switch: always use the calendar-aware forecast
             choice = "timesfm + xreg" if "timesfm + xreg" in cov_q else next(iter(cov_q))
         fq, bq_raw = cands[choice]
@@ -662,6 +682,14 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
         shift = level_shift(y, gran)
         if shift:
             warnings.append(shift)
+        zero_f = int((p50 <= 0).sum())
+        log.info("[forecast] series '%s': method=%s forecast p50 min/mean/max=%.4g/%.4g/%.4g zero_days=%d/%d | backtest accuracy=%s(%s) smape=%s wape=%s mase=%s | warnings=%s",
+                 sp.entity, choice, float(p50.min()), float(p50.mean()), float(p50.max()), zero_f, len(p50),
+                 None if not bt else (round(bt["accuracy"], 1) if bt["accuracy"] is not None else None), None if not bt else bt["accuracy_basis"],
+                 None if not bt else bt["model"]["smape"] and round(bt["model"]["smape"], 1), None if not bt else bt["model"]["wape"] and round(bt["model"]["wape"], 1),
+                 None if not bt else bt["model"]["mase"] and round(bt["model"]["mase"], 2), warnings)
+        if zero_f and zero_f >= 0.5 * len(p50) and float(np.mean(y[-14:])) > 0:
+            log.warning("[forecast] CHECK series '%s': %d of %d forecast days are zero although the recent average is %.4g", sp.entity, zero_f, len(p50), float(np.mean(y[-14:])))
         results.append({
             "entity": sp.entity, "group": getattr(sp, "group", ""), "metric": sp.metric, "metric_label": sp.mdef.label if sp.mdef else sp.metric, "unit": sp.mdef.unit if sp.mdef else "number",
             "granularity": gran, "n_points": int(len(y)), "n_active": sp.n_active,
@@ -671,6 +699,7 @@ def run_specs(specs: list[S.SeriesSpec], notes: list[str], kind: str, params: di
             "anomalies": detect_anomalies(sp.dates, y, gran), "change_points": detect_change_points(sp.dates, y) if len(y) >= 12 else [],
             "outlook": outlook(sp, fd, p10, p50, p90), "peaks": find_peaks(sp, fd, p50, int(params.get("lead_days", 14))), "warnings": warnings})
     prog(1.0, "Done")
+    log.info("[forecast] step 6/6 done: %d series in %.2fs, backend=%s, covariates_used=%s, note=%s", len(results), time.time() - t_start, backend, cov_used, cov_msg)
     return jsonable({"ok": True, "kind": kind, "params": {**params, "granularity": gran, "horizon_points": H}, "backend": backend,
                      "model": model.status(), "covariates_used": cov_used, "covariate_note": cov_msg, "notes": notes, "results": results})
 

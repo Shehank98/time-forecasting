@@ -5,6 +5,7 @@ compact, regularly spaced series and sends only those.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -19,6 +20,7 @@ from ..services import sl_media_calendar as CAL
 from ..services.store import Workspace
 from ..services.util import jsonable
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -100,7 +102,9 @@ def forecast_run(req: ForecastIn, ws: Workspace = Depends(workspace)) -> dict:
         raise HTTPException(422, "Horizon must be between 1 and 400 days.")
     items = [i.model_dump() for i in req.series]
     key = fc.cache.key("payload", req.kind, {}, {}, {**p, "_v": VT.version(), "_s": [(s.entity, s.group, s.metric, s.dates[0], s.dates[-1], len(s.dates), hash(tuple(s.values)), str(sorted((s.vault or {}).items()))) for s in req.series]})
-    vault_info = VT.extend(items, gran)                  # stored history for the same series, strictly before the dates the browser sent
+    vault_info = VT.extend(items, gran)
+    log.info("[forecast] request: user=%s kind=%s series=%d granularity=%s horizon_days=%s params=%s vault=%s", ws.user_id, req.kind, len(items), gran, h,
+             {k: v for k, v in p.items() if k != "major_events"}, {k: v for k, v in vault_info.items() if k != "enabled"})                  # stored history for the same series, strictly before the dates the browser sent
     try:
         specs, notes = fc.specs_from_payload(items, gran)
     except ValueError as exc:
@@ -109,6 +113,7 @@ def forecast_run(req: ForecastIn, ws: Workspace = Depends(workspace)) -> dict:
     def work(progress):
         hit = fc.cache.get(key)
         if hit is not None:
+            log.info("[forecast] served from cache (%d series)", len(items))
             return {**hit, "cached": True}
         res = fc.run_specs(specs, notes, req.kind, {**p, "granularity": gran, "horizon_days": h}, progress)
         res["vault"] = vault_info

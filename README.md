@@ -246,3 +246,10 @@ Every series is forecast several ways and the method that does best on the held-
 A calendar method is used only if it beats the plain forecast on the held-out days by at least 5% and stays within 0.4x to 2.5x of the plain forecast's level. This stops the failure where a regression fitted across an old, higher level pushed every weekday forecast to zero. The Numbers popup and the Backtest table say which method won.
 
 Accuracy % (the Trust badge) is 100 minus sMAPE, but 100 minus WAPE when at least 15% of the held-out days are near zero, because sMAPE reads about 200% on a zero day. MASE below 1 means the forecast beat repeating last week's pattern. Reliability uses MASE and that accuracy, not raw sMAPE. The newest day of a daily upload is left out when it is under a quarter of the days before it (usually a part day). Set `covariate_guard: false` in the forecast params to bypass the method choice when debugging.
+
+## Reading the forecast trail
+
+Every forecast writes its steps to two places so problems are easy to find.
+
+- **Server log (Railway, or the terminal):** lines starting `[forecast]`: the request (series, granularity, horizon, stored history used), step 1 start, step 2 batch sizes, step 3 model backend and time, step 4 which calendar methods ran or were skipped (and why), step 5 per series the held-out error of each method and the one chosen, one summary line per series (method, forecast min/mean/max, zero days, accuracy, sMAPE, WAPE, MASE, warnings) and step 6 totals. A `CHECK` warning appears when half or more of the forecast days are zero although recent history is not. Set `LOG_LEVEL=DEBUG` for more.
+- **Browser console (F12):** a collapsed group `[forecast] ...` per run with the same steps, a table with one row per series, and warnings. Turn it off with `localStorage.setItem('mr:trace', '0')`.

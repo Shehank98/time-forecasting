@@ -252,9 +252,15 @@
         App.store.set('fc:' + fk, { ...params, entities: undefined });
         run(e.currentTarget, async () => {
           const s = await series({ entity_type: et, metric: params.metric, granularity: params.granularity, entities: params.entities, history_days: params.history_days, max_entities: params.max_entities });
-          if (!s.series.length) return { ok: false, message: s.notes[0] || 'No series could be built.' };
+          console.groupCollapsed(`[forecast] studio run ${new Date().toLocaleTimeString()}`);
+          console.info('[forecast] studio: params', params, 'built', s.series.length, 'series', s.notes);
+          if (!s.series.length) { console.warn('[forecast] no series could be built:', s.notes); console.groupEnd(); return { ok: false, message: s.notes[0] || 'No series could be built.' }; }
           App.loader.progress(null, `Forecasting ${s.series.length} series`);
+          const t0 = performance.now();
           const res = await App.runJob('/api/forecast/run', { kind, series: s.series, params: { ...params, granularity: s.granularity } }, onJob);
+          console.info(`[forecast] studio: server answered in ${((performance.now() - t0) / 1000).toFixed(1)}s ok=${res.ok}`);
+          if (res.ok && App.traceForecast) App.traceForecast(res, res.results); else if (!res.ok) console.warn('[forecast] the server could not run the forecast:', res.message, res.notes);
+          console.groupEnd();
           if (res.ok) res.notes = s.notes.concat(res.notes || []);
           return res;
         }, (res) => { App.lastForecast[fk] = { params, result: res }; forecastResults(out, res, ctx, params); });

@@ -12,6 +12,8 @@
 
   function hasValues(T, col, idx) { const C = T.cols[col]; if (!C) return false; for (let k = 0; k < idx.length; k++) if (Number.isFinite(C[idx[k]])) return true; return false; }
   const pct = (a, b) => (finite(a) && finite(b) && b !== 0 ? ((a - b) / Math.abs(b)) * 100 : null);
+  /** True when the column has at least one value above zero (a column of zeros is as good as missing). */
+  function hasPositive(T, col, idx) { const C = T.cols[col]; if (!C) return false; for (let k = 0; k < idx.length; k++) if (C[idx[k]] > 0) return true; return false; }
   const items = (res, group) => res.series.map((s) => MR.payloadItem(s, group));
 
   /* ---------------- TVR & Audience ---------------- */
@@ -19,7 +21,7 @@
   function tvrPayload(T, idx, mode, vopt = {}) {
     const monthly = mode === 'monthly', G = monthly ? 'monthly' : 'daily';
     const daily = [], weekly = [], notes = [];
-    const ctx = { mode: monthly ? 'monthly' : 'daily', gran: G, rows: idx.length, heat_metric: hasValues(T, 'tvr_share', idx) ? 'share' : 'tvr', has_reach_pct: hasValues(T, 'reach_pct', idx) };
+    const ctx = { mode: monthly ? 'monthly' : 'daily', gran: G, rows: idx.length, heat_metric: hasValues(T, 'tvr_share', idx) ? 'share' : 'tvr', has_reach_pct: hasPositive(T, 'reach_pct', idx) };
     if (!idx.length) return { daily, weekly, notes: ['No TVR rows match the current filters.'], ctx, gran: G };
     const [lo, hi] = MR.minMax(T.cols.date, idx);
     ctx.date_min = isoFromDay(lo); ctx.date_max = isoFromDay(hi);
@@ -36,7 +38,7 @@
     // stickiness: reach % and viewing time for the same programme slots, so TVR can be set against reach
     const slotNames = wk.series.map((x) => x.entity);
     if (slotNames.length && ctx.has_reach_pct) run(monthly ? daily : weekly, 'program_reach', 'program', 'reach_pct', monthly ? 'monthly' : 'weekly', { entities: slotNames });
-    ctx.has_avg_time = hasValues(T, 'avg_time', idx);
+    ctx.has_avg_time = hasPositive(T, 'avg_time', idx);
     if (slotNames.length && ctx.has_avg_time) run(monthly ? daily : weekly, 'program_avgtime', 'program', 'avg_time', monthly ? 'monthly' : 'weekly', { entities: slotNames });
     // how much audience each hour carries (recent 8 weeks): peak hours are the busiest quarter
     { const lvl = new Map(), days = new Set(); const lo8 = hi - 55;

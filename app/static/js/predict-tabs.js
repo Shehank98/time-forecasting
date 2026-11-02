@@ -64,22 +64,56 @@
     m.querySelector('#me-save').onclick = () => { sync(); writeEvents(rows.filter((e) => e.start && e.end >= e.start)); m.querySelectorAll('[data-x]').forEach((x) => x.click()); onSave(); };
     draw();
   }
+  /** Step-by-step trail in the browser console (filter on "[forecast]"). Turn off with localStorage.setItem('mr:trace', '0'). */
+  const traceOn = () => { try { return localStorage.getItem('mr:trace') !== '0'; } catch (e) { return true; } };
+  const trace = (...a) => { if (traceOn()) console.info('[forecast]', ...a); };
+  const traceWarn = (...a) => console.warn('[forecast]', ...a);
   async function forecastBatch(kind, items, gran, onProgress) {
     if (!items.length) return null;
+    const t0 = performance.now(), seen = new Set();
+    trace(`sending ${items.length} ${gran} series to the server (kind=${kind}, ${items.filter((i) => i.vault).length} can use stored history, longest ${Math.max(...items.map((i) => i.dates.length))} points)`);
+    const wrapped = (pr, m) => { if (m && !seen.has(m) && !/^Analysing /.test(m)) { seen.add(m); trace(`server: ${m} (${Math.round(pr * 100)}%, ${((performance.now() - t0) / 1000).toFixed(1)}s)`); } onProgress(pr, m); };
+    const out = await forecastBatchRaw(kind, items, gran, wrapped);
+    trace(`server finished ${gran} batch in ${((performance.now() - t0) / 1000).toFixed(1)}s: ok=${out && out.ok}${out && out.cached ? ' (cached)' : ''}`);
+    return out;
+  }
+  async function forecastBatchRaw(kind, items, gran, onProgress) {
     return App.runJob('/api/forecast/run', { kind, series: items, params: { granularity: gran, horizon_days: gran === 'weekly' ? HMAX + 6 : gran === 'monthly' ? 360 : HMAX, covariates: true, entity_type: 'prediction', metric: 'prediction',
       holdout: gran === 'monthly' ? 3 : gran === 'weekly' ? 4 : 30, major_events: MAJOR } }, onProgress);
+  }
+  /** What came back: engine, calendar covariates, stored history, and one row per series with the method that won and its accuracy. */
+  function traceResults(res, results) {
+    if (!res) return;
+    trace(`step 4: result backend=${res.backend} engine=${(res.model || {}).backend} covariates_used=${JSON.stringify(res.covariates_used)}${res.covariate_note ? ' note=' + res.covariate_note : ''}`, 'stored history:', res.vault, 'server notes:', res.notes);
+    if (res.backend !== 'timesfm') traceWarn('the statistical fallback produced this forecast, not the main engine:', (res.model || {}).error || (res.model || {}).note);
+    const rows = results.map((r) => { const b = r.backtest, f = r.forecast.p50, zero = f.filter((v) => !(v > 0)).length;
+      return { series: r.entity, group: r.group, points: r.n_points, method: b && b.engine ? b.engine.label : 'n/a (no backtest)', accuracy: b && b.accuracy != null ? `${b.accuracy.toFixed(0)}% (${b.accuracy_basis})` : 'n/a', mase: b && b.model.mase != null ? +b.model.mase.toFixed(2) : null,
+        smape: b && b.model.smape != null ? +b.model.smape.toFixed(0) : null, forecast_zero_days: `${zero}/${f.length}`, reliability: r.reliability.level, warnings: (r.warnings || []).length }; });
+    if (console.table) console.table(rows);
+    results.forEach((r) => { const f = r.forecast.p50, zero = f.filter((v) => !(v > 0)).length, recent = r.history.values.slice(-14).reduce((a, v) => a + v, 0) / Math.max(1, Math.min(14, r.history.values.length));
+      if (zero >= f.length / 2 && recent > 0) traceWarn(`CHECK ${r.entity}: ${zero} of ${f.length} forecast days are zero although the recent average is ${Math.round(recent)}`, r);
+      (r.warnings || []).forEach((w) => traceWarn(`${r.entity}: ${w}`));
+      if (r.backtest && r.backtest.engine) trace(`${r.entity}: held-out error by method`, r.backtest.engine.mae_by_method, '-> chosen:', r.backtest.engine.label); });
   }
   async function getPrediction(key, build, kind, onProgress) {
     if (cache.has(key)) return cache.get(key);
     const p = (async () => {
+      const t0 = performance.now();
+      console.groupCollapsed(`[forecast] ${kind} run ${new Date().toLocaleTimeString()}`);
+      trace(`step 1: building series from the data in this browser (key ${String(key).slice(0, 60)}...)`);
       onProgress(0.02, 'Building series from the data in this browser');
       const payload = await build();
       const n = payload.daily.length + payload.weekly.length;
-      if (!n) return { payload, results: [], res: null };
+      const byGroup = {}; payload.daily.concat(payload.weekly).forEach((x) => { byGroup[x.group] = (byGroup[x.group] || 0) + 1; });
+      trace(`step 2: built ${n} series in ${((performance.now() - t0) / 1000).toFixed(1)}s`, byGroup, 'notes:', payload.notes, 'context:', payload.ctx);
+      if (!n) { traceWarn('no series could be built: nothing to forecast', payload.notes); console.groupEnd(); return { payload, results: [], res: null }; }
       onProgress(0.08, `Analysing ${n} series`);
       const [d, w] = await Promise.all([forecastBatch(kind, payload.daily, payload.gran || 'daily', (p2, m) => onProgress(0.08 + 0.9 * p2, m)), forecastBatch(kind, payload.weekly, 'weekly', () => {})]);
-      for (const r of [d, w]) if (r && !r.ok) throw new Error(r.message || 'The forecast could not run.');
+      for (const r of [d, w]) if (r && !r.ok) { traceWarn('the server could not run the forecast:', r.message, r.notes); console.groupEnd(); throw new Error(r.message || 'The forecast could not run.'); }
       const results = [].concat(d ? d.results : [], w ? w.results : []);
+      traceResults(d || w, results);
+      trace(`step 5: ready in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+      console.groupEnd();
       App.shell.refreshModel();
       return { payload, results, res: d || w };
     })();
@@ -337,6 +371,7 @@
       <details class="evidence"><summary>Root-cause metrics</summary>${mt}${a.root ? `<h4>What changed (last 14 days against the 14 before)</h4><ul>${drv}<li>Spots: ${fmt.num(a.root.spots_last)} against ${fmt.num(a.root.spots_prev)}</li>${a.root.clutter_last != null ? `<li>Ads per break: ${fmt.num(a.root.clutter_last, 1)} against ${a.root.clutter_prev != null ? fmt.num(a.root.clutter_prev, 1) : 'n/a'}</li>` : ''}</ul>` : ''}${a.new_themes.length ? `<h4>New themes</h4><ul>${a.new_themes.map((t) => `<li>${esc(t.theme)}, first seen ${esc(t.first_seen)}</li>`).join('')}</ul>` : ''}</details></div></div>`;
   }
   App.stealth = { run: stealthRun, card: stealthCard };
+  App.traceForecast = traceResults;
 
   /* ================================================================ TVR & Audience */
   async function tvrTab(p, ctx) {
