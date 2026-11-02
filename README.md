@@ -266,4 +266,6 @@ Every series with at least 8 points is backtested, on up to two past windows, an
 
 Long histories open on a recent window (3 months of a daily series, 1 year of a weekly one, 2 years of a monthly one) with the forecast. Buttons switch the range (up to All) and, for daily data, between daily values and weekly totals. A thin strip under the chart shows the whole history with the visible window highlighted. Daily data is drawn as a 7-day average over the faint daily line; switch it off to see raw days. Range band, backtest and alerts can be toggled. In the weekly view, incomplete first and last weeks are left out and weekly ranges combine the daily ranges as if days vary independently (approximate).
 
+The same controls (range, daily or weekly, 7-day average, range band, overview strip) are on the time charts of the TVR and Market cards: Total audience, Reach outlook, Channel share path, Competitor spend and next move, Cost per second and Cost per rating point. Recurring Poya and salary pins are shown only on short daily views.
+
 `tests/tools/validate_numbers.py` recomputes the forecast inputs, tiles, share charts, programme buy counts, alignment and backtests from the raw sheets and compares them with what the browser sent, received and drew.

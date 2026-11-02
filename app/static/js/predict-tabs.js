@@ -46,7 +46,10 @@
     const L = labels.map((l) => String(l).slice(0, 10)), n = L.length, out = [];
     if (n < 2) return { on: PINS_ON, pins: [] };
     const step = (Date.parse(L[1]) - Date.parse(L[0])) / 86400000;
+    // recurring pins (Poya, salary week) are only useful day by day; on weekly, monthly or long daily views keep festivals and your own events
+    const sparse = step >= 6 || n > 200;
     for (const p of PINLIST) {
+      if (sparse && (p.kind === 'poya' || p.kind === 'salary')) continue;
       const t = Date.parse(p.date); if (t < Date.parse(L[0]) || t >= Date.parse(L[n - 1]) + step * 86400000) continue;
       let i = n - 1; while (i > 0 && Date.parse(L[i]) > t) i--;
       out.push({ index: i, emoji: p.emoji, label: p.label });
@@ -278,22 +281,38 @@
     ctx.setLineDash([]); ctx.fillStyle = C.css('--good') || '#22f5a6'; ctx.font = '700 11px ' + (C.css('--display') || 'sans-serif'); ctx.fillText('OPTIMAL BUYING ZONE', x0 + 8, ar.bottom - 10); ctx.restore(); } };
 
   /** History (solid) + forecast most likely (dashed) + low case-high case ribbon. */
-  function fan(id, r, H, { color = C.PALETTE[0], histDays = HIST, vf = f2, afterBody, lowLabel = 'Low case' } = {}) {
-    const f = slice(r, H), hd = r.history.dates.slice(-histDays), hv = r.history.values.slice(-histDays), nh = hd.length;
-    const labels = hd.concat(f.dates), pad = (a) => Array(nh - 1).fill(null).concat([hv[nh - 1]], a);
-    const bt = r.backtest, hold = bt ? Math.min(bt.holdout, nh) : 0;
-    const back = bt ? Array(nh - hold).fill(null).concat(bt.pred.slice(-hold), Array(f.dates.length).fill(null)) : null;
-    const ch = C.make(id, { type: 'line', data: { labels, datasets: [
-      { label: 'High case', data: pad(f.p90), borderColor: 'transparent', backgroundColor: color + '2e', fill: '+1', pointRadius: 0 },
-      { label: lowLabel, data: pad(f.p10), borderColor: color + '88', borderWidth: 1, borderDash: [2, 3], fill: false, pointRadius: 0 },
-      { label: 'Most likely forecast', data: pad(f.p50), borderColor: color, borderDash: [7, 5], borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
-      { label: 'Actual', data: hv.concat(Array(f.dates.length).fill(null)), borderColor: C.css('--text') || '#e8eeff', borderWidth: 2, pointRadius: 0, tension: 0.25 }]
-      .concat(back ? [{ label: 'Backtest: what the engine would have said', data: back, borderColor: C.css('--warn') || '#ffb547', borderDash: [3, 3], borderWidth: 2, pointRadius: 3, pointBackgroundColor: C.css('--warn') || '#ffb547', tension: 0.2, hidden: true }] : []) },
-      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { filter: (i) => i.text !== 'High case' } }, nowLine: { index: nh - 1 }, eventPins: eventOpt(labels),
-        tooltip: { callbacks: { title: C.fcTitle(nh), label: (c) => (c.parsed.y == null ? null : `${c.dataset.label}: ${vf(c.parsed.y)}`), afterBody: afterBody ? (items) => afterBody(items[0].dataIndex - nh) : undefined } } },
-        scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }, y: { beginAtZero: false, ticks: { callback: (v) => vf(v) } } } },
-      plugins: [nowLine] });
-    return { ch, f, nh };
+  /** History (solid) + forecast most likely (dashed) + low-to-high band, with range, daily/weekly, smoothing and band controls and an overview strip. */
+  function fan(id, r, H, { color = C.PALETTE[0], vf = f2, afterBody, lowLabel = 'Low case', additive = false } = {}) {
+    const f = slice(r, H), TVw = C.timeView, gran = r.granularity;
+    TVw.mount(id, gran, r.history.dates.length, { smooth: gran === 'daily', band: true, additive }, () => {
+      const sh = TVw.shape(id, gran, r.history.dates, [r.history.values], f.dates, [f], additive);
+      const hv = sh.lines[0], nh = sh.hd.length, fc = sh.fcs[0], labels = sh.hd.concat(sh.fd), tick = TVw.tick(sh.gran);
+      const pad = (arr) => Array(nh - 1).fill(null).concat([hv[nh - 1]], arr), blank = Array(sh.fd.length).fill(null), txt = C.css('--text') || '#e8eeff';
+      const ds = [];
+      if (sh.band && fc.p10 && fc.p90) {
+        ds.push({ label: 'High case', data: pad(fc.p90), borderColor: 'transparent', backgroundColor: color + '2e', fill: '+1', pointRadius: 0 });
+        ds.push({ label: lowLabel, data: pad(fc.p10), borderColor: color + '88', borderWidth: 1, borderDash: [2, 3], fill: false, pointRadius: 0 });
+      }
+      ds.push({ label: 'Most likely forecast', data: pad(fc.p50), borderColor: color, borderDash: [7, 5], borderWidth: 2.5, pointRadius: sh.weekly || sh.gran === 'monthly' ? 2 : 0, tension: 0.3 });
+      if (sh.smooth) {
+        ds.push({ label: 'Actual (each day)', data: hv.concat(blank), borderColor: txt + '40', borderWidth: 1, pointRadius: 0, tension: 0.2 });
+        ds.push({ label: 'Actual, 7-day average', data: C.timeView.rolling(hv, 7).concat(blank), borderColor: txt, borderWidth: 2.2, pointRadius: 0, tension: 0.25 });
+      } else ds.push({ label: sh.weekly ? (additive ? 'Actual (weekly total)' : 'Actual (weekly average)') : 'Actual', data: hv.concat(blank), borderColor: txt, borderWidth: 2, pointRadius: sh.weekly ? 2 : 0, tension: 0.25 });
+      const bt = r.backtest;
+      if (bt && !sh.weekly) {
+        const arr = labels.map(() => null); bt.dates.forEach((d, k) => { const i = labels.indexOf(d); if (i >= 0 && i < nh) arr[i] = bt.pred[k]; });
+        ds.push({ label: 'Backtest: what the engine would have said', data: arr, borderColor: C.css('--warn') || '#ffb547', borderDash: [3, 3], borderWidth: 2, pointRadius: 3, pointBackgroundColor: C.css('--warn') || '#ffb547', tension: 0.2, hidden: true });
+      }
+      const hide = ['High case'];
+      C.make(id, { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine],
+        options: { interaction: { mode: 'index', intersect: false }, animation: labels.length > 400 ? false : undefined,
+          plugins: { legend: { position: 'bottom', labels: { filter: (i) => !hide.includes(i.text) } }, nowLine: { index: nh - 1 }, eventPins: eventOpt(labels),
+            tooltip: { filter: (i) => i.parsed.y != null && !hide.includes(i.dataset.label), callbacks: { title: (it) => `${tick(it[0].label)}${sh.weekly ? ' (week)' : ''}  ·  ${it[0].dataIndex >= nh ? 'FORECAST' : 'actual'}`,
+              label: (c) => `${c.dataset.label}: ${vf(c.parsed.y)}`, afterBody: afterBody && !sh.weekly ? (items) => afterBody(items[0].dataIndex - nh) : undefined } } },
+          scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8, maxRotation: 0, callback(val) { return tick(this.getLabelForValue(val)); } } }, y: { beginAtZero: false, ticks: { maxTicksLimit: 6, callback: (x) => vf(x) } } } } });
+      return sh;
+    });
+    return { f };
   }
 
 
@@ -395,7 +414,7 @@
     if (!tot) { p.innerHTML = App.emptyState('Not enough TVR history to forecast', (pr.payload.notes || [])[0] || 'Widen the filters.'); return; }
     const reach = one(R, 'reach_total'), cats = group(R, 'cat_share'), hours = group(R, 'hour_share'), chans = group(R, 'channel_tvr'), progs = group(R, 'program_tvr');
     const fT = slice(tot, H), recentT = MR.recentMean(tot, NOW);
-    await loadPins(tot.history.dates.slice(-HIST), fT.dates);
+    await loadPins(tot.history.dates, fT.dates);
     const pTVR = avg(fT.p50), gTVR = avg(fT.p10), upTVR = avg(fT.p90);
     const catRows = cats.map((r) => { const f = slice(r, H); return { name: r.entity, now: MR.recentMean(r, NOW), next: avg(f.p50) }; }).map((x) => ({ ...x, shift: finite(x.next) && finite(x.now) ? x.next - x.now : null }));
     const growing = catRows.filter((x) => finite(x.shift)).sort((a, b) => b.shift - a.shift);
@@ -592,13 +611,18 @@
 
     const chRes = group(R, 'channel_share'), chRows = shareRows(chRes, H, NOW);
     if (chRes.length) {
-      const top = chRows.slice(0, 5).map((x) => chRes.find((r) => r.entity === x.name)).filter(Boolean), r0 = top[0], fd = slice(r0, H).dates, hd = r0.history.dates.slice(-HIST), nh = hd.length, labels = hd.concat(fd), ds = [];
-      top.forEach((r) => { const col = C.colorFor(r.entity), f = slice(r, H), hv = r.history.values.slice(-HIST);
-        ds.push({ label: fmt.title(r.entity), data: hv.concat(Array(fd.length).fill(null)), borderColor: col, backgroundColor: col, borderWidth: 2, pointRadius: 0, tension: 0.25 });
-        ds.push({ label: fmt.title(r.entity) + ' (forecast)', data: Array(nh - 1).fill(null).concat([hv[nh - 1]], f.p50), borderColor: col, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, tension: 0.3 }); });
-      C.make('pt-chtraj', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine], options: { interaction: { mode: 'index', intersect: false }, plugins: { nowLine: { index: nh - 1 }, eventPins: eventOpt(labels), legend: { position: 'bottom', labels: { filter: (i) => !/\(forecast\)$/.test(i.text) } },
-        tooltip: { filter: (i) => i.parsed.y != null && !(i.dataIndex === nh - 1 && /\(forecast\)$/.test(i.dataset.label)), callbacks: { title: C.fcTitle(nh), label: (c) => `${c.dataset.label}: ${fmt.num(c.parsed.y, 1)}%` } } },
-        scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }, y: { ticks: { callback: (v) => v + '%' }, title: { display: true, text: 'Share of all TVR' } } } } });
+      const top = chRows.slice(0, 5).map((x) => chRes.find((r) => r.entity === x.name)).filter(Boolean), r0 = top[0], TVw = C.timeView, fs = top.map((r) => slice(r, H));
+      TVw.mount('pt-chtraj', r0.granularity, r0.history.dates.length, { smooth: r0.granularity === 'daily', band: false }, () => {
+        const sh = TVw.shape('pt-chtraj', r0.granularity, r0.history.dates, top.map((r) => r.history.values), fs[0].dates, fs.map((f) => ({ p50: f.p50 })), false);
+        const nh = sh.hd.length, labels = sh.hd.concat(sh.fd), blank = Array(sh.fd.length).fill(null), ds = [], tick = TVw.tick(sh.gran);
+        top.forEach((r, k) => { const col = C.colorFor(r.entity), hv = sh.smooth ? TVw.rolling(sh.lines[k], 7) : sh.lines[k];
+          ds.push({ label: fmt.title(r.entity), data: hv.concat(blank), borderColor: col, backgroundColor: col, borderWidth: 2, pointRadius: 0, tension: 0.25 });
+          ds.push({ label: fmt.title(r.entity) + ' (forecast)', data: Array(nh - 1).fill(null).concat([hv[nh - 1]], sh.fcs[k].p50), borderColor: col, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, tension: 0.3 }); });
+        C.make('pt-chtraj', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine], options: { interaction: { mode: 'index', intersect: false }, plugins: { nowLine: { index: nh - 1 }, eventPins: eventOpt(labels), legend: { position: 'bottom', labels: { filter: (i) => !/\(forecast\)$/.test(i.text) } },
+          tooltip: { filter: (i) => i.parsed.y != null && !(i.dataIndex === nh - 1 && /\(forecast\)$/.test(i.dataset.label)), callbacks: { title: (it) => `${tick(it[0].label)}${sh.weekly ? ' (week)' : ''}  ·  ${it[0].dataIndex >= nh ? 'FORECAST' : 'actual'}`, label: (c) => `${c.dataset.label}: ${fmt.num(c.parsed.y, 1)}%` } } },
+          scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8, maxRotation: 0, callback(val) { return tick(this.getLabelForValue(val)); } } }, y: { ticks: { callback: (v) => v + '%' }, title: { display: true, text: 'Share of all TVR' } } } } });
+        return sh;
+      });
       const up = chRows.slice().sort((a, b) => b.chg - a.chg), dn = up.slice().reverse();
       ev.chtraj = [`${fmt.title(chRows[0].name)} stays on top with ${fmt.num(chRows[0].next, 1)}% of all TVR.`, up[0].chg > 0.2 ? `${fmt.title(up[0].name)} gains the most (${signed(up[0].chg, 1).replace('%', '')} pts).` : null, dn[0].chg < -0.2 ? `${fmt.title(dn[0].name)} loses the most (${signed(dn[0].chg, 1).replace('%', '')} pts).` : null,
         { rec: true, text: up[0].chg > 0.2 ? `Buy volume on ${fmt.title(up[0].name)} early; ask ${fmt.title(dn[0].name)} for make-goods.` : 'Channel shares are steady. Keep your channel weights.' }];
@@ -710,7 +734,7 @@
     HIST = M ? 24 : 56;
     const evid = (id, items) => C.evidence(id, (items || []).map((x) => (typeof x === 'string' ? w(x) : x && x.text ? { ...x, text: w(x.text) } : x)), "Planner's Evidence (forecast)", { note: 'These figures are forecasts: estimates of what is likely, not recorded data.' });
     if (!R.length) { p.innerHTML = App.emptyState('Not enough LMRB history to forecast', (pr.payload.notes || [])[0] || 'Widen the filters.'); return; }
-    { const s0 = one(R, 'spots_total') || R[0]; await loadPins(s0.history.dates.slice(-HIST), slice(s0, H).dates); }
+    { const s0 = one(R, 'spots_total') || R[0]; await loadPins(s0.history.dates, slice(s0, H).dates); }
     const comp = group(R, 'comp_spend'), sov = group(R, 'sov'), spots = one(R, 'spots_total'), dps = group(R, 'daypart_spend'), cps = one(R, 'cps_total');
     const clut = group(R, 'clutter'), pos = group(R, 'posinbrk'), rate = group(R, 'slot_rating'), costs = group(R, 'slot_cost');
     const my = pc.my_brand;
@@ -769,7 +793,7 @@
       </section>
       <section class="sv" data-sv="plan"${svHide('market', 'plan')}>
         <div class="sl-grid" id="sl-mk"></div>
-        <div style="margin-top:16px">${C.box('pm-spend', 'Competitor spend and next move', 'Solid is actual. Dashed is the forecast. Triangles are predicted bursts. Click a point for the numbers.', { xtall: true, ev: true,
+        <div style="margin-top:16px">${C.box('pm-spend', 'Competitor spend and next move', 'Solid is actual, dashed is the forecast, triangles are predicted bursts. The strip below shows all history.', { xtall: true, ev: true,
           help: ['Each advertiser\'s spend is forecast with the forecast engine. A forecast period more than 25% above that advertiser\'s trailing average is flagged as a Predicted Competitor Campaign Burst.', 'Early warning of rival launches, so you can defend share of voice or book inventory before prices rise.'] })}</div>
       </section>
       <section class="sv" data-sv="comp"${svHide('market', 'comp')}>
@@ -823,22 +847,26 @@
 
     // 1. competitor spend multi-line with bursts
     if (comp.length) {
-      const back = M ? 24 : 42, hd = comp[0].history.dates.slice(-back), fd = slice(comp[0], H).dates, labels = hd.concat(fd), nh = hd.length;
-      const ds = [];
-      compRows.forEach((x) => {
-        const col = C.colorFor(x.name), f = slice(x.r, H), hv0 = x.r.history.values.slice(-back);
-        const all = M ? hv0.concat(f.p50) : smooth(hv0.concat(f.p50), 7), hv = all.slice(0, nh), fS = all.slice(nh); x.fs = fS;
-        ds.push({ label: x.name, data: hv.concat(Array(fd.length).fill(null)), borderColor: col, backgroundColor: col, borderWidth: x.name === my ? 3 : 2, pointRadius: 0, tension: 0.25 });
-        ds.push({ label: x.name + ' (forecast)', data: Array(nh - 1).fill(null).concat([hv[nh - 1]], fS), borderColor: col, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, tension: 0.3 });
-      });
+      const TVw = C.timeView, r0 = comp[0], fs = compRows.map((x) => slice(x.r, H));
       const bursts = []; compRows.forEach((x) => x.bursts.forEach((b) => bursts.push({ ...b, name: x.name, date: slice(x.r, H).dates[b.index] })));
-      const marks = labels.map(() => null), info = {};
-      bursts.forEach((b) => { const i = nh + b.index; const sv = ((compRows.find((q) => q.name === b.name) || {}).fs || [])[b.index]; const yv = finite(sv) ? sv : b.value; if (marks[i] == null || yv > marks[i]) { marks[i] = yv; info[i] = b; } });
-      if (bursts.length) ds.push({ label: 'Predicted Competitor Campaign Burst', data: marks, showLine: false, pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 11, borderColor: C.css('--warn') || '#ffb547', backgroundColor: C.css('--warn') || '#ffb547' });
-      C.make('pm-spend', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine],
-        options: { interaction: { mode: 'index', intersect: false }, plugins: { nowLine: { index: nh - 1 }, eventPins: eventOpt(labels), legend: { position: 'bottom', labels: { filter: (i) => !/\(forecast\)$/.test(i.text) } },
-          tooltip: { filter: (i) => i.parsed.y != null && !(i.dataIndex === nh - 1 && /\(forecast\)$/.test(i.dataset.label)), callbacks: { title: C.fcTitle(nh), label: (c) => (c.dataset.label.startsWith('Predicted') ? `Burst: ${info[c.dataIndex].name} ${signed(info[c.dataIndex].lift_pct, 0)} vs 7-day average` : `${c.dataset.label}: ${fmt.lkrc(c.parsed.y)}`) } } },
-          scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }, y: { beginAtZero: true, ticks: { callback: (v) => fmt.compact(v) } } } } });
+      TVw.mount('pm-spend', r0.granularity, r0.history.dates.length, { smooth: r0.granularity === 'daily', band: false, additive: true }, () => {
+        const sh = TVw.shape('pm-spend', r0.granularity, r0.history.dates, compRows.map((x) => x.r.history.values), fs[0].dates, fs.map((f) => ({ p50: f.p50 })), true);
+        const nh = sh.hd.length, labels = sh.hd.concat(sh.fd), ds = [], tick = TVw.tick(sh.gran), lineOf = {};
+        compRows.forEach((x, k) => {
+          const col = C.colorFor(x.name), all = sh.smooth ? smooth(sh.lines[k].concat(sh.fcs[k].p50), 7) : sh.lines[k].concat(sh.fcs[k].p50), hv = all.slice(0, nh), fS = all.slice(nh); lineOf[x.name] = all;
+          ds.push({ label: x.name, data: hv.concat(Array(sh.fd.length).fill(null)), borderColor: col, backgroundColor: col, borderWidth: x.name === my ? 3 : 2, pointRadius: 0, tension: 0.25 });
+          ds.push({ label: x.name + ' (forecast)', data: Array(nh - 1).fill(null).concat([hv[nh - 1]], fS), borderColor: col, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, tension: 0.3 });
+        });
+        const marks = labels.map(() => null), info = {};
+        bursts.forEach((b) => { const i = labels.indexOf(sh.weekly ? TVw.weekOf(b.date) : b.date); if (i < nh) return; const yv = (lineOf[b.name] || [])[i]; const y = finite(yv) ? yv : b.value; if (marks[i] == null || y > marks[i]) { marks[i] = y; info[i] = b; } });
+        if (bursts.length) ds.push({ label: 'Predicted Competitor Campaign Burst', data: marks, showLine: false, pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 11, borderColor: C.css('--warn') || '#ffb547', backgroundColor: C.css('--warn') || '#ffb547' });
+        C.make('pm-spend', { type: 'line', data: { labels, datasets: ds }, plugins: [nowLine],
+          options: { interaction: { mode: 'index', intersect: false }, plugins: { nowLine: { index: nh - 1 }, eventPins: eventOpt(labels), legend: { position: 'bottom', labels: { filter: (i) => !/\(forecast\)$/.test(i.text) } },
+            tooltip: { filter: (i) => i.parsed.y != null && !(i.dataIndex === nh - 1 && /\(forecast\)$/.test(i.dataset.label)), callbacks: { title: (it) => `${tick(it[0].label)}${sh.weekly ? ' (week)' : ''}  ·  ${it[0].dataIndex >= nh ? 'FORECAST' : 'actual'}`,
+              label: (c) => (c.dataset.label.startsWith('Predicted') ? `Burst: ${info[c.dataIndex].name} ${signed(info[c.dataIndex].lift_pct, 0)} vs its recent average` : `${c.dataset.label}: ${fmt.lkrc(c.parsed.y)}`) } } },
+            scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8, maxRotation: 0, callback(val) { return tick(this.getLabelForValue(val)); } } }, y: { beginAtZero: true, ticks: { callback: (v) => fmt.compact(v) } } } } });
+        return sh;
+      });
       const top = rivals.slice().sort((a, b) => b.next - a.next)[0];
       const riser = rivals.map((x) => ({ ...x, chg: pct(x.next, x.prev) })).filter((x) => finite(x.chg)).sort((a, b) => b.chg - a.chg)[0];
       const firstBurst = bursts.sort((a, b) => a.index - b.index)[0];

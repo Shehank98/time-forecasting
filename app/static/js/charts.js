@@ -83,7 +83,8 @@
       if (!(px >= ar.left && px <= ar.right)) return;
       const col = css('--accent') || '#3de0ff';
       ctx.save(); ctx.strokeStyle = col; ctx.setLineDash([3, 4]); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(px, ar.top); ctx.lineTo(px, ar.bottom); ctx.stroke(); ctx.setLineDash([]);
-      const label = o.label || 'FORECAST: estimated, not recorded', font = '700 11px ' + (css('--display') || 'sans-serif');
+      if (ar.right - px < 70) { ctx.restore(); return; }       // no room for a tag: the shading and the line already mark the forecast
+      const label = ar.right - px < 210 ? 'FORECAST' : (o.label || 'FORECAST: estimated, not recorded'), font = '700 11px ' + (css('--display') || 'sans-serif');
       ctx.font = font; const w = Math.min(ctx.measureText(label).width + 16, ar.right - px - 6);
       ctx.fillStyle = css('--surface-solid') || '#0d1430'; ctx.strokeStyle = col; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px + 6, ar.top + 6, w, 20, 10) : ctx.rect(px + 6, ar.top + 6, w, 20); ctx.fill(); ctx.stroke();
       ctx.fillStyle = col; ctx.fillText(label, px + 14, ar.top + 20, w - 12); ctx.restore();
@@ -241,6 +242,99 @@
     return `<div class="heat-wrap"><table class="heat cal"><thead><tr><th></th>${head}</tr></thead><tbody>${cal.rows.map((r, i) => `<tr><th scope="row"><span class="swatch" style="background:${colorFor(r)}"></span>${esc(r)}</th>${cal.values[i].map((v, j) =>
       `<td title="${esc(r)} ${dates[j]}: ${v} spots" style="background:${v ? `color-mix(in srgb, ${colorFor(r)} ${20 + 80 * v / mx}%, transparent)` : 'var(--surface-2)'}">${v}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
+
+  /* ---------------- time view: range, daily/weekly totals, smoothing, band toggle and an overview strip for any time chart ---------------- */
+  const TVS = {};
+  const TV_RANGES = { daily: [['3m', '3 months', 91], ['6m', '6 months', 182], ['1y', '1 year', 365], ['all', 'All', Infinity]],
+    weekly: [['6m', '6 months', 26], ['1y', '1 year', 52], ['2y', '2 years', 104], ['all', 'All', Infinity]],
+    monthly: [['1y', '1 year', 12], ['2y', '2 years', 24], ['3y', '3 years', 36], ['all', 'All', Infinity]] };
+  const tvDefault = (gran, n) => (gran === 'daily' ? (n > 120 ? '3m' : 'all') : gran === 'weekly' ? (n > 60 ? '1y' : 'all') : (n > 30 ? '2y' : 'all'));
+  const tvState = (id) => TVS[id] || (TVS[id] = { range: null, weekly: false, smooth: true, band: true });
+  const wkStart = (iso) => { const d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); };
+  const tvRolling = (a, k) => a.map((_, i) => { const w = a.slice(Math.max(0, i - k + 1), i + 1).filter((v) => v != null && Number.isFinite(v)); return w.length ? w.reduce((x, y) => x + y, 0) / w.length : null; });
+  function tvWeeks(dates, vals, additive) {
+    const m = new Map();
+    dates.forEach((d, i) => { const k = wkStart(d), v = vals[i]; if (v == null || !Number.isFinite(v)) return; const g = m.get(k) || { s: 0, n: 0 }; g.s += v; g.n++; m.set(k, g); });
+    const keys = [...m.keys()].sort();
+    return { dates: keys, vals: keys.map((k) => (additive ? m.get(k).s : m.get(k).s / m.get(k).n)), counts: keys.map((k) => m.get(k).n) };
+  }
+  /**
+   * Shapes a time chart for the current view of chart `id`.
+   * hd: history dates; lines: arrays of history values (one per line); fd: forecast dates; fcs: [{p10, p50, p90}] per line (p10/p90 optional).
+   * Returns sliced history (the visible window), the full history (for the overview), the forecast, and notes for the reader.
+   */
+  function tvShape(id, gran, hd, lines, fd, fcs, additive) {
+    const v = tvState(id), weekly = gran === 'daily' && v.weekly, notes = [];
+    let H = hd, L = lines, F = fd, FC = fcs, g = gran;
+    if (weekly) {
+      const hw = lines.map((a) => tvWeeks(hd, a, additive));
+      const fw = fcs.map((f) => {
+        const mid = tvWeeks(fd, f.p50, additive), m = new Map();
+        if (f.p10 && f.p90) fd.forEach((d, i) => { const k = wkStart(d), q = m.get(k) || { lo: 0, hi: 0 }; q.lo += (f.p50[i] - f.p10[i]) ** 2; q.hi += (f.p90[i] - f.p50[i]) ** 2; m.set(k, q); });
+        const lo = f.p10 ? mid.dates.map((k, j) => (additive ? Math.max(0, mid.vals[j] - Math.sqrt(m.get(k).lo)) : mid.vals[j] - Math.sqrt(m.get(k).lo) / mid.counts[j])) : null;
+        const hi = f.p90 ? mid.dates.map((k, j) => (additive ? mid.vals[j] + Math.sqrt(m.get(k).hi) : mid.vals[j] + Math.sqrt(m.get(k).hi) / mid.counts[j])) : null;
+        return { dates: mid.dates, p50: mid.vals, p10: lo, p90: hi, counts: mid.counts };
+      });
+      let hD = hw[0].dates.slice(), fD = fw[0].dates.slice();
+      if (additive && hD.length && fD.length && hD[hD.length - 1] === fD[0]) {       // the week split between history and forecast is shown once, as forecast
+        hw.forEach((h, k) => { const part = h.vals[h.vals.length - 1]; fw[k].p50[0] += part; if (fw[k].p10) fw[k].p10[0] += part; if (fw[k].p90) fw[k].p90[0] += part; });
+        fw[0].counts[0] += hw[0].counts[hw[0].counts.length - 1];
+        hw.forEach((h) => { h.vals.pop(); }); hw[0].counts.pop(); hD.pop(); notes.push('The first forecast week includes the recorded days of that week.');
+      }
+      if (additive && hw[0].counts[0] < 7) { hw.forEach((h) => h.vals.shift()); hw[0].counts.shift(); hD.shift(); notes.push('The first, incomplete week of history is left out.'); }
+      if (additive && fw[0].counts.length > 1 && fw[0].counts[fw[0].counts.length - 1] < 7) { fw.forEach((f) => { f.p50.pop(); if (f.p10) f.p10.pop(); if (f.p90) f.p90.pop(); }); fD.pop(); notes.push('The last forecast week is incomplete and is left out.'); }
+      H = hD; L = hw.map((h) => h.vals); F = fD; FC = fw.map((f) => ({ p10: f.p10, p50: f.p50, p90: f.p90 })); g = 'weekly';
+      if (fcs.some((f) => f.p10)) notes.push('Weekly ranges combine the daily ranges as if days vary independently, so they are approximate.');
+    }
+    const opts = TV_RANGES[g], key = v.range && opts.some((o) => o[0] === v.range) ? v.range : tvDefault(g, H.length);
+    const keep = (opts.find((o) => o[0] === key) || opts[opts.length - 1])[2], start = Math.max(0, H.length - keep);
+    if (start > 0) notes.unshift(`Showing the last ${H.length - start} of ${H.length} ${g === 'daily' ? 'days' : g === 'weekly' ? 'weeks' : 'months'} and the forecast. Pick a range to see more.`);
+    return { gran: g, weekly, key, start, hd: H.slice(start), lines: L.map((a) => a.slice(start)), allHd: H, allLines: L, fd: F, fcs: FC, notes,
+      smooth: g === 'daily' && v.smooth && H.length - start > 21, band: v.band };
+  }
+  /** Puts the controls above the chart and the overview strip below it, and redraws on every change. opts: {smooth, band} say which toggles to offer. */
+  function tvMount(id, gran, nHist, opts, render) {
+    const card = document.querySelector(`[data-chart="${id}"] .ff`); if (!card) { render(); return; }
+    const wrap = card.querySelector('.chart-wrap');
+    let host = card.querySelector(`[data-tv="${id}"]`);
+    if (!host) {
+      wrap.insertAdjacentHTML('beforebegin', `<div class="fc-controls-host" data-tv="${id}"></div>`);
+      wrap.insertAdjacentHTML('afterend', `<div class="chart-wrap overview"><canvas id="${id}-ov" aria-hidden="true"></canvas></div><div class="muted small tv-note" id="${id}-note"></div>`);
+      host = card.querySelector(`[data-tv="${id}"]`);
+    }
+    const v = tvState(id);
+    const draw = () => {
+      const g = gran === 'daily' && v.weekly ? 'weekly' : gran, n = gran === 'daily' && v.weekly ? Math.ceil(nHist / 7) : nHist;
+      const cur = v.range && TV_RANGES[g].some((o) => o[0] === v.range) ? v.range : tvDefault(g, n);
+      const seg = (name, items, on) => `<div class="seg" data-tvc="${name}">${items.map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="${k === on}">${l}</button>`).join('')}</div>`;
+      const chk = (k, l) => `<label class="row small" style="gap:4px"><input type="checkbox" data-tvl="${k}" ${v[k] ? 'checked' : ''}> ${l}</label>`;
+      host.innerHTML = `<div class="fc-controls">${seg('range', TV_RANGES[g].map((o) => [o[0], o[1]]), cur)}${gran === 'daily' ? seg('grain', [['day', 'Daily'], ['week', 'Weekly']], v.weekly ? 'week' : 'day') : ''}
+        ${gran === 'daily' && !v.weekly && opts.smooth ? chk('smooth', '7-day average') : ''}${opts.band ? chk('band', 'Range band') : ''}</div>`;
+      host.querySelectorAll('[data-tvc="range"] button').forEach((b) => { b.onclick = () => { v.range = b.dataset.v; draw(); }; });
+      host.querySelectorAll('[data-tvc="grain"] button').forEach((b) => { b.onclick = () => { v.weekly = b.dataset.v === 'week'; v.range = null; draw(); }; });
+      host.querySelectorAll('[data-tvl]').forEach((c) => { c.onchange = () => { v[c.dataset.tvl] = c.checked; draw(); }; });
+      const shaped = render();
+      if (shaped) { tvOverview(id + '-ov', shaped, opts.additive); const note = document.getElementById(id + '-note'); if (note) note.textContent = shaped.notes.join(' '); }
+    };
+    draw();
+  }
+  /** Small strip under a chart: all history (total of the lines when they add up, else the first line) and the forecast, with the visible window highlighted. */
+  function tvOverview(id, sh, additive) {
+    const el = document.getElementById(id); if (!el) return;
+    const n = sh.allHd.length, labels = sh.allHd.concat(sh.fd), col = PALETTE[0];
+    const sumAt = (arrs, i) => arrs.reduce((a, x) => a + (Number.isFinite(x[i]) ? x[i] : 0), 0);
+    const hist = additive && sh.allLines.length > 1 ? sh.allHd.map((_, i) => sumAt(sh.allLines, i)) : sh.allLines[0];
+    const fc = additive && sh.fcs.length > 1 ? sh.fd.map((_, i) => sumAt(sh.fcs.map((f) => f.p50), i)) : sh.fcs[0].p50;
+    const win = { id: 'win', beforeDatasetsDraw(chart) { const { ctx, chartArea: ar, scales: { x } } = chart; const x0 = x.getPixelForValue(sh.start), x1 = x.getPixelForValue(n - 1);
+      ctx.save(); ctx.fillStyle = (css('--accent') || '#3de0ff') + '22'; ctx.strokeStyle = (css('--accent') || '#3de0ff') + '88'; ctx.fillRect(x0, ar.top, x1 - x0, ar.bottom - ar.top); ctx.strokeRect(x0, ar.top, x1 - x0, ar.bottom - ar.top);
+      ctx.fillStyle = css('--fc-zone') || 'rgba(139,92,246,.12)'; ctx.fillRect(x1, ar.top, ar.right - x1, ar.bottom - ar.top); ctx.restore(); } };
+    make(id, { type: 'line', noDetail: true, data: { labels, datasets: [
+      { data: hist.concat(Array(sh.fd.length).fill(null)), borderColor: css('--muted') || '#888', borderWidth: 1, pointRadius: 0 },
+      { data: Array(n - 1).fill(null).concat([hist[n - 1]], fc), borderColor: col, borderWidth: 1.5, borderDash: [4, 3], pointRadius: 0 }] }, plugins: [win],
+      options: { animation: false, events: [], plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false, beginAtZero: !!additive } } } });
+  }
+  const tvTick = (gran) => (iso) => { const d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z'); if (Number.isNaN(d.getTime())) return iso;
+    return gran === 'monthly' ? d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' }) : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }); };
   document.addEventListener('themechange', () => { if (App.skins) { PALETTE.splice(0, PALETTE.length, ...App.skins.palette()); registry.clear(); } defaults(); });
-  App.charts = { setBack: (id, fn) => { if (fn) backs.set(id, fn); else backs.delete(id); }, detailOnly: (id) => only.add(id), setDetail, detail, pointDetail, nowLine, fcTitle, colorFor, register, make, box, evidence, bar, line, doughnut, heat, calendar, destroyAll, css, PALETTE };
+  App.charts = { timeView: { shape: tvShape, mount: tvMount, state: tvState, weekOf: wkStart, rolling: tvRolling, tick: tvTick }, setBack: (id, fn) => { if (fn) backs.set(id, fn); else backs.delete(id); }, detailOnly: (id) => only.add(id), setDetail, detail, pointDetail, nowLine, fcTitle, colorFor, register, make, box, evidence, bar, line, doughnut, heat, calendar, destroyAll, css, PALETTE };
 })(window.App);
