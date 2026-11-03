@@ -5,6 +5,8 @@ All functions take pandas frames and return plain dicts of small aggregates
 """
 from __future__ import annotations
 
+import re
+
 import logging
 from typing import Any
 
@@ -247,9 +249,27 @@ def creatives(df_all: pd.DataFrame, cur: pd.DataFrame, prev: pd.DataFrame | None
 SPONSOR_THEMES = ("-bb", "com break", "dj", "-extro", "-intro", "-llogo", "next card", "tag", "time check", "-tr")
 
 
+_TRAILING_TAGS = re.compile(r"(\s*\([^)]*\))+\s*$")
+_DASH = re.compile(r"\s*-\s*")
+_SPACES = re.compile(r"\s+")
+
+
+def norm_theme(t) -> str:
+    """Theme name made comparable: lower case, the "(10)(Sin)" tags at the end removed, spaces around dashes and double spaces removed."""
+    x = "" if t is None or (isinstance(t, float) and pd.isna(t)) else str(t).lower()
+    return _SPACES.sub(" ", _DASH.sub("-", _TRAILING_TAGS.sub("", x))).strip()
+
+
+def sponsor_key(t) -> str | None:
+    """Which sponsorship item a theme is (-BB, Com Break, DJ, -Extro, -Intro, -LLogo, Next Card, Tag, Time Check, -Tr), or None for a commercial."""
+    x = norm_theme(t)
+    if not x:
+        return None
+    return next((k for k in SPONSOR_THEMES if x == k or (k[0] == "-" and x.endswith(k))), None)
+
+
 def is_sponsor_theme(t) -> bool:
-    x = str(t or "").strip().lower()
-    return bool(x) and any(x == k or (k[0] == "-" and x.endswith(k)) for k in SPONSOR_THEMES)
+    return sponsor_key(t) is not None
 
 
 def pricing(cur: pd.DataFrame) -> dict:

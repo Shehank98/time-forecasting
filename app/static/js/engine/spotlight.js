@@ -27,9 +27,9 @@
   /** Per theme code: 0 = not sponsorship, 1 = billboard kind, 2 = logo kind. */
   function themeKinds(L) {
     return L.dicts.theme.map((t) => {
-      if (!MR.isSponsorTheme(t)) return EXTRA_BILLBOARD.test(String(t)) ? 1 : EXTRA_LOGO.test(String(t)) ? 2 : 0;
-      const x = String(t).trim().toLowerCase();
-      return BILLBOARD.some((k) => x === k || (k[0] === '-' && x.endsWith(k))) ? 1 : 2;
+      const k = MR.sponsorKey(t);
+      if (!k) return EXTRA_BILLBOARD.test(String(t)) ? 1 : EXTRA_LOGO.test(String(t)) ? 2 : 0;
+      return BILLBOARD.includes(k) ? 1 : 2;
     });
   }
 
@@ -382,7 +382,7 @@
       const types = [...(kind ? ['Sponsorship'] : []), ...(f.frequency ? ['Frequency'] : [])];
       const progs = [...a.progs.entries()].sort((x, y) => y[1] - x[1]).map(([p, n]) => ({ program: nm('program', p), spots: n }));
       return { advertiser: nm('advertiser', C.advertiser[i]), channel: nm('channel', C.channel[i]), theme: nm('theme', C.theme[i]), product: nm('product', [...a.prods.entries()].sort((x, y) => y[1] - x[1])[0][0]),
-        item: kind === 1 ? 'Billboard' : kind === 2 ? 'Logo / tag' : 'Spot', types: types.length ? types : ['Regular Spot'], sponsorship: !!kind, frequency: f.frequency,
+        item: kind ? (MR.sponsorItem(L.dicts.theme[C.theme[i]]) || 'Sponsorship item') : 'Spot', types: types.length ? types : ['Regular Spot'], sponsorship: !!kind, frequency: f.frequency,
         spots: o.spots, spend: o.spend, days: f.days, daily_avg: f.daily, peak_day: f.peak, length: f.dur, programmes: progs, n_programmes: progs.length,
         first_seen: o.first_seen, last_seen: o.last_seen, fib_pct: o.fib_pct, avg_clutter: o.avg_clutter };
     });

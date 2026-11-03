@@ -40,12 +40,8 @@
     return { grps: grp, rated_spots: n, rated_pct: pct(n, rows.length), avg_spot_rating: n ? grp / n : null, cprp: grp > 0 ? cost / grp : null };
   }
   function money(a) { const o = out(a); return { ...o, commercial_spend: o.regular_spend + o.special_spend, commercial_spots: o.regular_spots + o.special_spots, value_add_spend: o.sponsor_spend, value_add_items: o.sponsor_items }; }
-  function itemLabel(theme, kind) {
-    if (!kind) return 'Spot';
-    const t = String(theme).toLowerCase();
-    return /outro|extro/.test(t) ? 'Outro' : /intro/.test(t) ? 'Intro' : /logo/.test(t) ? 'Logo' : /time check/.test(t) ? 'Time check' : /(^|[\s-])tag$/.test(t) ? 'Tag' : /(^|[\s-])dj$/.test(t) ? 'DJ'
-      : /-bb$|com break|next card/.test(t) ? 'Billboard' : 'Sponsorship item';
-  }
+  function itemLabel(theme, kind) { return kind ? (MR.sponsorItem(theme) || 'Sponsorship item') : 'Spot'; }
+
 
   /** Every ad (advertiser + theme) in every programme, classified. `dated` gives each programme's airing days (all advertisers). */
   function classify(L, rows, dated, sc, opts) {

@@ -90,7 +90,7 @@ def test_year_by_year_numbers_match_pandas(sheet):
     assert lt["headline"].startswith("Lanka Tea Co sponsored Dream Star on Derana for 24 months (Nov 2024 to Oct 2026)") and lt["headline"].endswith("Sponsored all 2 years.")
     # what ads: themes with ads per year
     th = {t["theme"]: t for t in lt["themes"]}
-    assert th["Dream Star -Intro"]["sponsorship"] and th["Dream Star -Intro"]["item"] == "Intro"
+    assert th["Dream Star -Intro"]["sponsorship"] and th["Dream Star -Intro"]["item"] == "-Intro"
     s1 = prog[(prog["Advertiser"] == "Lanka Tea Co") & (prog["Advt_Theme"] == "Dream Star -Intro")]
     assert th["Dream Star -Intro"]["per_period"] == [int((s1["yr"] == 0).sum()), int((s1["yr"] == 1).sum())]
     assert not th["Island Tea Reminder (30)"]["sponsorship"] and lt["themes"][0]["sponsorship"]      # sponsorship themes listed first

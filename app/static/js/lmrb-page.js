@@ -107,7 +107,8 @@
   /* ---------------- Creatives ---------------- */
   let cstat = 'ALL';
   const SPONSOR_TH = ['-bb', 'com break', 'dj', '-extro', '-intro', '-llogo', 'next card', 'tag', 'time check', '-tr'];
-  const isSponsorTheme = (t) => { const x = String(t || '').trim().toLowerCase(); return !!x && SPONSOR_TH.some((k) => x === k || (k[0] === '-' && x.endsWith(k))); };
+  // same rule as the engine (analytics_lmrb.js sponsorKey): "(10)(Sin)" tags and spaces around dashes do not matter
+  const isSponsorTheme = (t) => { const x = String(t == null ? '' : t).toLowerCase().replace(/(\s*\([^)]*\))+\s*$/, '').replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim(); return !!x && SPONSOR_TH.some((k) => x === k || (k[0] === '-' && x.endsWith(k))); };
   function creatives(p, ctx) {
     const all = ctx.data.creatives.map((r) => ({ ...r, kind: isSponsorTheme(r.theme) ? 'Sponsorship' : 'Commercial' }));
     const counts = {}; all.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });

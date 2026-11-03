@@ -220,7 +220,14 @@
   /* ---------------- pricing ---------------- */
   /** Sponsorship / filler items (same list as the JKH dashboard): -BB, Com Break, DJ, -Extro, -Intro, -LLogo, Next Card, Tag, Time Check, -Tr. */
   const SPONSOR_THEMES = ['-bb', 'com break', 'dj', '-extro', '-intro', '-llogo', 'next card', 'tag', 'time check', '-tr'];
-  const isSponsorTheme = (t) => { const x = String(t || '').trim().toLowerCase(); return !!x && SPONSOR_THEMES.some((k) => x === k || (k[0] === '-' && x.endsWith(k))); };
+  const SPONSOR_LABEL = { '-bb': '-BB', 'com break': 'Com Break', dj: 'DJ', '-extro': '-Extro', '-intro': '-Intro', '-llogo': '-LLogo', 'next card': 'Next Card', tag: 'Tag', 'time check': 'Time Check', '-tr': '-Tr' };
+  /** Theme name made comparable: lower case, the usual "(10)(Sin)" length and language tags at the end removed, spaces around dashes and double spaces removed. */
+  const normTheme = (t) => String(t == null ? '' : t).toLowerCase().replace(/(\s*\([^)]*\))+\s*$/, '').replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim();
+  /** The sponsorship item a theme is (its key in SPONSOR_THEMES), or null. "Tag", "Time Check (10)(Sin)", "Teledrama -BB", "Teledrama - BB (5)" all match; "Tag Line Promo" does not. */
+  const sponsorKey = (t) => { const x = normTheme(t); if (!x) return null; for (const k of SPONSOR_THEMES) if (x === k || (k[0] === '-' && x.endsWith(k))) return k; return null; };
+  const isSponsorTheme = (t) => sponsorKey(t) !== null;
+  /** Display name of the sponsorship item ("-BB", "Time Check" ...); whole-word Logo, Intro and Outro themes give "Logo", "Intro", "Outro"; null for a commercial. */
+  const sponsorItem = (t) => { const k = sponsorKey(t); if (k) return SPONSOR_LABEL[k]; const x = normTheme(t); return /\b(outro|extro)\b/.test(x) ? 'Outro' : /\bintro\b/.test(x) ? 'Intro' : /\blogo\b/.test(x) ? 'Logo' : null; };
   function pricing(L, cur) {
     const flag = L.dicts.theme.map(isSponsorTheme), T = L.cols.theme;
     const isSp = (i) => T[i] >= 0 && flag[T[i]];
@@ -468,5 +475,5 @@
     return out;
   }
 
-  Object.assign(MR, { lmrbDashboard: dashboard, headToHead, competitorSet, comparisonWindows, flightStats, grpSummary, lmrbBounds: bounds, lmrbSums: sums, POS_NAMES, isSponsorTheme });
+  Object.assign(MR, { lmrbDashboard: dashboard, headToHead, competitorSet, comparisonWindows, flightStats, grpSummary, lmrbBounds: bounds, lmrbSums: sums, POS_NAMES, isSponsorTheme, sponsorKey, sponsorItem, normTheme, SPONSOR_THEMES });
 })(typeof self !== 'undefined' ? self : globalThis);

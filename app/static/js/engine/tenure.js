@@ -16,12 +16,8 @@
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const monthName = (mi) => `${MON[mi % 12]} ${Math.floor(mi / 12)}`;
   const monthKey = (mi) => `${Math.floor(mi / 12)}-${String((mi % 12) + 1).padStart(2, '0')}`;
-  const themeItem = (theme, kind) => {
-    if (!kind) return 'Spot';
-    const t = String(theme).toLowerCase();
-    return /outro|extro/.test(t) ? 'Outro' : /intro/.test(t) ? 'Intro' : /logo/.test(t) ? 'Logo' : /time check/.test(t) ? 'Time check' : /(^|[\s-])tag$/.test(t) ? 'Tag' : /(^|[\s-])dj$/.test(t) ? 'DJ'
-      : /-bb$|com break|next card/.test(t) ? 'Billboard' : 'Sponsorship item';
-  };
+  const themeItem = (theme, kind) => (kind ? (MR.sponsorItem(theme) || 'Sponsorship item') : 'Spot');
+
   const ordinal = (k) => `Year ${k + 1}`;
   const CONSISTENT = 0.5;                         // share of the programme's airing days
   const STEADY_CV = 0.15;                         // monthly sponsorship value varying by 15% or less is "steady"

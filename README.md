@@ -421,3 +421,30 @@ The fourth view of the Programme & Sponsorship Spotlight tab. It answers: "Did t
 The same start and end dates, month-by-month table, steady-value note and prime-time split are shown on screen when you open a programme.
 
 The numbers are computed in the browser (`app/static/js/engine/tenure.js`). `tests/test_tenure.py` checks them against pandas on a 2-year sample with a both-years sponsor, a year-1-only sponsor, a year-2-only sponsor and an occasional one.
+
+## Sponsorship items (how a theme is recognised)
+
+These Advt_Theme values count as sponsorship (value-add); everything else is a commercial:
+
+| Item | Matches when the theme is | Examples that match |
+|---|---|---|
+| -BB | anything ending in "-BB" | Teledrama -BB, Teledrama - BB (5)(Sin) |
+| Com Break | exactly "Com Break" | COM BREAK, Com Break (10) |
+| DJ | exactly "DJ" | DJ (Sin) |
+| -Extro | anything ending in "-Extro" | Dream Star - Extro |
+| -Intro | anything ending in "-Intro" | Dream Star -Intro (10)(Sin) |
+| -LLogo | anything ending in "-LLogo" | Dream Star - LLogo |
+| Next Card | exactly "Next Card" | Next Card (5) |
+| Tag | exactly "Tag" | Tag (5)(Sin) |
+| Time Check | exactly "Time Check" | Time check, Time Check (10)(Sin) |
+| -Tr | anything ending in "-Tr" | News -Tr (5) |
+
+**What the matching ignores:**
+- letter case;
+- the "(length)(language)" tags at the end, for example "(10)(Sin)";
+- spaces around the dash;
+- double spaces.
+
+Commercials that only look similar, such as "Tag Line Promo", "DJ Party Offer" or "Time Checker App", stay commercials.
+
+**Extra keywords:** the Spotlight, Executive and Sponsorship-over-time views also treat a theme containing the whole word "Logo", "Intro" or "Outro" as a sponsorship item. The rule is the same in the browser (`app/static/js/engine/analytics_lmrb.js`) and on the server (`app/services/analytics_lmrb.py`), and `tests/test_sponsor_themes.py` checks that both agree.
