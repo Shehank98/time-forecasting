@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from reportlab.lib import colors  # noqa: E402
 from reportlab.lib.styles import ParagraphStyle  # noqa: E402
 from reportlab.lib.units import cm  # noqa: E402
-from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table as RlTable, TableStyle  # noqa: E402
+from reportlab.platypus import CondPageBreak, Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table as RlTable, TableStyle  # noqa: E402
 
 from .export_negotiation import GOOD, LINE, PAGE, WARN, WIDTH, ZEBRA, _n, _Styles, _table
 from .export_pdf import MUTED, _logo, safe
@@ -23,6 +23,15 @@ DURS = ["5s", "10s", "15s", "20s", "30s", "30s+"]
 ROLE_COLOR = {"Sponsorship": "#4F46E5", "Frequency": "#c27a06", "Regular Spot": "#646A8A"}
 BAND_WORD = {"good": "Good", "fair": "Fair", "poor": "Poor"}
 HEALTH_COLOR = {"good": GOOD, "fair": colors.HexColor("#c27a06"), "poor": WARN}
+
+
+def _d(iso: Any) -> str:
+    """2025-03-04 -> 4 Mar 2025 (n/a when empty)."""
+    try:
+        d = dt.date.fromisoformat(str(iso)[:10])
+        return f"{d.day} {d:%b %Y}"
+    except (TypeError, ValueError):
+        return "n/a"
 
 
 def _title(s: Any) -> str:
@@ -279,30 +288,39 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
                             ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
     el.append(kt)
 
-    # ---------------- overview: who sponsored what, year by year
+    # ---------------- overview: who sponsored what, each year with its start and end
     el += [PageBreak(), Paragraph("Who sponsored what, year by year", s.h2),
-           Paragraph("One row per advertiser and programme. The year columns show the ads the advertiser ran in that programme in each year period (all ads, sponsorship and others).", s.small), Spacer(1, 3)]
-    head = ["Advertiser", "Channel", "Programme", "Status", "Sponsored", "Months"] + [f"{p['label']} ads" for p in periods] + ["Total ads", "Sponsorship ads", "Spend LKR"]
+           Paragraph("One row per advertiser and programme. Each year column shows when the sponsorship started and ended in that year and the ads they ran in the programme that year. "
+                     "The ad themes are the sponsorship items (and other ads) behind it.", s.small), Spacer(1, 3)]
+    head = ["Advertiser", "Channel", "Programme", "Status", "Ad themes"] + [f"{p['label']}: started to ended (ads)" for p in periods] + ["Total ads", "Sponsorship ads", "Spend LKR"]
+    cell = s.cell
     data = [head]
-    style = []
     for r in rows[:60]:
         rc = STATUS_COLOR.get(r.get("status_code"), "#646A8A")
-        data.append([r["advertiser"], _title(r["channel"]), _title(r["program"]), Paragraph(f"<font color='{rc}'><b>{safe(r.get('status', ''))}</b></font>", s.cell),
-                     f"{r.get('sponsored_from') or 'n/a'} to {r.get('sponsored_to') or 'n/a'}", _n(r.get("months_span"))] + [_n(x["total_ads"]) for x in r.get("periods") or []]
-                    + [_n(r.get("total_ads")), _n(r.get("sponsorship_ads")), _n(r.get("spend"))])
+        themes = [t for t in (r.get("themes") or []) if t.get("sponsorship")][:3] or (r.get("themes") or [])[:2]
+        th_txt = "<br/>".join(f"{safe(t['theme'])} <font color='#646A8A'>({safe(t.get('item', ''))}, {t['spots']:,})</font>" for t in themes) or "n/a"
+        yr = []
+        for x in r.get("periods") or []:
+            if x.get("sponsored"):
+                tag = "" if x.get("consistent") else " <font color='#c27a06'>occasional</font>"
+                yr.append(Paragraph(f"{_d(x.get('sponsored_start'))}<br/>to {_d(x.get('sponsored_end'))}{tag}<br/><b>{x['total_ads']:,} ads</b>", cell))
+            else:
+                yr.append(Paragraph(f"<font color='#646A8A'>{'Not on air' if not x.get('aired') else 'No sponsorship'}</font><br/><b>{x['total_ads']:,} ads</b>", cell))
+        data.append([Paragraph(f"<b>{safe(r['advertiser'])}</b>", cell), _title(r["channel"]), _title(r["program"]), Paragraph(f"<font color='{rc}'><b>{safe(r.get('status', ''))}</b></font>", cell),
+                     Paragraph(th_txt, cell)] + yr + [_n(r.get("total_ads")), _n(r.get("sponsorship_ads")), _n(r.get("spend"))])
+    style = []
     if len(data) > 1:
         n = len(data) - 1
         sm = lambda f: sum(f(r) for r in rows[:60])  # noqa: E731
-        data.append(["Total", "", "", "", "", ""] + [_n(sum((r["periods"][i]["total_ads"] if i < len(r.get("periods") or []) else 0) for r in rows[:60])) for i in range(len(periods))]
+        data.append(["Total", "", "", "", ""] + [_n(sum((r["periods"][i]["total_ads"] if i < len(r.get("periods") or []) else 0) for r in rows[:60])) for i in range(len(periods))]
                     + [_n(sm(lambda r: r.get("total_ads") or 0)), _n(sm(lambda r: r.get("sponsorship_ads") or 0)), _n(sm(lambda r: r.get("spend") or 0))])
         style += [("FONTNAME", (0, n + 1), (-1, n + 1), "Helvetica-Bold"), ("LINEABOVE", (0, n + 1), (-1, n + 1), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, n + 1), (-1, n + 1), colors.HexColor("#e1e3fb"))]
-    first_num = 5
-    style += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(first_num, len(head))]
-    el.append(_table(data, [3.2, 1.9, 3.0, 3.6, 3.0, 1.2] + [1.5] * len(periods) + [1.5, 1.8, 2.4], s, brand, style))
+    style += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(5 + len(periods), len(head))] + [("VALIGN", (0, 0), (-1, -1), "TOP")]
+    el.append(_table(data, [2.8, 1.6, 2.4, 2.8, 4.6] + [3.2] * len(periods) + [1.3, 1.5, 2.1], s, brand, style))
     if len(rows) > 60:
-        el.append(Paragraph(f"Showing 60 of {len(rows)} rows. Pick a channel, programme or advertiser for the rest.", s.small))
+        el.append(Paragraph(f"Showing 60 of {len(rows)} rows. Pick a channel or advertiser for the rest.", s.small))
 
-    # ---------------- one page per row (the first 8)
+    # ---------------- one section per row (the first 8)
     for r in rows[:8]:
         if not (r.get("periods")):
             continue
@@ -311,32 +329,74 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
                Paragraph(f"<font color='{rc}'><b>{safe(r.get('status', ''))}</b></font>", s.lead), Spacer(1, 2), Paragraph(safe(r.get("headline", "")), s.body), Spacer(1, 4)]
         if r.get("gaps"):
             el.append(Paragraph("Pauses in sponsorship: " + "; ".join(f"{g['from']} to {g['to']} ({g['months']} month{'s' if g['months'] != 1 else ''})" for g in r["gaps"]), s.small))
-        rows_y = [["Year period", "Dates", "Programme airing days", "Days sponsored", "Sponsorship ads", "Other ads", "Total ads", "Ads per airing", "Spend LKR", "Sponsorship spend LKR", "Sponsored?"]]
+        # what kind of buy is it: a steady monthly value, and prime vs non-prime time
+        notes = []
+        pat = r.get("pattern")
+        if pat:
+            notes.append(("#12a06a" if (pat.get("steady") or pat.get("steady_each_year")) else "#c27a06", pat.get("text", "")))
+        pr = r.get("prime") or {}
+        sp = pr.get("sponsorship") or {}
+        if (sp.get("prime_ads") or 0) + (sp.get("other_ads") or 0):
+            notes.append(("#4F46E5", f"Sponsorship time: {_n(sp.get('prime_ads'))} ads in prime time (LKR {_n(sp.get('prime_value'))}) and {_n(sp.get('other_ads'))} ads in non-prime time (LKR {_n(sp.get('other_value'))}), "
+                                     f"{_n(pr.get('prime_share_pct'), 'pct')} in prime time: {pr.get('time_mix') or 'n/a'}."))
+        for col, txt in notes:
+            el.append(Paragraph(f"<font color='{col}'><b>&bull;</b></font>&nbsp; {safe(txt)}", s.body))
+        el.append(Spacer(1, 4))
+        # year by year with start and end
+        rows_y = [["Year period", "Sponsorship started", "Sponsorship ended", "Programme airing days", "Days sponsored", "Sponsorship ads", "Sponsorship value LKR", "Commercial-only ads", "Commercial-only value LKR", "Total ads", "Sponsored?"]]
         sty = []
         for x in r["periods"]:
-            rows_y.append([x["label"], x["range"], _n(x.get("airing_days")), _n(x.get("days_sponsored")), _n(x.get("sponsorship_ads")), _n(x.get("other_ads")), _n(x.get("total_ads")),
-                           _n(x.get("ads_per_airing"), "dec"), _n(x.get("spend")), _n(x.get("sponsorship_spend")), "Yes" if x.get("consistent") else ("Occasional" if x.get("sponsored") else ("Not on air" if not x.get("aired") else "No"))])
+            rows_y.append([Paragraph(f"<b>{safe(x['label'])}</b><br/><font size=6.5 color='#646A8A'>{safe(x['range'])}</font>", s.cell), _d(x.get("sponsored_start")), _d(x.get("sponsored_end")), _n(x.get("airing_days")), _n(x.get("days_sponsored")),
+                           _n(x.get("sponsorship_ads")), _n(x.get("sponsorship_spend")), _n(x.get("other_ads")), _n(x.get("commercial_spend")), _n(x.get("total_ads")),
+                           "Yes" if x.get("consistent") else ("Occasional" if x.get("sponsored") else ("Not on air" if not x.get("aired") else "No"))])
             if x.get("consistent"):
                 sty.append(("TEXTCOLOR", (10, len(rows_y) - 1), (10, len(rows_y) - 1), GOOD))
         n = len(rows_y) - 1
-        rows_y.append(["Whole period", "", _n(r.get("airing_days")), _n(r.get("days_sponsored")), _n(r.get("sponsorship_ads")), _n(r.get("other_ads")), _n(r.get("total_ads")), "", _n(r.get("spend")), _n(r.get("sponsorship_spend")), ""])
+        rows_y.append(["Whole period", _d(r.get("sponsored_first")), _d(r.get("sponsored_last")), _n(r.get("airing_days")), _n(r.get("days_sponsored")), _n(r.get("sponsorship_ads")), _n(r.get("sponsorship_spend")),
+                       _n(r.get("other_ads")), _n((r.get("spend") or 0) - (r.get("sponsorship_spend") or 0)), _n(r.get("total_ads")), ""])
         sty += [("FONTNAME", (0, n + 1), (-1, n + 1), "Helvetica-Bold"), ("LINEABOVE", (0, n + 1), (-1, n + 1), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, n + 1), (-1, n + 1), colors.HexColor("#e1e3fb"))]
-        sty += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(2, 10)]
-        el += [_table(rows_y, [2.0, 3.4, 2.0, 1.8, 1.9, 1.5, 1.5, 1.6, 2.4, 2.6, 1.8], s, brand, sty), Spacer(1, 6)]
-        img = _month_chart(r.get("months") or [], periods)
-        if img:
-            el += [Paragraph("<b>Ads per month</b>", s.body), img]
+        sty += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(3, 10)]
+        el += [_table(rows_y, [2.6, 2.1, 2.1, 1.7, 1.6, 2.1, 2.4, 2.1, 2.4, 1.3, 1.7], s, brand, sty), Spacer(1, 6)]
+        # what ads ran
         th = r.get("themes") or []
         if th:
-            head_t = ["What ads ran (theme)", "Type"] + [f"{p['label']} ads" for p in periods] + ["Total ads", "First seen", "Last seen"]
+            head_t = ["What ads ran (theme)", "Type"] + [f"{p['label']} ads" for p in periods] + ["Total ads", "In prime time", "Other times", "First seen", "Last seen"]
             data_t = [head_t]
             sty_t = []
             for t in th[:12]:
-                data_t.append([t["theme"], ("Sponsorship: " if t.get("sponsorship") else "") + t.get("item", "")] + [_n(v) for v in t.get("per_period") or []] + [_n(t.get("spots")), t.get("first_seen", ""), t.get("last_seen", "")])
+                data_t.append([t["theme"], ("Sponsorship: " if t.get("sponsorship") else "") + t.get("item", "")] + [_n(v) for v in t.get("per_period") or []]
+                               + [_n(t.get("spots")), _n(t.get("prime_ads")), _n(t.get("other_time_ads")), _d(t.get("first_seen")), _d(t.get("last_seen"))])
                 if t.get("sponsorship"):
                     sty_t.append(("TEXTCOLOR", (1, len(data_t) - 1), (1, len(data_t) - 1), brand))
-            sty_t += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(2, 3 + len(periods))]
-            el += [Spacer(1, 4), Paragraph("<b>What ads ran</b>", ParagraphStyle("wa", parent=s.body, keepWithNext=1)), Spacer(1, 2), _table(data_t, [6.0, 3.0] + [1.6] * len(periods) + [1.6, 2.2, 2.2], s, brand, sty_t)]
+            sty_t += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(2, 5 + len(periods))]
+            el += [Paragraph("<b>What ads ran</b>", ParagraphStyle("wa", parent=s.body, keepWithNext=1)), Spacer(1, 2), _table(data_t, [5.2, 2.8] + [1.5] * len(periods) + [1.4, 1.5, 1.5, 2.0, 2.0], s, brand, sty_t), Spacer(1, 6)]
+        # month by month: sponsorship (value-add) vs commercial only, count and value
+        ms = r.get("months") or []
+        img = _month_chart(ms, periods)
+        if img:
+            el += [CondPageBreak(7 * cm), Paragraph("<b>Ads per month</b>", ParagraphStyle("am", parent=s.body, keepWithNext=1)), img]
+        if ms:
+            el += [CondPageBreak(5 * cm), Paragraph("<b>Month by month in this programme</b>", ParagraphStyle("mm", parent=s.body, keepWithNext=1)),
+                   Paragraph("Sponsorship = value-add items (billboard, logo, intro, outro, tag, time check). Commercial only = ordinary paid spots. A sponsorship value that stays about the same every month points to a fixed package.", s.small), Spacer(1, 2)]
+            hm = ["Month", "Year period", "Sponsorship ads", "Sponsorship value LKR", "Sponsorship ads in prime time", "Sponsorship ads other times", "Commercial-only ads", "Commercial-only value LKR", "Total ads", "Note"]
+            data_m = [hm]
+            sty_m = []
+            first_sp = next((i for i, m in enumerate(ms) if m["sponsorship_ads"] > 0), None)
+            last_sp = max((i for i, m in enumerate(ms) if m["sponsorship_ads"] > 0), default=None)
+            for i, m in enumerate(ms):
+                note = "No sponsorship" if (first_sp is not None and first_sp < i < last_sp and m["sponsorship_ads"] == 0) else ""
+                data_m.append([m["label"], (periods[m["period"]]["label"] if m["period"] < len(periods) else ""), _n(m["sponsorship_ads"]), _n(m["sponsorship_value"]), _n(m.get("sponsorship_prime_ads")), _n(m.get("sponsorship_other_time_ads")),
+                               _n(m["other_ads"]), _n(m["commercial_value"]), _n(m["sponsorship_ads"] + m["other_ads"]), note])
+                if note:
+                    sty_m.append(("TEXTCOLOR", (9, len(data_m) - 1), (9, len(data_m) - 1), colors.HexColor("#c27a06")))
+            tot = lambda k: sum((m.get(k) or 0) for m in ms)  # noqa: E731
+            data_m.append(["Total", "", _n(tot("sponsorship_ads")), _n(tot("sponsorship_value")), _n(tot("sponsorship_prime_ads")), _n(tot("sponsorship_other_time_ads")), _n(tot("other_ads")), _n(tot("commercial_value")),
+                           _n(tot("sponsorship_ads") + tot("other_ads")), ""])
+            lm_ = len(data_m) - 1
+            sty_m += [("FONTNAME", (0, lm_), (-1, lm_), "Helvetica-Bold"), ("LINEABOVE", (0, lm_), (-1, lm_), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, lm_), (-1, lm_), colors.HexColor("#e1e3fb"))]
+            sty_m += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(2, 9)]
+            el.append(_table(data_m, [2.0, 1.8, 1.9, 2.8, 2.4, 2.4, 2.3, 2.8, 1.4, 2.4], s, brand, sty_m))
+
     el += [Spacer(1, 8), Paragraph("A year counts as sponsored when the advertiser had sponsorship items (billboard, logo, intro, outro, tag, time check) on at least half of the programme's airing days that year; fewer is shown as occasional. "
                                    "Airing days are days the programme aired with any advertiser. Spend is monitored rate-card spend, not invoiced cost.", s.small)]
     footer_txt = safe(f"{agency} | {cname} | Sponsorship over time | {branding.get('report_footer', '')}")

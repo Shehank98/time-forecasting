@@ -24,6 +24,7 @@
   };
   const ordinal = (k) => `Year ${k + 1}`;
   const CONSISTENT = 0.5;                         // share of the programme's airing days
+  const STEADY_CV = 0.15;                         // monthly sponsorship value varying by 15% or less is "steady"
   const RANK = { all: 0, started: 1, stopped: 1, some: 1, single: 2, occasional: 3, none: 4 };
 
   /** opts: {channel, program, advertiser, mode ('data'|'calendar'), show ('sponsor'|'all'), limit, lite (advertiser list only: no per-row months, themes or rows)} */
@@ -57,15 +58,19 @@
 
     // ---- groups: advertiser x programme
     const rows = MR.where(L, inPg, (i) => adCode === -2 || C.advertiser[i] === adCode), nA = L.dicts.advertiser.length + 1, g = new Map();
+    const primeCodes = new Set(L.dicts.daypart.map((n, c) => ((MR.cfg && MR.cfg.prime) || ['Prime']).includes(n) ? c : -1).filter((c) => c >= 0));
     for (let k = 0; k < rows.length; k++) {
       const i = rows[k], p = sc.pkey(i), key = p * nA + C.advertiser[i], d = C.date[i], mi = mIdx(d), per = periodOf(mi), kind = sc.kinds[C.theme[i]];
       let a = g.get(key);
-      if (!a) g.set(key, (a = { p, ch: C.channel[i], pg: C.program[i], adv: C.advertiser[i], per: Array.from({ length: nPer }, () => ({ spots: 0, sp: 0, spend: 0, sp_spend: 0, days: new Set(), spdays: new Set() })), themes: new Map(), months: new Map(), products: new Map(), dmin: Infinity, dmax: -Infinity, sp: 0 }));
-      const q = a.per[per]; q.spots++; q.spend += C.cost[i]; q.days.add(d); if (kind) { q.sp++; q.sp_spend += C.cost[i]; q.spdays.add(d); a.sp++; }
+      if (!a) g.set(key, (a = { p, ch: C.channel[i], pg: C.program[i], adv: C.advertiser[i], per: Array.from({ length: nPer }, () => ({ spots: 0, sp: 0, spend: 0, sp_spend: 0, days: new Set(), spdays: new Set(), spFirst: Infinity, spLast: -Infinity })), themes: new Map(), months: new Map(), products: new Map(), dmin: Infinity, dmax: -Infinity, sp: 0,
+        pt: { va_pt: 0, va_pt_v: 0, va_npt: 0, va_npt_v: 0, com_pt: 0, com_pt_v: 0, com_npt: 0, com_npt_v: 0 } }));
+      const cost = C.cost[i], prime = primeCodes.has(C.daypart[i]);
+      const q = a.per[per]; q.spots++; q.spend += cost; q.days.add(d); if (kind) { q.sp++; q.sp_spend += cost; q.spdays.add(d); a.sp++; if (d < q.spFirst) q.spFirst = d; if (d > q.spLast) q.spLast = d; }
+      a.pt[(kind ? 'va_' : 'com_') + (prime ? 'pt' : 'npt')]++; a.pt[(kind ? 'va_' : 'com_') + (prime ? 'pt_v' : 'npt_v')] += cost;
       if (d < a.dmin) a.dmin = d; if (d > a.dmax) a.dmax = d;
-      const mo = a.months.get(mi) || { sp: 0, reg: 0 }; if (kind) mo.sp++; else mo.reg++; a.months.set(mi, mo);
-      let t = a.themes.get(C.theme[i]); if (!t) a.themes.set(C.theme[i], (t = { kind, per: Array(nPer).fill(0), spots: 0, spend: 0, dmin: Infinity, dmax: -Infinity }));
-      t.per[per]++; t.spots++; t.spend += C.cost[i]; if (d < t.dmin) t.dmin = d; if (d > t.dmax) t.dmax = d;
+      const mo = a.months.get(mi) || { sp: 0, reg: 0, sp_v: 0, reg_v: 0, sp_pt: 0 }; if (kind) { mo.sp++; mo.sp_v += cost; if (prime) mo.sp_pt++; } else { mo.reg++; mo.reg_v += cost; } a.months.set(mi, mo);
+      let t = a.themes.get(C.theme[i]); if (!t) a.themes.set(C.theme[i], (t = { kind, per: Array(nPer).fill(0), spots: 0, spend: 0, pt: 0, dmin: Infinity, dmax: -Infinity }));
+      t.per[per]++; t.spots++; t.spend += cost; if (prime) t.pt++; if (d < t.dmin) t.dmin = d; if (d > t.dmax) t.dmax = d;
       a.products.set(C.product[i], (a.products.get(C.product[i]) || 0) + C.cost[i]);
     }
     const keep = [...g.values()].filter((a) => (opts.show === 'all' ? true : a.sp > 0));
@@ -76,7 +81,7 @@
     const out = keep.map((a) => {
       const A = air.get(a.p) || Array.from({ length: nPer }, () => new Set());
       const per = a.per.map((q, p) => ({ ...periods[p], airing_days: A[p].size, days_sponsored: 0, days_present: q.days.size, total_ads: q.spots, sponsorship_ads: q.sp, other_ads: q.spots - q.sp,
-        spend: q.spend, sponsorship_spend: q.sp_spend, ads_per_airing: A[p].size ? q.spots / A[p].size : null, sponsored: q.sp > 0, aired: A[p].size > 0 }));
+        spend: q.spend, sponsorship_spend: q.sp_spend, commercial_spend: q.spend - q.sp_spend, sponsored_start: q.sp ? isoFromDay(q.spFirst) : null, sponsored_end: q.sp ? isoFromDay(q.spLast) : null, ads_per_airing: A[p].size ? q.spots / A[p].size : null, sponsored: q.sp > 0, aired: A[p].size > 0 }));
       per.forEach((x, p) => { x.days_sponsored = a.per[p].spdays.size; });
       const aired = per.filter((x) => x.aired), spon = per.filter((x) => x.sponsored);
       // a year counts as sponsored when the sponsorship was on at least half of the programme's airing days that year; a few stray items are "occasional"
@@ -96,7 +101,7 @@
       const mFirst = Math.min(...a.months.keys()), mLast = Math.max(...a.months.keys()), months = [], gaps = [];
       let run = null;
       for (let mi = mFirst; mi <= mLast; mi++) {
-        const m = a.months.get(mi) || { sp: 0, reg: 0 }; months.push({ month: monthKey(mi), label: monthName(mi), sponsorship_ads: m.sp, other_ads: m.reg, period: periodOf(mi) });
+        const m = a.months.get(mi) || { sp: 0, reg: 0, sp_v: 0, reg_v: 0, sp_pt: 0 }; months.push({ month: monthKey(mi), label: monthName(mi), sponsorship_ads: m.sp, other_ads: m.reg, sponsorship_value: m.sp_v, commercial_value: m.reg_v, sponsorship_prime_ads: m.sp_pt, sponsorship_other_time_ads: m.sp - m.sp_pt, period: periodOf(mi) });
         if (m.sp === 0 && a.sp > 0) { if (!run) run = { from: monthName(mi), to: monthName(mi), months: 0 }; run.to = monthName(mi); run.months++; } else if (run) { gaps.push(run); run = null; }
       }
       const spMonths = months.filter((m) => m.sponsorship_ads > 0);
@@ -109,13 +114,35 @@
       const totalAds = sumK('total_ads'), spAds = sumK('sponsorship_ads'), airDays = A.reduce((s, x) => s + x.size, 0), present = sumK('days_present');
       const prods = [...a.products.entries()].sort((x, y) => y[1] - x[1]).map((e) => L.dicts.product[e[0]]);
       const advName = nm('advertiser', a.adv), chName = nm('channel', a.ch), pgName = nm('program', a.pg), chTitle = MR.title(chName), pgTitle = MR.title(pgName);
-      const themes = opts.lite ? [] : [...a.themes.entries()].map(([t, v]) => ({ theme: nm('theme', t), item: themeItem(nm('theme', t), v.kind), sponsorship: v.kind > 0, per_period: v.per, spots: v.spots, spend: v.spend, first_seen: isoFromDay(v.dmin), last_seen: isoFromDay(v.dmax) }))
+      const themes = opts.lite ? [] : [...a.themes.entries()].map(([t, v]) => ({ theme: nm('theme', t), item: themeItem(nm('theme', t), v.kind), sponsorship: v.kind > 0, per_period: v.per, spots: v.spots, spend: v.spend, prime_ads: v.pt, other_time_ads: v.spots - v.pt, first_seen: isoFromDay(v.dmin), last_seen: isoFromDay(v.dmax) }))
         .sort((x, y) => (y.sponsorship - x.sponsorship) || y.spots - x.spots).slice(0, 15);
+      // does the sponsorship cost about the same every month? A flat monthly value usually means a fixed sponsorship package.
+      // The first and last sponsored months are often part months, so they are left out when there are 5 or more.
+      const spm = months.filter((m) => m.sponsorship_ads > 0), used = spm.length >= 5 ? spm.slice(1, -1) : spm;
+      const stat = (vs) => { const mean = vs.reduce((x, y) => x + y, 0) / vs.length, sd = Math.sqrt(vs.reduce((x, y) => x + (y - mean) ** 2, 0) / vs.length); return { mean, sd, cv: sd / mean, dev: Math.max(...vs.map((v) => Math.abs(v - mean))) / mean, min: Math.min(...vs), max: Math.max(...vs) }; };
+      const lkr = (v) => 'LKR ' + Math.round(v).toLocaleString('en-US');
+      let pattern = null;
+      if (used.length >= 3) {
+        const all = stat(used.map((m) => m.sponsorship_value)), steady = all.cv <= STEADY_CV;
+        const byPeriod = periods.map((pd) => { const vs = used.filter((m) => m.period === pd.index).map((m) => m.sponsorship_value); if (!vs.length) return null; const st = stat(vs); return { label: pd.label, months: vs.length, mean: st.mean, cv_pct: st.cv * 100, steady: vs.length >= 3 && st.cv <= STEADY_CV }; }).filter(Boolean);
+        const judged = byPeriod.filter((x) => x.months >= 3), eachYear = !steady && judged.length >= 2 && judged.every((x) => x.steady);
+        let text;
+        if (steady) text = `Steady sponsorship value: about ${lkr(all.mean)} every month (within ${Math.round(all.dev * 100)}% across ${used.length} months). A flat monthly value usually means a fixed sponsorship package.`;
+        else if (eachYear) {
+          const f = judged[0], l = judged[judged.length - 1], ch = ((l.mean - f.mean) / f.mean) * 100;
+          text = `Steady within each year, but the monthly value changed between years: ${judged.map((x) => `${x.label} about ${lkr(x.mean)} a month`).join(', ')} (${Math.abs(Math.round(ch))}% ${ch >= 0 ? 'higher' : 'lower'} in ${l.label}). Each year looks like a fixed package, with a different package in the later year.`;
+        } else text = `Sponsorship value changes from month to month (${lkr(all.min)} to ${lkr(all.max)}, average ${lkr(all.mean)}), so these look like items bought as needed rather than a fixed package.`;
+        pattern = { months: used.length, mean: all.mean, min: all.min, max: all.max, cv_pct: all.cv * 100, max_dev_pct: all.dev * 100, steady, steady_each_year: eachYear, by_period: byPeriod, text };
+      }
+      const pt = a.pt, vaAds = pt.va_pt + pt.va_npt, ptShare = vaAds ? pt.va_pt / vaAds : null;
+      const timeMix = !vaAds ? null : ptShare >= 0.9 ? 'Prime time' : ptShare <= 0.1 ? 'Non-prime time' : 'Prime and non-prime';
+      const primeSplit = { sponsorship: { prime_ads: pt.va_pt, prime_value: pt.va_pt_v, other_ads: pt.va_npt, other_value: pt.va_npt_v }, commercial: { prime_ads: pt.com_pt, prime_value: pt.com_pt_v, other_ads: pt.com_npt, other_value: pt.com_npt_v },
+        prime_share_pct: ptShare == null ? null : ptShare * 100, time_mix: timeMix };
       const headline = spAds ? `${advName} sponsored ${pgTitle} on ${chTitle} for ${span} month${span === 1 ? '' : 's'} (${sFirst.label} to ${sLast.label}): ${spAds.toLocaleString('en-US')} sponsorship ad${spAds === 1 ? '' : 's'} and ${(totalAds - spAds).toLocaleString('en-US')} other ad${totalAds - spAds === 1 ? '' : 's'}, ${totalAds.toLocaleString('en-US')} in total. ${status}.`
         : `${advName} ran ${totalAds.toLocaleString('en-US')} ad${totalAds === 1 ? '' : 's'} in ${pgTitle} on ${chTitle} (${first} to ${last}), with no sponsorship items.`;
       return { advertiser: advName, channel: chName, program: pgName, products: prods.slice(0, 3), status, status_code: code, first_seen: first, last_seen: last, sponsored_from: sFirst ? sFirst.label : null, sponsored_to: sLast ? sLast.label : null,
         months_span: span, months_with_sponsorship: spMonths.length, years_sponsored: consIdx.length, years_with_items: spon.length, years_aired: aired.length, periods: per, total_ads: totalAds, sponsorship_ads: spAds, other_ads: totalAds - spAds, spend: sumK('spend'), sponsorship_spend: sumK('sponsorship_spend'),
-        airing_days: airDays, days_present: present, days_sponsored: sumK('days_sponsored'), presence_pct: pct(sumK('days_sponsored'), airDays), gaps: realGaps, months, themes, headline };
+        airing_days: airDays, days_present: present, days_sponsored: sumK('days_sponsored'), presence_pct: pct(sumK('days_sponsored'), airDays), sponsored_first: per.map((x) => x.sponsored_start).filter(Boolean).sort()[0] || null, sponsored_last: per.map((x) => x.sponsored_end).filter(Boolean).sort().slice(-1)[0] || null, gaps: realGaps, months, themes, pattern, prime: primeSplit, time_mix: timeMix, headline };
     }).sort((x, y) => RANK[x.status_code] - RANK[y.status_code] || y.sponsorship_ads - x.sponsorship_ads || y.months_span - x.months_span);
     const bySum = new Map();
     out.forEach((r) => { let a = bySum.get(r.advertiser); if (!a) bySum.set(r.advertiser, (a = { advertiser: r.advertiser, programmes: 0, channels: new Set(), consistent: 0, all_years: 0, occasional: 0, sponsorship_ads: 0, total_ads: 0, spend: 0 }));

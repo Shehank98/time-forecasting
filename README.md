@@ -406,6 +406,18 @@ The fourth view of the Programme & Sponsorship Spotlight tab. It answers: "Did t
   - **Sponsored all N years:** sponsored that way in every year the programme aired.
   - **Started in Year N / Stopped after Year N / Sponsored in X of N years:** the other patterns.
   - **Occasional sponsorship items:** only a few stray items, which are listed last.
-- **Download Sponsorship over Time PDF** (`POST /api/spotlight/tenure/pdf`): a cover with the year periods, the overview table, then a page per advertiser and programme (the first 8) with the year table, the monthly chart and the ads that ran. A copy is kept under Reports.
+- **Download Sponsorship over Time PDF** (`POST /api/spotlight/tenure/pdf`):
+  - **Cover:** the year periods and the selection.
+  - **Who sponsored what, year by year:** one row per advertiser and programme. Each year column shows **when the sponsorship started and ended in that year** (for example "1 Nov 2024 to 31 Oct 2025") and the ads they ran that year. The **ad themes** (sponsorship items first, with their counts) are listed in the same row.
+  - **A section for each advertiser and programme** (the first 8):
+    - the year table with sponsorship started and ended, programme airing days, days sponsored, sponsorship ads and value, commercial-only ads and value, and total ads, with a whole-period row;
+    - **What ads ran:** each theme with its ads per year, how many were in prime time and in other times, and first and last seen;
+    - an ads-per-month chart;
+    - **Month by month in this programme:** for each month, the sponsorship ads and their value, how many were in prime time and in other times, and the commercial-only ads and their value, with a totals row and a note on months with no sponsorship.
+  - **Is it a fixed package?** The monthly sponsorship value is checked. If it stays about the same every month (within 15%), the note says "Steady sponsorship value: about LKR X every month. A flat monthly value usually means a fixed sponsorship package." If it is steady within each year but changes between years, the note says so, with each year's monthly amount. The first and last sponsored months are left out when there are 5 or more, because they are often part months.
+  - **Prime time vs non-prime time:** the sponsorship ads in prime time (the Prime daypart, 20:00 to 23:00) and in other times, with their value, and a label: Prime time, Non-prime time, or Prime and non-prime.
+  - A copy is kept under Reports.
+
+The same start and end dates, month-by-month table, steady-value note and prime-time split are shown on screen when you open a programme.
 
 The numbers are computed in the browser (`app/static/js/engine/tenure.js`). `tests/test_tenure.py` checks them against pandas on a 2-year sample with a both-years sponsor, a year-1-only sponsor, a year-2-only sponsor and an occasional one.

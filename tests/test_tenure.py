@@ -13,7 +13,7 @@ CH, PROG = "DERANA", "DREAM STAR"
 Y1_END = pd.Timestamp("2025-10-31")
 
 
-def make_rows(tmpl, dates, adv, product, theme, k=1, dur=10, cost=20000, offset=0):
+def make_rows(tmpl, dates, adv, product, theme, k=1, dur=10, cost=20000, offset=0, time=None):
     out = []
     for j in range(k):
         df = pd.DataFrame([tmpl] * len(dates)).reset_index(drop=True)
@@ -21,6 +21,8 @@ def make_rows(tmpl, dates, adv, product, theme, k=1, dur=10, cost=20000, offset=
         df["Dd"], df["Mn"], df["Yr"], df["Day"] = [d.day for d in dates], [d.month for d in dates], [d.year for d in dates], [d.strftime("%a") for d in dates]
         df["Cost"] = [cost + offset + j * 7 + n for n in range(len(dates))]
         df["AdPos"], df["BrkNo"], df["PosinBrk"], df["AdsinBrk"] = 900 + offset + j, 70 + offset + j, 1 + (j % 4), 8
+        if time:
+            df["Advt_time"] = time
         out.append(df)
     return pd.concat(out, ignore_index=True)
 
@@ -35,7 +37,8 @@ def sheet(tmp_path_factory):
     parts = [lm,
              make_rows(tm, dates, "Lanka Tea Co", "Island Tea", "Dream Star -Intro", offset=0),                  # sponsors both years, every airing
              make_rows(tm, dates[::3], "Lanka Tea Co", "Island Tea", "Island Tea Reminder (30)", dur=30, offset=100),  # plus ordinary spots on some days
-             make_rows(tm, y1, "Ceylon Foods", "Spice Pot", "Dream Star Logo", offset=200),                       # year 1 only
+             make_rows(tm, y1, "Ceylon Foods", "Spice Pot", "Dream Star Logo", offset=200, time="20:30:00"),    # year 1 only, all in prime time
+             make_rows(tm, y1, "Lanka Tea Co", "Island Tea", "Dream Star Logo", offset=250, time="20:45:00"),    # Lanka also buys a prime-time logo in year 1
              make_rows(tm, y2, "Nestle Lanka Ltd", "Maggi", "Dream Star -Outro", offset=300),                    # starts in year 2
              make_rows(tm, dates[::40], "Unilever Sri Lanka", "Knorr", "Tag", dur=5, offset=500),                  # a stray tag every 40 days: occasional, not a sponsorship tenure
              make_rows(tm, dates[::10], "Ceylon Biscuits", "Lemon Puff", "Lemon Puff (30)", dur=30, offset=400)]  # only ordinary spots
@@ -47,6 +50,10 @@ def sheet(tmp_path_factory):
     df["t"] = pd.to_datetime(dict(year=df["Yr"], month=df["Mn"], day=df["Dd"]))
     df["prog"] = df["Program"].str.strip().str.upper()
     df["yr"] = (df["t"] > Y1_END).astype(int)
+    secs = pd.to_timedelta(df["Advt_time"].astype(str)).dt.total_seconds()
+    prime = set(nz.prime_dayparts())
+    df["prime"] = [nz.daypart_for_hour(x / 3600.0) in prime for x in secs]
+    df["sp2"] = df["Advt_Theme"].isin(["Dream Star -Intro", "Dream Star Logo", "Dream Star -Outro", "Tag"])
     return p, df
 
 
@@ -130,7 +137,8 @@ def test_tenure_pdf(sheet):
     assert c.post("/api/spotlight/tenure/pdf", json={"report": {"empty": True}}).status_code == 422
     pdf = pytest.importorskip("pypdf").PdfReader(io.BytesIO(r.content))
     text = " ".join(pg.extract_text() for pg in pdf.pages)
-    for s in ("Sponsorship over time", "Year 1", "Year 2", "Lanka Tea Co", "Dream Star", "Sponsored all 2 years", "Stopped after Year 1", "What ads ran", "Dream Star -Intro"):
+    for s in ("Sponsorship over time", "Year 1", "Year 2", "Lanka Tea Co", "Dream Star", "Sponsored all 2 years", "Stopped after Year 1", "What ads ran", "Dream Star -Intro",
+              "started to ended", "1 Nov 2024", "31 Oct 2025", "Whole period", "Month by month in this programme", "Commercial-only value", "Steady sponsorship value", "prime time"):
         assert s in text, s
     assert "—" not in text
 
@@ -161,3 +169,48 @@ def test_lists_for_picking(sheet):
     one = node("tenure", p, {"advertiser": "Lanka Tea Co", "channel": CH})
     assert {c["channel"] for c in one["advertiser_channels"]} == {c["channel"] for c in d["advertiser_channels"]}
     assert {r["channel"] for r in one["rows"]} == {CH}
+
+
+def test_start_end_monthly_values_and_prime(sheet):
+    """Each year's start and end, the monthly sponsorship vs commercial value, a steady-value check and prime vs non-prime time."""
+    p, df = sheet
+    d = node("tenure", p, {"channel": CH, "program": PROG})
+    prog = df[(df["ch"] == CH) & (df["prog"] == PROG)]
+    rows = {r["advertiser"]: r for r in d["rows"]}
+    for adv, r in rows.items():
+        sub = prog[prog["Advertiser"] == adv]
+        for y in (0, 1):
+            sp = sub[(sub["yr"] == y) & sub["sp2"]]
+            x = r["periods"][y]
+            assert x["sponsored_start"] == (str(sp["t"].min().date()) if len(sp) else None) and x["sponsored_end"] == (str(sp["t"].max().date()) if len(sp) else None)
+            assert x["sponsorship_spend"] == pytest.approx(sp["Cost"].sum()) and x["commercial_spend"] == pytest.approx(sub[sub["yr"] == y]["Cost"].sum() - sp["Cost"].sum())
+        sp_all = sub[sub["sp2"]]
+        assert r["sponsored_first"] == str(sp_all["t"].min().date()) and r["sponsored_last"] == str(sp_all["t"].max().date())
+        # month by month: counts and values, sponsorship (value-add) vs commercial only
+        for m in r["months"]:
+            mm = sub[sub["t"].dt.strftime("%Y-%m") == m["month"]]
+            sp = mm[mm["sp2"]]
+            assert m["sponsorship_ads"] == len(sp) and m["sponsorship_value"] == pytest.approx(sp["Cost"].sum())
+            assert m["other_ads"] == len(mm) - len(sp) and m["commercial_value"] == pytest.approx(mm[~mm["sp2"]]["Cost"].sum())
+            assert m["sponsorship_prime_ads"] == int(sp["prime"].sum()) and m["sponsorship_other_time_ads"] == len(sp) - int(sp["prime"].sum())
+        # prime vs non-prime
+        ps = r["prime"]["sponsorship"]
+        spa = sub[sub["sp2"]]
+        assert ps["prime_ads"] == int(spa["prime"].sum()) and ps["other_ads"] == len(spa) - int(spa["prime"].sum())
+        assert ps["prime_value"] == pytest.approx(spa[spa["prime"]]["Cost"].sum())
+        for t in r["themes"]:
+            tt = sub[sub["Advt_Theme"] == t["theme"]]
+            assert t["prime_ads"] == int(tt["prime"].sum()) and t["other_time_ads"] == len(tt) - int(tt["prime"].sum())
+    assert rows["Ceylon Foods"]["time_mix"] == "Prime time" and rows["Nestle Lanka Ltd"]["time_mix"] == "Non-prime time" and rows["Lanka Tea Co"]["time_mix"] == "Prime and non-prime"
+    # a flat monthly value looks like a fixed package; a value that changes does not
+    nes = rows["Nestle Lanka Ltd"]["pattern"]
+    assert nes["steady"] and nes["text"].startswith("Steady sponsorship value: about LKR") and "fixed sponsorship package" in nes["text"] and nes["cv_pct"] <= 15
+    lanka = rows["Lanka Tea Co"]["pattern"]
+    # Lanka's value is flat inside each year but the package changed between years (a prime-time logo ended after year 1)
+    assert not lanka["steady"] and lanka["steady_each_year"] and lanka["text"].startswith("Steady within each year, but the monthly value changed between years")
+    by = {x["label"]: x for x in lanka["by_period"]}
+    assert by["Year 1"]["steady"] and by["Year 2"]["steady"] and by["Year 1"]["mean"] > 1.5 * by["Year 2"]["mean"] and "lower in Year 2" in lanka["text"]
+    sp1 = prog[(prog["Advertiser"] == "Lanka Tea Co") & prog["sp2"]]
+    m1 = sp1[sp1["yr"] == 0].groupby(sp1["t"].dt.strftime("%Y-%m"))["Cost"].sum().sort_index().iloc[1:]           # the first (part) month is left out
+    assert by["Year 1"]["mean"] == pytest.approx(m1.mean())
+    assert rows["Unilever Sri Lanka"]["pattern"] is None or rows["Unilever Sri Lanka"]["pattern"]["months"] >= 3
