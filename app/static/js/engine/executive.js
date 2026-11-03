@@ -18,6 +18,8 @@
   const { scan, acc, add, out, inDates, durIdx, DUR, pct } = SP;
   const HF = 'High-Frequency Reminders', EX = 'Exclusive Sponsorship / Value-Add', SPN = 'Sponsorship / Value-Add';
   const CONSISTENT_SHARE = 0.5, CONSISTENT_DAYS = 3;
+  /** TV, Radio or Press for a row: the sheet's own medium column (from the channel prefix) when it has one, else a guess from the name. */
+  const rowMedium = (L, i) => (L.cols.medium ? L.dicts.medium[L.cols.medium[i]] : medium(L.dicts.channel[L.cols.channel[i]]));
   const medium = (ch) => (/\bFM\b|RADIO/i.test(String(ch)) ? 'Radio' : 'TV');
   const codes = (L, col, names) => new Set((names || []).map((n) => L.dicts[col].indexOf(n)).filter((c) => c >= 0));
   const DUR_ALL = DUR.concat(['No length']);
@@ -113,12 +115,12 @@
       channels: new Set(Array.from(rows, (i) => C.channel[i])).size, programmes: new Set(Array.from(rows, (i) => C.channel[i] * 1e6 + C.program[i])).size,
       commercial_share: pct(T.commercial_spend, T.spend), value_add_share: pct(T.value_add_spend, T.spend), ratings: ratings(L, rows),
       frequency_ads: hfg.length, frequency_spots: hfg.reduce((s, r) => s + r.spots, 0), exclusive_ads: exg.length, exclusive_spots: exg.reduce((s, r) => s + r.spots, 0), exclusive_spend: exg.reduce((s, r) => s + r.spend, 0) };
-    const languages = split(L, rows, 'lng'), media = split(L, rows, null, (i) => medium(L.dicts.channel[C.channel[i]]));
+    const languages = split(L, rows, 'lng'), media = split(L, rows, null, (i) => rowMedium(L, i));
     const durations = split(L, rows, null, (i) => durName(L, i)).sort(byDurOrder), brands = split(L, rows, 'advertiser').slice(0, 15);
     // section 2
     const byCh = new Map(); for (let k = 0; k < rows.length; k++) { const i = rows[k]; let a = byCh.get(C.channel[i]); if (!a) byCh.set(C.channel[i], (a = { acc: acc(), rows: [] })); add(a.acc, L, i, sc.kinds[C.theme[i]], sc.isSpecial(i)); a.rows.push(i); }
     const channels = [...byCh.entries()].map(([c, a]) => { const o = money(a.acc), name = L.dicts.channel[c];
-      return { channel: name, medium: medium(name), commercial_spend: o.commercial_spend, value_add_spend: o.value_add_spend, spend: o.spend, commercial_spots: o.commercial_spots, value_add_items: o.value_add_items, spots: o.spots,
+      return { channel: name, medium: rowMedium(L, a.rows[0]), commercial_spend: o.commercial_spend, value_add_spend: o.value_add_spend, spend: o.spend, commercial_spots: o.commercial_spots, value_add_items: o.value_add_items, spots: o.spots,
         sow_pct: pct(o.spend, T.spend), spots_per_day: o.active_days ? o.spots / o.active_days : null, avg_clutter: o.avg_clutter, fib_pct: o.fib_pct,
         frequency_ads: groups.filter((r) => r.channel === name && r.frequency).length, exclusive_ads: groups.filter((r) => r.channel === name && r.exclusive).length, ratings: ratings(L, Int32Array.from(a.rows)) }; })
       .sort((a, b) => b.spend - a.spend).map((x, k) => ({ rank: k + 1, ...x }));

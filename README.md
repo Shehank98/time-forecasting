@@ -475,3 +475,21 @@ Commercials that only look similar, such as "Tag Line Promo", "DJ Party Offer", 
 - The choice is saved as a shared setting (Settings > Sponsorship items, `app/config/sponsorship.json`), so it applies to the whole agency. Only an admin can save it. For anyone else it applies until the page is reloaded, and the page says so.
 - The PDFs list the items that were counted, and the Spotlight tab shows "Counting as sponsorship: ..." at the top. "Back to the standard list" restores the default (every item except -Tr).
 - The "Can't find an ad?" check says "Commercial (item switched off)" when a theme is recognised but its item is not ticked.
+
+## Press, contracts and spend by year (Market card)
+
+**Upload.** The Market card has a third upload slot, **Press sheet**, next to the LMRB and TVR slots. It is a separate file with these columns: `Product_Group, Advertiser, Product, Ads, Publication, Dd, Mn, Yr, Date, Day, Periodicity, Lng, Location, Type, Col, CM, Dur, Cost`. Cost may carry thousands separators ("170,040"). Size is `CM x Col` (for example 10 cm x 8 col); `Dur` is the same area (col x cm). Like the other sheets it is read in the browser and kept in IndexedDB; only summaries reach the server.
+
+**Medium (TV, radio, press) in the LMRB sheet** comes from the raw channel name: `TV - Sirasa TV` is TV, `Radio - Shakthi FM` is radio (shown as its own station, with "(RADIO)" added if the name collides with a TV channel), and a name with neither prefix is counted as **press**. Those unprefixed names are listed on the Spend by year tab so they can be checked. LMRB sheets uploaded before this change have no medium column: the tab says so and shows everything as TV until the sheet is uploaded again. The Executive summary's medium split now uses the same rule.
+
+**Contracts** (tab *Press & contracts*, shown once a press sheet is loaded). A contract is the same advertiser and product, in the same publication, at the same size, run again and again:
+- daily and weekly papers: on the same weekday (every Tuesday); one missed week is allowed (gap of up to 14 days);
+- monthly and other magazines: in consecutive months (a gap of up to one month);
+- a run counts as a contract at **4 or more** insertions (changeable on the tab: 3, 4, 6, 8 or 12);
+- the same advertiser can hold several contracts in one paper (different size or weekday), and a renewal after a break is its own contract; two ads on the same date count as one "time" but all of them count as insertions and cost.
+
+The tab shows contracts (times, first and last date, missed weeks, average and total cost, Active or Ended, every date on click), contract share of press spend, spend by publication and advertiser, and by month. **Download Press & Contracts PDF** puts the contracts table, contracts by advertiser, press spend tables and the dates of the biggest contracts in one report (also saved under Reports).
+
+**Spend by year (Com and VAL)** (tab, always on the Market card). One block per year with channels down the side (TV channels, radio stations, press publications) and Jan to Dec across, in LKR, as three blocks: **Commercial only**, **VAL** (value addition = the sponsorship items ticked in Settings) and **Total**. All press is commercial. Pick advertisers on the tab (it does not use the page filters), then **Download Excel**: a Summary sheet plus one sheet per year.
+
+Not built, by request: grouping different programmes in the same time belt as movie sponsorships.

@@ -21,7 +21,7 @@ def make_lmrb(days: int = 42, start: str = "2026-08-03", seed: int = 7) -> pd.Da
             ("Flavour Enhancers", "Unilever Sri Lanka", "Knorr Cubes", ["Knorr Family (30)(Eng)"], 0.7),
             ("Flavour Enhancers", "Ceylon Foods", "Spice Pot", ["Spice Pot Sin (15)"], 0.35),
             ("Beverages", "Lanka Tea Co", "Island Tea", ["Island Tea (10)(Tam)"], 0.5)]
-    chans = {"Tv - Derana": 1.0, "SIRASA": 0.8, "Tv - Hiru": 0.7}
+    chans = {"Tv - Derana": 1.0, "Tv - Sirasa": 0.8, "Tv - Hiru": 0.7}
     progs = {"Morning": ("Iskole-Rep", "09:00", "09:14:07"), "Afternoon": ("Ponmagal Vandhal", "12:39", "13:03:20"),
              "Prime": ("Teledrama Night", "20:00", "20:25:10"), "Early Prime": ("News 6", "18:00", "18:12:00")}
     rows = []
@@ -99,3 +99,44 @@ def make_kpi(days: int = 420, start: str = "2025-08-01", seed: int = 5) -> pd.Da
             rows.append({"Date": d.strftime("%d/%m/%Y"), "Campaign": camp, "Media Spend (LKR)": f"{spend:,.0f}", "Leads": leads, "Clicks": clicks,
                          "CTR %": round(rng.uniform(1.0, 3.0), 2)})
     return pd.DataFrame(rows)
+
+
+PRESS_COLS = ["Product_Group", "Advertiser", "Product", "Ads", "Publication", "Dd", "Mn", "Yr", "Date", "Day", "Periodicity", "Lng", "Location", "Type", "Col", "CM", "Dur", "Cost"]
+
+
+def press_rows(adv, product, pub, dates, cm, col, cost, per="Daily", lng="Sinhala", group="Banking Services", typ="General Int"):
+    """One press insertion per date. Dur is the area (col x cm), like the real sheet."""
+    out = []
+    for d in dates:
+        d = pd.Timestamp(d)
+        out.append([group, adv, product, 1, pub, d.day, d.month, d.year, f"{d.month}/{d.day}/{d.year}", d.strftime("%a"), per, lng, "", typ, col, cm, col * cm, cost])
+    return out
+
+
+def make_press(seed: int = 3) -> pd.DataFrame:
+    """A press sheet with known contracts, near misses and ad hoc ads."""
+    rng = np.random.default_rng(seed)
+    tue = lambda start, n, step=7: [pd.Timestamp(start) + pd.Timedelta(days=step * k) for k in range(n)]    # noqa: E731
+    rows = []
+    # A: Commercial Bank, Lankadeepa, 54 cm x 8 col, every Tuesday for 10 weeks, a 6 week break, then 6 more weeks: two contracts
+    rows += press_rows("Commercial Bank", "Combank Corporate", "DAILY LANKADEEPA", tue("2026-01-06", 10), 54, 8, 345000)
+    rows += press_rows("Commercial Bank", "Combank Corporate", "DAILY LANKADEEPA", tue("2026-04-28", 6), 54, 8, 350000)
+    # near miss: the same paper and size but only 3 Fridays
+    rows += press_rows("Commercial Bank", "Combank Corporate", "DAILY LANKADEEPA", tue("2026-02-06", 3), 54, 8, 345000)
+    # a monthly magazine, same size every month for 6 months: a monthly contract
+    rows += press_rows("Commercial Bank", "Combank Corporate", "LMD", [pd.Timestamp(2026, m, 1) for m in range(1, 7)], 26, 3, 170040, per="Monthly", lng="English", typ="Business")
+    # B: Sampath Bank, Virakesari, every Thursday, one week missed in the middle: still one contract of 8 insertion dates
+    th = tue("2026-01-01", 9)
+    rows += press_rows("Sampath Bank", "Vishwa", "DAILY VIRAKESARI", [d for k, d in enumerate(th) if k != 4], 40, 8, 192000, lng="Tamil")
+    # C: Sampath Bank, Virakesari, size 51 x 10: 5 Thursdays, then a 3 week gap, then 3 more: only the first run is a contract
+    th2 = tue("2026-02-05", 5) + tue("2026-04-02", 3)
+    rows += press_rows("Sampath Bank", "Vishwa", "DAILY VIRAKESARI", th2, 51, 10, 480000, lng="Tamil")
+    # D: two ads on the same Tuesday count once: 4 Tuesdays with 2 ads each = 4 times, 8 insertions
+    rows += press_rows("Dialog", "Dialog Fibre", "SUNDAY TIMES", tue("2026-03-03", 4), 30, 4, 100000, per="Weekly", lng="English")
+    rows += press_rows("Dialog", "Dialog Fibre", "SUNDAY TIMES", tue("2026-03-03", 4), 30, 4, 101000, per="Weekly", lng="English")      # a second ad the same day (a different cost: identical rows are duplicates)
+    # ad hoc ads on random days and sizes
+    pubs = ["DAILY LANKADEEPA", "DAILY VIRAKESARI", "SUNDAY TIMES", "LMD"]
+    for k in range(40):
+        d = pd.Timestamp("2026-01-01") + pd.Timedelta(days=int(rng.integers(0, 200)))
+        rows += press_rows(rng.choice(["Hemas", "Unilever", "Nestle"]), "Misc", pubs[k % 4], [d], int(rng.integers(5, 40)), int(rng.integers(2, 9)), int(rng.integers(40, 400)) * 1000, per="Daily" if k % 4 < 2 else "Weekly")
+    return pd.DataFrame(rows, columns=PRESS_COLS)

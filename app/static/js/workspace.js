@@ -94,9 +94,9 @@
 
   const GMAP = { tv: ['channel', 'program', 'category'], lmrb: ['channel', 'program', 'product_group', 'advertiser'] };
   const GFIELDS = [['channel', 'Channel'], ['program', 'Programme'], ['category', 'Category'], ['product_group', 'Product group'], ['advertiser', 'Advertiser']];
-  const SHEET = { tv: 'TVR sheet', lmrb: 'LMRB sheet' };
-  const sheetName = (k, kind) => (k === 'tv' && kind === 'lmrb' ? 'TVR sheet (optional)' : SHEET[k]);
-  const SHEET_HINT = { tv: 'Programme ratings: Channel, Date, Start, Program, Category, TVR, Reach', lmrb: 'Ad monitoring: Advertiser, Channel, Program, date parts, AdsinBrk, PosinBrk, Cost' };
+  const SHEET = { tv: 'TVR sheet', lmrb: 'LMRB sheet', press: 'Press sheet' };
+  const sheetName = (k, kind) => ((k === 'tv' || k === 'press') && kind === 'lmrb' ? SHEET[k] + ' (optional)' : SHEET[k]);
+  const SHEET_HINT = { tv: 'Programme ratings: Channel, Date, Start, Program, Category, TVR, Reach', lmrb: 'Ad monitoring: Advertiser, Channel, Program, date parts, AdsinBrk, PosinBrk, Cost', press: 'Newspapers and magazines: Advertiser, Publication, Dd, Mn, Yr, Col, CM, Cost' };
   const mb = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : (b / 1e6).toFixed(0) + ' MB');
 
   const SECTION_ICON = '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12h8M12 8v8"/>';
@@ -121,6 +121,8 @@
     executive: { text: 'Table-first summary for agency heads: overall campaign, channel by channel, programmes and sponsorship, with click-through details and a PDF.', icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/><path d="M13 13h5M13 16h3"/>' },
     spotlight: { text: 'Who sponsors each programme, how many spots they run in it, peak episodes, and a scannable short-form and sponsorship table.', icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5L19 19M5 19l2.5-2.5M16.5 7.5L19 5"/>' },
     negotiation: { text: 'Channel to brand to theme drill-down, share of wallet, clutter vulnerability and the rebate and bonus points to negotiate.', icon: '<path d="M4 12l4-4 4 4 4-4 4 4"/><path d="M4 18h16"/><circle cx="12" cy="5" r="1.5"/>' },
+    mediaspend: { text: 'One block per year: every TV channel, radio station and newspaper down the side, months across, Commercial only and VAL spend apart. Excel with one sheet per year.', icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M9 4v16M15 4v16"/>' },
+    press: { text: 'Newspaper and magazine spend, and the contracts: same paper, same size, same weekday, four times or more. Included in the PDF.', icon: '<path d="M5 4h12a2 2 0 012 2v14H7a2 2 0 01-2-2z"/><path d="M9 8h6M9 12h6M9 16h4"/>' },
     position: { text: 'Who buys first and last position in the break.', icon: '<path d="M5 6h14M5 12h14M5 18h14"/><circle cx="5" cy="6" r="1.2"/>' },
     grp: { text: 'GRPs, CPRP and share of GRPs from matched ratings.', icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>' },
     alerts: { text: 'Competitor moves in the last 7 days.', icon: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"/><path d="M10 20a2 2 0 004 0"/>' },
@@ -169,7 +171,7 @@
       const s = status && status[k];
       return `<div class="up-slot ${s ? 'loaded' : ''}" data-kind="${k}" tabindex="0" aria-label="${SHEET[k]}: drop a file or press Enter to upload">
         <div class="up-head"><span class="up-name">${sheetName(k, kind)}</span>${s ? '<span class="badge good">In this browser</span>' : '<span class="badge warn">Not loaded</span>'}</div>
-        <div class="up-meta" title="${esc(s ? s.files.join(', ') : SHEET_HINT[k])}">${s ? `${fmt.num(s.rows)} rows, ${esc(s.date_min)} to ${esc(s.date_max)}` : esc(k === 'tv' && kind === 'lmrb' ? 'Optional: adds programme ratings, GRPs and CPRP to the market forecast' : SHEET_HINT[k])}</div>
+        <div class="up-meta" title="${esc(s ? s.files.join(', ') : SHEET_HINT[k])}">${s ? `${fmt.num(s.rows)} rows, ${esc(s.date_min)} to ${esc(s.date_max)}` : esc(k === 'tv' && kind === 'lmrb' ? 'Optional: adds programme ratings, GRPs and CPRP to the market forecast' : k === 'press' ? 'Optional: press ads, contracts and press spend. Upload the press sheet separately from the LMRB sheet' : SHEET_HINT[k])}</div>
         <div class="progress" hidden><i></i></div><div class="up-msg muted small" hidden></div>
         <div class="up-actions">${s ? `<button class="btn sm" type="button" data-act="append">Append new period</button><button class="btn sm" type="button" data-act="replace">Replace</button>
           <button class="btn sm" type="button" data-act="summary">Summary</button><button class="btn sm ghost danger" type="button" data-act="remove">Remove</button>`
@@ -184,7 +186,7 @@
           'Upload once, then come back any time on this computer. Use "Append new period" each month to grow the history; duplicate rows are skipped automatically. CSV works at any size (500 MB and more); Excel files up to 150 MB.')}
           <span class="muted small" style="margin-left:auto;text-transform:none;letter-spacing:0">${st.quota ? `Browser storage ${mb(st.usage)} of ${mb(st.quota)}` : ''}</span></div>
           ${st.quota ? `<div class="storage-meter" title="${pct.toFixed(1)}% used"><i style="width:${pct.toFixed(1)}%"></i></div>` : ''}
-          <div class="uploads ${kind === 'tv' ? 'one' : ''}">${kind === 'tv' ? slotHtml('tv') : slotHtml('lmrb') + slotHtml('tv')}</div></div>
+          <div class="uploads ${kind === 'tv' ? 'one' : 'three'}">${kind === 'tv' ? slotHtml('tv') : slotHtml('lmrb') + slotHtml('tv') + slotHtml('press')}</div></div>
         <div class="cb-section"><div class="cb-title">Forecast horizon ${App.help('Months view: The forecast engine forecasts monthly totals and averages up to 12 months ahead, with low case, most likely and high case ranges and Sri Lankan holiday effects. It needs at least 12 months of history (24 or more is best) and gives the clearest picture for planning. Days view: the next 60 days, day by day.',
           'Use months for budget and strategy decisions (3, 6 or 12 months) and days for tactical weekly planning. Changing the horizon inside a view is instant; switching between days and months runs a new forecast.')}</div>
           <div class="row" style="gap:12px"><div class="seg" id="hz-mode" role="group" aria-label="Forecast view"><button type="button" data-m="monthly" aria-pressed="${hmode === 'monthly'}">Months</button><button type="button" data-m="daily" aria-pressed="${hmode !== 'monthly'}">Days</button></div></div>

@@ -222,7 +222,7 @@ def test_report_pdf_endpoint(sheet):
 
 def test_frequency_buys(tmp_path):
     lm = synth.make_lmrb(days=40, start="2026-06-01", seed=4)
-    base = lm[lm["Channel"] == "SIRASA"].drop_duplicates(subset=["Dd", "Mn", "Yr"]).head(20)
+    base = lm[lm["Channel"] == "Tv - Sirasa"].drop_duplicates(subset=["Dd", "Mn", "Yr"]).head(20)
     # Lanka Tea Co runs the same 5 second tag 12 times a day on Sirasa for 20 days: a frequency buy
     tag = pd.concat([base.assign(Advertiser="Lanka Tea Co", Product="Island Tea", Advt_Theme="Island Tea Reminder (5)", Dur=5, Cost=9000 + k, AdPos=200 + k, BrkNo=20 + k) for k in range(12)])
     # same daily count but 30 seconds: not a frequency buy (too long)

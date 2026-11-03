@@ -785,3 +785,15 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .tn-find-bar { display: grid; grid-template-columns: minmax(240px, 2fr) auto; gap: 12px; align-items: end; margin: 10px 0; }
 .tn-find-sum { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .si-list { display: grid; gap: 6px; margin-top: 8px; } .si-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); cursor: pointer; } .si-row input { margin-top: 3px; }
+
+.uploads.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .uploads.three { grid-template-columns: 1fr; } }
+
+/* Spend by year and Press & contracts tabs */
+.sy-bar, .pr-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; align-items: end; margin-top: 10px; }
+.sy-bar .seg { width: auto; justify-self: start; }
+.sy-scroll { max-height: 640px; }
+.sy-tbl th, .sy-tbl td { white-space: nowrap; }
+.sy-tbl .sy-sub td { font-weight: 700; background: var(--surface-2, rgba(127, 127, 160, .12)); border-top: 1px solid var(--line, rgba(127, 127, 160, .3)); }
+.pr-dates { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.pr-dates .chip { font-size: 12px; }

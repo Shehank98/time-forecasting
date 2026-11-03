@@ -4,11 +4,11 @@
  */
 /* global MR */
 importScripts('/js/vendor/xlsx.full.min.js', '/js/engine/core.js', '/js/engine/ingest.js', '/js/engine/filters.js', '/js/engine/analytics_tv.js',
-  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js', '/js/engine/negotiation.js', '/js/engine/spotlight.js', '/js/engine/executive.js', '/js/engine/tenure.js');
+  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js', '/js/engine/negotiation.js', '/js/engine/spotlight.js', '/js/engine/executive.js', '/js/engine/tenure.js', '/js/engine/press.js', '/js/engine/mediaspend.js');
 
 const DB_NAME = 'media-radar', DB_VER = 1, MAX_CSV_ROWS = 1000000;
 let scope = null;                       // "u<user>:c<client>"
-const tables = { tv: null, lmrb: null, kpi: new Map() };
+const tables = { tv: null, lmrb: null, press: null, kpi: new Map() };
 const pending = new Map();              // KPI proposals waiting for the column mapping
 const sortCache = new Map();
 
@@ -74,7 +74,7 @@ async function usage() {
 const sig = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 function table(kind, name) {
   const T = kind === 'kpi' ? tables.kpi.get(name || '') : tables[kind];
-  if (!T || !T.n) throw new MR.IngestError(kind === 'kpi' ? 'Choose a KPI dataset or upload one.' : `No ${kind === 'tv' ? 'TVR' : 'LMRB'} data loaded yet. Upload the sheet first.`);
+  if (!T || !T.n) throw new MR.IngestError(kind === 'kpi' ? 'Choose a KPI dataset or upload one.' : `No ${kind === 'tv' ? 'TVR' : kind === 'press' ? 'press' : 'LMRB'} data loaded yet. Upload the sheet first.`);
   return T;
 }
 const lmrbBase = (options) => (tables.tv ? MR.withGrps(tables.lmrb, tables.tv, (options && options.tv_data_set) || null) : tables.lmrb);
@@ -89,7 +89,7 @@ function info(T) {
   return { loaded: true, rows: T.n, files: T.files || [], date_min: r.date_min, date_max: r.date_max, sig: T.sig, report: r };
 }
 async function status() {
-  return { scope, tv: info(tables.tv), lmrb: info(tables.lmrb), kpi: [...tables.kpi.entries()].map(([name, T]) => ({ name, ...info(T) })), storage: await usage() };
+  return { scope, tv: info(tables.tv), lmrb: info(tables.lmrb), press: info(tables.press), kpi: [...tables.kpi.entries()].map(([name, T]) => ({ name, ...info(T) })), storage: await usage() };
 }
 function competitorScope(L, idx, filters, options) {
   if (!options || !options.my_brand) return idx;
@@ -150,7 +150,7 @@ const OPS = {
     if (config) MR.configure(config);
     const next = `u${uid}:c${cid}`;
     if (next !== scope) {
-      scope = next; tables.tv = null; tables.lmrb = null; tables.kpi.clear(); pending.clear(); sortCache.clear();
+      scope = next; tables.tv = null; tables.lmrb = null; tables.press = null; tables.kpi.clear(); pending.clear(); sortCache.clear();
       try {
         for (const { slot, T } of await loadAll()) {
           if (slot.startsWith('kpi:')) tables.kpi.set(slot.slice(4), T); else tables[slot] = T;
@@ -194,7 +194,7 @@ const OPS = {
     const d = await db(), tx = d.transaction(['meta', 'cols'], 'readwrite');
     tx.objectStore('meta').delete(range(scope + '|')); tx.objectStore('cols').delete(range(scope + '|'));
     await done(tx);
-    tables.tv = null; tables.lmrb = null; tables.kpi.clear();
+    tables.tv = null; tables.lmrb = null; tables.press = null; tables.kpi.clear();
     return status();
   },
 
@@ -207,7 +207,7 @@ const OPS = {
     }
     const T = tables[kind];
     if (!T) return { loaded: false };
-    const st = { loaded: true, files: T.files, report: T.report, options: MR.filterOptions(T, kind), sig: T.sig };
+    const st = { loaded: true, files: T.files, report: T.report, options: kind === 'press' ? MR.pressOptions(T) : MR.filterOptions(T, kind), sig: T.sig };
     if (kind === 'lmrb' && tables.tv) st.tv_data_sets = MR.filterOptions(tables.tv, 'tv').data_set_list;
     return st;
   },
@@ -279,6 +279,10 @@ const OPS = {
     if (vaultCache.sig !== k) vaultCache.rows = kind === 'tv' ? MR.vaultRowsTv(T) : MR.vaultRowsLmrb(T), vaultCache.sig = k;
     return { total: vaultCache.rows.length, rows: vaultCache.rows.slice(offset || 0, (offset || 0) + (limit || 20000)) };
   },
+  pressSummary({ options }) { const P = table('press'); return MR.pressSummary(P, MR.allIdx(P), options || {}); },
+  pressContracts({ options }) { const P = table('press'); return MR.pressContracts(P, MR.allIdx(P), options || {}); },
+  mediaOptions() { table('lmrb'); return MR.mediaSpendOptions(tables.lmrb, tables.press); },
+  mediaSpend({ options }) { table('lmrb'); const L = tables.lmrb, P = tables.press && tables.press.n ? tables.press : null; return MR.mediaSpend(L, MR.allIdx(L), P, P ? MR.allIdx(P) : null, options || {}); },
   sponsorshipLookup({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipLookup(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   sponsorshipTenure({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipTenure(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   executiveSummary({ filters, options }) { table('lmrb'); const L = lmrbBase(options); return MR.executiveSummary(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },

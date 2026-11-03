@@ -108,13 +108,20 @@
     const c = clean(key);
     let out = ['UNKNOWN', false];
     if (c) {
-      const stripped = c.replace(/^TV\s*[-:–]\s*/, '');
+      const radio = /^RADIO\s*[-:–—]/.test(c);
+      const stripped = c.replace(/^(TV|RADIO)\s*[-:–—]\s*/, '');
       const nosuffix = stripped.replace(/\s+(TV|CHANNEL)$/, '');
       out = [stripped || 'UNKNOWN', false];
-      for (const cand of [c, stripped, nosuffix]) if (L.has(cand)) { out = [L.get(cand), true]; break; }
+      if (radio) { out = [L.has(stripped) ? `${stripped} (RADIO)` : stripped || 'UNKNOWN', false]; }     // "Radio - Shakthi FM" -> SHAKTHI FM; a radio station named like a TV channel stays apart from it
+      else for (const cand of [c, stripped, nosuffix]) if (L.has(cand)) { out = [L.get(cand), true]; break; }
     }
     chanCache.set(key, out);
     return out;
+  }
+  /** Medium from the raw channel text: "TV - Sirasa TV" is TV, "Radio - Shakthi FM" is Radio, a name with neither prefix is counted as Press. */
+  function mediumOfChannel(raw) {
+    const m = /^\s*(tv|radio)\s*[-:–—]/i.exec(String(raw == null ? '' : raw));
+    return m ? (m[1].toLowerCase() === 'tv' ? 'TV' : 'Radio') : 'Press';
   }
   /** Programme names: uppercase, single spaces. programBase also drops repeat markers so both sheets join. */
   const normaliseProgram = (v) => (v == null || String(v).trim() === '' ? 'UNKNOWN' : clean(v));
@@ -238,7 +245,7 @@
 
   Object.assign(MR, {
     DAY_NAMES, dayFromYMD, isoFromDay, dayFromIso, dowMon, weekStart, monthStart, monthKey, addMonths, parseDate, parseNum, parseTime, hm, hms, headerKey,
-    cfg, configure, normaliseChannel, normaliseProgram, programBase, daypartFor, daypartOrder, durationBand, bandOrder, timebelt, hourBand,
+    cfg, configure, normaliseChannel, mediumOfChannel, normaliseProgram, programBase, daypartFor, daypartOrder, durationBand, bandOrder, timebelt, hourBand,
     NumCol, DictCol, S, allIdx, where, codeSet, minMax, group, sortedKeys, quantile, median, mean, std0, std1, safeDiv, pctChange, title, fmtInt, range,
     hash52, dedupe, take, concat,
   });

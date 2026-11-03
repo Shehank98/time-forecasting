@@ -111,7 +111,12 @@
     lng: 'lng', dur: 'dur', cost: 'cost' };
   const LM_EXPECTED = ['product_group', 'advertiser', 'product', 'theme', 'ads', 'channel', 'program', 'dd', 'mn', 'yr', 'day', 'prog_time', 'advt_time', 'adpos', 'totads', 'brkno', 'posinbrk', 'adsinbrk', 'lng', 'dur', 'cost'];
   const LM_REQUIRED = ['advertiser', 'channel', 'cost', 'dd', 'mn', 'yr'];
-  const SCHEMA = { tv: { headers: TV_HEADERS, expected: TV_EXPECTED, required: TV_REQUIRED }, lmrb: { headers: LM_HEADERS, expected: LM_EXPECTED, required: LM_REQUIRED } };
+  const PR_HEADERS = { productgroup: 'product_group', advertiser: 'advertiser', product: 'product', ads: 'ads', publication: 'publication', dd: 'dd', mn: 'mn', yr: 'yr', date: 'date', day: 'day',
+    periodicity: 'periodicity', lng: 'lng', location: 'location', type: 'type', col: 'col', cm: 'cm', dur: 'dur', cost: 'cost' };
+  const PR_EXPECTED = ['product_group', 'advertiser', 'product', 'ads', 'publication', 'dd', 'mn', 'yr', 'date', 'day', 'periodicity', 'lng', 'location', 'type', 'col', 'cm', 'dur', 'cost'];
+  const PR_REQUIRED = ['advertiser', 'publication', 'cost'];
+  const SCHEMA = { tv: { headers: TV_HEADERS, expected: TV_EXPECTED, required: TV_REQUIRED }, lmrb: { headers: LM_HEADERS, expected: LM_EXPECTED, required: LM_REQUIRED },
+    press: { headers: PR_HEADERS, expected: PR_EXPECTED, required: PR_REQUIRED } };
 
   function mapHeader(kind, headerRow) {
     const sch = SCHEMA[kind], pos = {}, seen = new Set();
@@ -182,7 +187,7 @@
       cost: new NumCol(Float64Array), ads: new NumCol(Float32Array), adpos: new NumCol(Int32Array), totads: new NumCol(Int32Array), brkno: new NumCol(Int32Array),
       posinbrk: new NumCol(Int32Array), adsinbrk: new NumCol(Int32Array), position: new NumCol(Int8Array),
       channel: new DictCol(), program: new DictCol(), advertiser: new DictCol(), product_group: new DictCol(), product: new DictCol(), theme: new DictCol(),
-      creative: new DictCol(), lng: new DictCol(), daypart: new DictCol(), dur_band: new DictCol() };
+      creative: new DictCol(), lng: new DictCol(), daypart: new DictCol(), dur_band: new DictCol(), medium: new DictCol() };
     const dropped = { bad_date: 0, missing_required: 0, blank_rows: 0 }, bad = {}, unmatched = new Set();
     let pos = null, rowsRead = 0;
     const num = numReader(bad);
@@ -212,7 +217,7 @@
         c.ads.push(Number.isFinite(vals.ads) ? vals.ads : 1);
         for (const k of ['adpos', 'totads', 'brkno', 'posinbrk', 'adsinbrk']) c[k].push(int(vals[k]));
         c.position.push(!Number.isFinite(pib) ? 3 : first ? 0 : last ? 2 : 1);
-        c.channel.push(ch); c.program.push(normaliseProgram(txt(r[pos.program], 'Unknown'))); c.advertiser.push(adv);
+        c.channel.push(ch); c.medium.push(MR.mediumOfChannel(chRaw)); c.program.push(normaliseProgram(txt(r[pos.program], 'Unknown'))); c.advertiser.push(adv);
         c.product_group.push(txt(r[pos.product_group], 'Unknown')); c.product.push(product); c.theme.push(theme); c.creative.push(`${adv} | ${product} | ${theme}`);
         c.lng.push(titleCase(txt(r[pos.lng], 'Unknown'))); c.daypart.push(daypartFor(sec)); c.dur_band.push(durationBand(vals.dur));
       },
@@ -230,6 +235,53 @@
     };
   }
 
+  /* ---------------- press builder ---------------- */
+  /** Press ads: one row per insertion. Size is Col x CM (column centimetres); Dur in the sheet is that area (3 col x 26 cm = 78). */
+  function pressBuilder() {
+    const c = { date: new NumCol(Int32Array), cost: new NumCol(Float64Array), ads: new NumCol(Float32Array), col: new NumCol(Float32Array), cm: new NumCol(Float32Array), area: new NumCol(Float32Array),
+      publication: new DictCol(), advertiser: new DictCol(), product_group: new DictCol(), product: new DictCol(), periodicity: new DictCol(), lng: new DictCol(), location: new DictCol(), type: new DictCol(), size: new DictCol() };
+    const dropped = { bad_date: 0, missing_required: 0, blank_rows: 0 }, bad = {};
+    let pos = null, rowsRead = 0;
+    const num = numReader(bad);
+    const nice = (x) => String(+x.toFixed(2));
+    return {
+      header(h) {
+        const m = mapHeader('press', h); pos = m.pos; this.missing = m.missing;
+        if (!(pos.dd !== undefined && pos.mn !== undefined && pos.yr !== undefined) && pos.date === undefined) throw new IngestError('Missing date columns: Dd, Mn and Yr (or Date). Found: ' + Object.keys(pos).join(', '));
+      },
+      row(r) {
+        rowsRead++;
+        if (isBlank(r)) { dropped.blank_rows++; return; }
+        let date = NaN;
+        if (pos.dd !== undefined && pos.mn !== undefined && pos.yr !== undefined) {
+          let mn = parseNum(r[pos.mn]); if (!Number.isFinite(mn)) mn = MONTHS[String(r[pos.mn] || '').trim().toLowerCase().slice(0, 3)] || NaN;
+          date = dayFromYMD(num(r, pos.yr, 'yr'), mn, num(r, pos.dd, 'dd'));
+        }
+        if (!Number.isFinite(date) && pos.date !== undefined) date = parseDate(r[pos.date]);
+        const adv = txt(r[pos.advertiser], null), pub = txt(r[pos.publication], null), cost = num(r, pos.cost, 'cost');
+        if (!Number.isFinite(date)) { dropped.bad_date++; return; }
+        if (!adv || !pub || !Number.isFinite(cost)) { dropped.missing_required++; return; }
+        const col = num(r, pos.col, 'col'), cm = num(r, pos.cm, 'cm');
+        let area = num(r, pos.dur, 'dur'); if (!Number.isFinite(area) && Number.isFinite(col) && Number.isFinite(cm)) area = col * cm;
+        c.date.push(date); c.cost.push(cost); c.ads.push(Number.isFinite(num(r, pos.ads, 'ads')) ? num(r, pos.ads, 'ads') : 1); c.col.push(col); c.cm.push(cm); c.area.push(area);
+        c.publication.push(String(pub).replace(/\s+/g, ' ').trim().toUpperCase()); c.advertiser.push(adv); c.product_group.push(txt(r[pos.product_group], 'Unknown')); c.product.push(txt(r[pos.product], 'Unknown'));
+        c.periodicity.push(titleCase(txt(r[pos.periodicity], 'Unknown'))); c.lng.push(titleCase(txt(r[pos.lng], 'Unknown'))); c.location.push(txt(r[pos.location], 'Unknown')); c.type.push(txt(r[pos.type], 'Unknown'));
+        c.size.push(Number.isFinite(col) && Number.isFinite(cm) ? `${nice(cm)} cm x ${nice(col)} col` : 'Unknown size');
+      },
+      finish(fileName) {
+        let T = { kind: 'press', n: c.date.n, cols: {}, dicts: {} };
+        for (const [k, v] of Object.entries(c)) { T.cols[k] = v.done(); if (v.dict) T.dicts[k] = v.dict; }
+        const K = PRESS_KEY, before = T.n;
+        const keep = dedupe(T.n, (i) => K.map((k) => T.cols[k][i]), (i, j) => K.every((k) => T.cols[k][i] === T.cols[k][j]));
+        if (keep.length !== before) T = MR.take(T, keep);
+        dropped.duplicates = before - T.n;
+        T.report = report('press', fileName, T, rowsRead, dropped, this.missing || [], bad, []);
+        return T;
+      },
+    };
+  }
+  const PRESS_KEY = ['advertiser', 'product', 'publication', 'date', 'size', 'cost', 'lng', 'location'];
+
   function report(kind, fileName, T, rowsRead, dropped, missing, bad, unmatched) {
     const warnings = [];
     let dmin = null, dmax = null, nDays = 0;
@@ -240,7 +292,7 @@
     }
     const thin = MR.cfg.minPoints.daily || 14;
     if (!T.n) warnings.push('No valid rows were found after cleaning.');
-    else if (nDays < thin) warnings.push(`Only ${nDays} distinct days of history. Forecasts will be marked Low reliability (minimum is ${thin}).`);
+    else if (kind !== 'press' && nDays < thin) warnings.push(`Only ${nDays} distinct days of history. Forecasts will be marked Low reliability (minimum is ${thin}).`);
     if (missing.length) warnings.push('Optional columns not found: ' + missing.join(', '));
     return { kind, file_name: fileName, rows_read: rowsRead, rows_kept: T.n, dropped, rows_dropped_total: Object.values(dropped).reduce((a, b) => a + b, 0),
       missing_columns: missing, unparseable_values: bad, unmatched_channels: unmatched, date_min: dmin, date_max: dmax, n_days: nDays, warnings };
@@ -248,7 +300,7 @@
 
   /** Parse a TV or LMRB file into a columnar table. */
   async function parseFile(kind, file, onProgress) {
-    const b = kind === 'tv' ? tvBuilder() : lmrbBuilder();
+    const b = kind === 'tv' ? tvBuilder() : kind === 'press' ? pressBuilder() : lmrbBuilder();
     const finder = headerFinder(new Set(Object.keys(SCHEMA[kind].headers)), (h) => b.header(h), (r) => b.row(r));
     await readRows(file, (r) => finder.row(r), onProgress);
     finder.end();
@@ -259,7 +311,7 @@
   function merge(kind, A, B) {
     if (!A || !A.n) return { T: B, added: B.n, skipped: 0 };
     let T = MR.concat(A, B);
-    const K = kind === 'tv' ? ['data_set', 'channel', 'date', 'start', 'program'] : ['advertiser', 'product', 'theme', 'channel', 'date', 'advt_sec', 'brkno', 'posinbrk', 'adpos', 'cost'];
+    const K = kind === 'press' ? PRESS_KEY : kind === 'tv' ? ['data_set', 'channel', 'date', 'start', 'program'] : ['advertiser', 'product', 'theme', 'channel', 'date', 'advt_sec', 'brkno', 'posinbrk', 'adpos', 'cost'];
     const keep = dedupe(T.n, (i) => K.map((k) => T.cols[k][i]), (i, j) => K.every((k) => T.cols[k][i] === T.cols[k][j]));
     T = MR.take(T, keep);
     const added = T.n - A.n;
