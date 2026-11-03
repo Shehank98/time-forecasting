@@ -39,7 +39,7 @@
       syLast = d;
       const slot = p.querySelector('[data-ms="sy_adv"]'); if (slot && !slot.dataset.built) { const m = App.filters.multi({ key: 'adv', label: 'Advertiser (leave on All for everything)' }, adList, sy, again); m.dataset.ms = 'sy_adv'; m.dataset.built = '1'; slot.replaceWith(m); }
       const warn = [];
-      if (d.no_medium) warn.push('This LMRB sheet was loaded before TV and radio were split. Upload it again to separate TV from radio; for now every channel is shown as TV.');
+      if (d.no_medium) warn.push('This LMRB sheet was loaded before TV and radio were split. Upload the LMRB sheet again to separate TV, radio and press; until then radio is guessed from the name and everything else shows as TV (newspapers too).');
       if (d.unprefixed.length) warn.push(`${d.unprefixed.length} channel${d.unprefixed.length === 1 ? ' has' : 's have'} no "TV - " or "Radio - " prefix and ${d.unprefixed.length === 1 ? 'is' : 'are'} counted as press: ${d.unprefixed.slice(0, 8).map((x) => esc(x.name)).join(', ')}${d.unprefixed.length > 8 ? ' and more' : ''}. If any of these are TV or radio, add the prefix in the sheet.`);
       if (!d.has_press) warn.push('No press sheet is loaded, so press shows only channels named as press in the LMRB sheet. Upload the press sheet in Data sources above to add newspapers and magazines.');
       p.querySelector('#sy-warn').innerHTML = warn.map((w) => `<div class="banner"><span>${w}</span></div>`).join('');
@@ -86,13 +86,13 @@
     try {
       const X = await loadXlsx(), wb = X.utils.book_new(), M = d.months;
       const fmtCells = (ws, r0, r1, c0, c1) => { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) { const a = ws[X.utils.encode_cell({ r, c })]; if (a && a.t === 'n') a.z = '#,##0'; } };
-      const sum = [['Spend by year, all channels (LKR)'], ['Advertisers', d.advertisers.length ? d.advertisers.join(', ') : 'All'], ['Sponsorship items counted as VAL', d.items_counted.join(', ') || 'none'], [],
+      const sum = [['Spend by year, all channels (LKR)'], ...(d.no_medium ? [['WARNING: this LMRB sheet was loaded before TV, radio and press were split. Upload the LMRB sheet again, then download this file again. Press channels are shown as TV until then.']] : []), ['Advertisers', d.advertisers.length ? d.advertisers.join(', ') : 'All'], ['Sponsorship items counted as VAL', d.items_counted.join(', ') || 'none'], [],
         ['Year', 'Medium', 'Commercial only', 'VAL (value addition)', 'Total']];
       d.years.forEach((y) => ORDER.forEach((m) => { const c = y.commercial.media.find((x) => x.medium === m).total, v = y.value_add.media.find((x) => x.medium === m).total; if (c || v) sum.push([y.year, m, Math.round(c), Math.round(v), Math.round(c + v)]); }));
       d.years.forEach((y) => sum.push([y.year, 'All media', Math.round(y.commercial.grand.total), Math.round(y.value_add.grand.total), Math.round(y.total.grand.total)]));
       const ws0 = X.utils.aoa_to_sheet(sum); ws0['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 16 }]; fmtCells(ws0, 5, sum.length, 2, 4); X.utils.book_append_sheet(wb, ws0, 'Summary');
       d.years.forEach((y) => {
-        const aoa = [[`Spend ${y.year}: TV, radio and press (LKR)`], [`Advertisers: ${d.advertisers.length ? d.advertisers.join(', ') : 'All'}`], []];
+        const aoa = [[`Spend ${y.year}: TV, radio and press (LKR)`].concat(d.no_medium ? ['(old upload: medium not split, upload the LMRB sheet again)'] : []), [`Advertisers: ${d.advertisers.length ? d.advertisers.join(', ') : 'All'}`], []];
         const marks = [];
         [['Commercial only spend', y.commercial], ['VAL (value addition) spend', y.value_add], ['Total spend (commercial only + VAL)', y.total]].forEach(([title, b]) => {
           aoa.push([title]); marks.push(aoa.length - 1); aoa.push(['Medium', 'Channel', ...M, 'Total']);

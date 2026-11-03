@@ -31,7 +31,7 @@
       noMedium = !med;
       for (let k = 0; k < lidx.length; k++) {
         const i = lidx[k]; if (ads && !ads.has(C.advertiser[i])) continue;
-        const [y, m] = ym(C.date[i]), medium = med ? L.dicts.medium[med[i]] : 'TV', name = C.channel[i] >= 0 ? L.dicts.channel[C.channel[i]] : 'UNKNOWN';
+        const [y, m] = ym(C.date[i]), name = C.channel[i] >= 0 ? L.dicts.channel[C.channel[i]] : 'UNKNOWN', medium = med ? L.dicts.medium[med[i]] : (/^radio\s*[-:]/i.test(name) ? 'Radio' : 'TV');   // old stored sheets: radio is still visible in the name, press is not
         years.add(y);
         if (med && medium === 'Press') unprefixed.set(name, (unprefixed.get(name) || 0) + 1);
         const r = get(y, medium || 'TV', name), sp = C.theme[i] >= 0 && flag[C.theme[i]];
