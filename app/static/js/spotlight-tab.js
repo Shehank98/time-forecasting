@@ -95,12 +95,39 @@
     const rows = d.advertiser_summary, t = d.totals;
     if (!rows.length) { out.innerHTML = App.emptyState('No sponsorships in this upload', 'Sponsorships are found from theme names such as Intro, Outro, Logo, -BB, Tag or Time Check.'); return; }
     out.innerHTML = `<div class="kpis">${kpi('Advertisers with sponsorships', fmt.num(rows.length))}${kpi('Advertiser and programme pairs', fmt.num(t.rows), `${fmt.num(t.programmes)} programmes`)}${kpi('Sponsored in every year', fmt.num(t.all_years), d.periods.length > 1 ? `all ${d.periods.length} years` : 'data covers 1 year')}${kpi('Sponsorship ads', fmt.num(t.sponsorship_ads))}</div>
-      <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Advertisers with sponsorships</h3><div class="sub">Click an advertiser to list every channel and programme they sponsored, year by year. Advertisers with long, consistent sponsorships come first.</div></div></div>
-        <div class="tbl-scroll" style="max-height:640px"><table class="tbl ex-tbl"><thead><tr><th>Advertiser</th><th class="num">Channels</th><th class="num">Programmes</th><th class="num">Sponsored in all ${d.periods.length} years</th><th class="num">Consistent sponsorships</th><th class="num">Occasional only</th><th class="num">Sponsorship ads</th><th class="num">Total ads</th><th class="num">Spend (LKR)</th></tr></thead><tbody>
-          ${rows.map((r, k) => `<tr class="ex-row ${k % 2 ? 'ex-z' : ''}" tabindex="0" data-i="${k}"><td><b>${esc(r.advertiser)}</b></td><td class="num">${fmt.num(r.channels)}</td><td class="num">${fmt.num(r.programmes)}</td><td class="num ${r.all_years ? 'tn-yes' : ''}">${fmt.num(r.all_years)}</td><td class="num">${fmt.num(r.consistent)}</td><td class="num">${fmt.num(r.occasional)}</td><td class="num">${fmt.num(r.sponsorship_ads)}</td><td class="num">${fmt.num(r.total_ads)}</td><td class="num">${fmt.num(r.spend)}</td></tr>`).join('')}</tbody></table></div></div>`;
+      <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Advertisers with sponsorships</h3><div class="sub">Click an advertiser to list every channel and programme they sponsored, year by year, and their frequency sponsorships. Advertisers with long, consistent sponsorships come first.</div></div></div>
+        <div class="tbl-scroll" style="max-height:640px"><table class="tbl ex-tbl"><thead><tr><th>Advertiser</th><th class="num">Channels</th><th class="num">Programmes</th><th class="num">Sponsored in all ${d.periods.length} years</th><th class="num">Consistent sponsorships</th><th class="num">Occasional only</th><th class="num">Sponsorship ads</th><th class="num">Frequency ads</th><th class="num">Total ads</th><th class="num">Spend (LKR)</th></tr></thead><tbody>
+          ${rows.map((r, k) => `<tr class="ex-row ${k % 2 ? 'ex-z' : ''}" tabindex="0" data-i="${k}"><td><b>${esc(r.advertiser)}</b></td><td class="num">${fmt.num(r.channels)}</td><td class="num">${fmt.num(r.programmes)}</td><td class="num ${r.all_years ? 'tn-yes' : ''}">${fmt.num(r.all_years)}</td><td class="num">${fmt.num(r.consistent)}</td><td class="num">${fmt.num(r.occasional)}</td><td class="num">${fmt.num(r.sponsorship_ads)}</td><td class="num">${fmt.num(r.frequency_ads || 0)}</td><td class="num">${fmt.num(r.total_ads)}</td><td class="num">${fmt.num(r.spend)}</td></tr>`).join('')}</tbody></table></div></div>`;
     const tb = out.querySelector('tbody');
     tb.onclick = (e) => { const tr = e.target.closest('tr.ex-row'); if (tr) pick(rows[+tr.dataset.i].advertiser); };
     tb.onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.ex-row')) { e.preventDefault(); e.target.click(); } };
+  }
+
+
+  /** Frequency sponsorships (Tag, Com Break, Time Check and frequent short spots), by channel: not tied to a programme. */
+  function freqCard(d) {
+    const f = d.frequency; if (!f || !f.rows.length) return '';
+    const P = d.periods, tot = (k) => f.rows.reduce((s, r) => s + (r[k] || 0), 0);
+    return `<div class="card" style="margin-top:16px" id="tn-freq"><div class="card-head"><div><h3>Frequency sponsorships by channel</h3><div class="sub">Tag, Com Break and Time Check items, and any ad of ${f.rule.max_dur} seconds or less running ${f.rule.min_daily} or more times a day on the channel. They are bought on the channel, so they are kept apart from programme sponsorship. Click a channel for the monthly counts.</div></div></div>
+      <div class="tbl-scroll" style="max-height:560px"><table class="tbl ex-tbl tn-ftbl"><thead><tr><th>Channel</th><th class="num">Tag</th><th class="num">Com Break</th><th class="num">Time Check</th><th class="num">Short spots (${f.rule.max_dur}s, ${f.rule.min_daily}+ a day)</th><th class="num">Total ads</th>${P.map((p) => `<th class="num" title="${esc(p.range)}">${esc(p.label)}</th>`).join('')}<th class="num">Days on air</th><th class="num">Daily average</th><th class="num">Value (LKR)</th></tr></thead><tbody>
+        ${f.rows.map((r, k) => `<tr class="ex-row ${k % 2 ? 'ex-z' : ''}" tabindex="0" data-i="${k}"><td><b>${esc(tt(r.channel))}</b>${st.tn.advertiser ? '' : `<div class="muted small">${esc(r.advertiser)}</div>`}</td><td class="num">${fmt.num(r.tag)}</td><td class="num">${fmt.num(r.com_break)}</td><td class="num">${fmt.num(r.time_check)}</td><td class="num">${fmt.num(r.short_spots)}</td><td class="num"><b>${fmt.num(r.ads)}</b></td>
+          ${r.periods.map((x) => `<td class="num">${fmt.num(x.ads)}${x.start ? `<div class="muted small">${esc(dshort(x.start))} to ${esc(dshort(x.end))}</div>` : ''}</td>`).join('')}<td class="num">${fmt.num(r.days)}</td><td class="num"><b class="${r.daily_avg >= f.rule.min_daily ? 'sp-freq' : ''}">${fmt.num(r.daily_avg, 1)}</b></td><td class="num">${fmt.num(r.value)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr class="ex-tot"><td>Total</td><td class="num">${fmt.num(tot('tag'))}</td><td class="num">${fmt.num(tot('com_break'))}</td><td class="num">${fmt.num(tot('time_check'))}</td><td class="num">${fmt.num(tot('short_spots'))}</td><td class="num">${fmt.num(tot('ads'))}</td>${P.map((p, i) => `<td class="num">${fmt.num(f.rows.reduce((s, r) => s + (r.periods[i] ? r.periods[i].ads : 0), 0))}</td>`).join('')}<td></td><td></td><td class="num">${fmt.num(tot('value'))}</td></tr></tfoot></table></div></div>`;
+  }
+  function wireFreq(out, d) {
+    const tb = out.querySelector('.tn-ftbl tbody'); if (!tb) return;
+    const span = 9 + d.periods.length;
+    const toggle = (tr) => {
+      const nx = tr.nextElementSibling; if (nx && nx.classList.contains('ex-exp')) { nx.remove(); return; }
+      const r = d.frequency.rows[+tr.dataset.i], ex = document.createElement('tr'); ex.className = 'ex-exp';
+      ex.innerHTML = `<td colspan="${span}"><div class="ex-dh">${esc(r.headline)}</div><div class="tn-fgrid"><div><div class="sf-d-h">Month by month</div><div class="tbl-scroll" style="max-height:360px"><table class="tbl ex-dt"><thead><tr><th>Month</th><th class="num">Tag</th><th class="num">Com Break</th><th class="num">Time Check</th><th class="num">Short spots</th><th class="num">Total</th><th class="num">Value (LKR)</th></tr></thead><tbody>
+        ${r.months.map((m, i) => `<tr class="${i % 2 ? 'ex-z' : ''}"><td>${esc(m.label)}</td><td class="num">${fmt.num(m.tag)}</td><td class="num">${fmt.num(m.com_break)}</td><td class="num">${fmt.num(m.time_check)}</td><td class="num">${fmt.num(m.short_spots)}</td><td class="num"><b>${fmt.num(m.total)}</b></td><td class="num">${fmt.num(m.value)}</td></tr>`).join('')}</tbody></table></div></div>
+        <div><div class="sf-d-h">What ads ran</div><table class="tbl ex-dt"><thead><tr><th>Ad (theme)</th><th>Type</th><th class="num">Ads</th><th class="num">Daily avg</th><th class="num">Length</th></tr></thead><tbody>
+        ${r.themes.map((t, i) => `<tr class="${i % 2 ? 'ex-z' : ''}"><td>${esc(t.theme)}<div class="muted small">${esc(dshort(t.first_seen))} to ${esc(dshort(t.last_seen))}</div></td><td>${esc(t.type)}</td><td class="num">${fmt.num(t.ads)}</td><td class="num">${fmt.num(t.daily_avg, 1)}</td><td class="num">${t.length ? fmt.num(t.length, 0) + 's' : 'n/a'}</td></tr>`).join('')}</tbody></table></div></div></td>`;
+      tr.after(ex);
+    };
+    tb.onclick = (e) => { const tr = e.target.closest('tr.ex-row'); if (tr) toggle(tr); };
+    tb.onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.ex-row')) { e.preventDefault(); toggle(e.target); } };
   }
 
   /** The chosen advertiser: every channel, and under it every programme, with the ads in each year. */
@@ -120,8 +147,10 @@
       <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>${esc(st.tn.advertiser)}: channels and programmes</h3><div class="sub">Each channel, then each programme under it. The year columns are the ads in that programme in each year (green = sponsored that year). Click a programme to see which ads ran.</div></div></div>
         <div class="tbl-scroll" style="max-height:680px"><table class="tbl ex-tbl tn-tbl"><thead><tr><th></th><th colspan="2">Channel / programme</th><th>Status</th><th>Sponsored</th>${P.map((p) => `<th class="num" title="${esc(p.range)}">${esc(p.label)} ads</th>`).join('')}<th class="num">Total ads</th><th class="num">Sponsorship ads</th><th class="num">Spend (LKR)</th></tr></thead><tbody>${body}</tbody>
           <tfoot><tr class="ex-tot"><td colspan="5">Total${d.n_rows > d.rows.length ? ` (the ${d.rows.length} programmes shown)` : ''}</td>${P.map((p, i) => `<td class="num">${fmt.num(tot((r) => sumP(r, 'total_ads', i)))}</td>`).join('')}<td class="num">${fmt.num(tot((r) => r.total_ads))}</td><td class="num">${fmt.num(tot((r) => r.sponsorship_ads))}</td><td class="num">${fmt.num(tot((r) => r.spend))}</td></tr></tfoot></table></div>
-        <div class="muted small" style="margin-top:6px">A year is green when sponsorship items were on at least half of the programme's airing days that year. "Sponsored all N years" = green in every year the programme aired. "Occasional" = only a few stray items.</div></div>`;
-    const tb = out.querySelector('tbody');
+        <div class="muted small" style="margin-top:6px">A year is green when sponsorship items were on at least half of the programme's airing days that year. "Sponsored all N years" = green in every year the programme aired. "Occasional" = only a few stray items. Tag, Com Break, Time Check and frequent short spots are not counted here: they are frequency sponsorships, listed below.</div></div>
+      ${freqCard(d)}`;
+    const tb = out.querySelector('.tn-tbl tbody');
+    wireFreq(out, d);
     tb.onclick = (e) => { const tr = e.target.closest('tr.ex-row'); if (tr) pick(order[+tr.dataset.i]); };
     tb.onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.ex-row')) { e.preventDefault(); e.target.click(); } };
   }

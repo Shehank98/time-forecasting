@@ -780,3 +780,4 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .chip-btn[aria-pressed="true"] { background: var(--grad); color: var(--on-grad); border-color: transparent; font-weight: 700; }
 .tn-tbl tr.tn-ch td { background: var(--accent-soft); font-weight: 600; }
 @media (max-width: 1000px) { .tn-grid { grid-template-columns: 1fr; } }
+.tn-fgrid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; } @media (max-width: 900px) { .tn-fgrid { grid-template-columns: 1fr; } }

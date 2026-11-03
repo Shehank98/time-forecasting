@@ -420,6 +420,13 @@ The fourth view of the Programme & Sponsorship Spotlight tab. It answers: "Did t
 
 The same start and end dates, month-by-month table, steady-value note and prime-time split are shown on screen when you open a programme.
 
+**Programme sponsorship vs frequency sponsorship.** In this view the two are kept apart:
+- **Programme sponsorship:** -BB, -Intro, -Extro, -LLogo, Next Card, DJ and -Tr items (plus whole-word Logo, Intro and Outro themes) placed in a programme. These drive the programme tables, the "Sponsored all N years" status and the year and month figures above.
+- **Frequency sponsorship:** **Tag, Com Break and Time Check** items, and any ad that is **10 seconds or shorter and averages 10 or more spots a day** on a channel (the same ad and theme, judged across the whole upload). They are bought on the channel, so they are **never counted as programme sponsorship**.
+- **Where they are shown:**
+  - On screen, a **Frequency sponsorships by channel** table appears under the programme list. Click a channel for the month-by-month counts and the ads that ran.
+  - In the PDF, the same table follows the programme overview: per channel, the Tag, Com Break, Time Check and short-spot counts, total ads, each year with its start and end dates, days on air, daily average and value. Each channel then gets a page with a month-by-month table (Tag, Com Break, Time Check, short spots, total and value) and "What ads ran".
+
 The numbers are computed in the browser (`app/static/js/engine/tenure.js`). `tests/test_tenure.py` checks them against pandas on a 2-year sample with a both-years sponsor, a year-1-only sponsor, a year-2-only sponsor and an occasional one.
 
 ## Sponsorship items (how a theme is recognised)

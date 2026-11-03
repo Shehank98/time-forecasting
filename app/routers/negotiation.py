@@ -102,7 +102,7 @@ class TenureReq(BaseModel):
 def tenure_pdf(req: TenureReq, ws: Workspace = Depends(workspace)) -> Response:
     """Sponsorship over time: who sponsored which programme, year by year, with the ads that ran."""
     rep = req.report
-    if rep.get("empty") or not rep.get("rows"):
+    if rep.get("empty") or not (rep.get("rows") or (rep.get("frequency") or {}).get("rows")):
         raise HTTPException(422, "No sponsorships match the chosen channel, programme and advertiser, so there is nothing to put in the report.")
     client = repo.get_client(ws.client_id) or {"name": "client"}
     try:

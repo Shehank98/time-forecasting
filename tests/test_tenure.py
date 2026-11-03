@@ -40,7 +40,10 @@ def sheet(tmp_path_factory):
              make_rows(tm, y1, "Ceylon Foods", "Spice Pot", "Dream Star Logo", offset=200, time="20:30:00"),    # year 1 only, all in prime time
              make_rows(tm, y1, "Lanka Tea Co", "Island Tea", "Dream Star Logo", offset=250, time="20:45:00"),    # Lanka also buys a prime-time logo in year 1
              make_rows(tm, y2, "Nestle Lanka Ltd", "Maggi", "Dream Star -Outro", offset=300),                    # starts in year 2
-             make_rows(tm, dates[::40], "Unilever Sri Lanka", "Knorr", "Tag", dur=5, offset=500),                  # a stray tag every 40 days: occasional, not a sponsorship tenure
+             make_rows(tm, dates[::40], "Unilever Sri Lanka", "Knorr", "Dream Star -BB", dur=5, offset=500),       # a stray billboard every 40 days: occasional, not a tenure
+             make_rows(tm, y1[::2], "Ceylon Biscuits", "Lemon Puff", "Tag", k=3, dur=5, offset=700),               # frequency: tags, never programme sponsorship
+             make_rows(tm, y2[::3], "Ceylon Biscuits", "Lemon Puff", "Com Break (10)(Sin)", k=2, dur=10, offset=800), # frequency: com breaks
+             make_rows(tm, y2[:60], "Nestle Lanka Ltd", "Maggi", "Maggi Reminder (5)", k=12, dur=5, offset=600),   # frequency: a 5s spot 12 times a day
              make_rows(tm, dates[::10], "Ceylon Biscuits", "Lemon Puff", "Lemon Puff (30)", dur=30, offset=400)]  # only ordinary spots
     p = tmp_path_factory.mktemp("ten") / "lm.csv"
     all_ = pd.concat(parts, ignore_index=True)
@@ -53,7 +56,14 @@ def sheet(tmp_path_factory):
     secs = pd.to_timedelta(df["Advt_time"].astype(str)).dt.total_seconds()
     prime = set(nz.prime_dayparts())
     df["prime"] = [nz.daypart_for_hour(x / 3600.0) in prime for x in secs]
-    df["sp2"] = df["Advt_Theme"].isin(["Dream Star -Intro", "Dream Star Logo", "Dream Star -Outro", "Tag"])
+    # frequency: Tag, Com Break, Time Check, or the same ad at 10s or less averaging 10+ a day on the channel (judged on the whole upload)
+    from app.services.analytics_lmrb import is_sponsor_theme, sponsor_key
+    df["freq_item"] = df["Advt_Theme"].map(lambda t: sponsor_key(t) in ("tag", "com break", "time check"))
+    g = df.assign(d=df["Dur"].where(df["Dur"] > 0)).groupby(["Advertiser", "ch", "Advt_Theme"]).agg(med=("d", "median"), n=("Cost", "size"), days=("t", "nunique"))
+    short = set(g[(g["med"] <= 10) & (g["n"] / g["days"] >= 10)].index)
+    df["freq"] = df["freq_item"] | pd.Series([k in short for k in zip(df["Advertiser"], df["ch"], df["Advt_Theme"])], index=df.index)
+    words = df["Advt_Theme"].str.contains(r"\b(?:Logo|Intro|Outro)\b", case=False, regex=True)
+    df["sp2"] = (df["Advt_Theme"].map(is_sponsor_theme) | words) & ~df["freq"]
     return p, df
 
 
@@ -65,16 +75,16 @@ def test_year_by_year_numbers_match_pandas(sheet):
     p, df = sheet
     d = node("tenure", p, {"channel": CH, "program": PROG})
     assert [x["label"] for x in d["periods"]] == ["Year 1", "Year 2"] and d["periods"][0]["range"] == "Nov 2024 to Oct 2025"
-    prog = df[(df["ch"] == CH) & (df["prog"] == PROG)]
+    prog = df[(df["ch"] == CH) & (df["prog"] == PROG) & ~df["freq"]]
     rows = {r["advertiser"]: r for r in d["rows"]}
-    assert set(rows) == {"Lanka Tea Co", "Ceylon Foods", "Nestle Lanka Ltd", "Unilever Sri Lanka"}     # advertisers with sponsorship items (Ceylon Biscuits has ordinary spots only)
+    assert set(rows) == {"Lanka Tea Co", "Ceylon Foods", "Nestle Lanka Ltd", "Unilever Sri Lanka"}     # Ceylon Biscuits only buys frequency items     # advertisers with sponsorship items (Ceylon Biscuits has ordinary spots only)
     assert [r["advertiser"] for r in d["rows"]][0] == "Lanka Tea Co" and [r["status_code"] for r in d["rows"]][-1] == "occasional"   # consistent tenures first
     for adv, r in rows.items():
         sub = prog[prog["Advertiser"] == adv]
         for y in (0, 1):
             x, s = r["periods"][y], sub[sub["yr"] == y]
             assert x["total_ads"] == len(s) and x["spend"] == pytest.approx(s["Cost"].sum()) and x["days_present"] == s["t"].nunique()
-            sp = s[s["Advt_Theme"].isin(["Dream Star -Intro", "Dream Star Logo", "Dream Star -Outro", "Tag"])]
+            sp = s[s["sp2"]]
             assert x["sponsorship_ads"] == len(sp) and x["days_sponsored"] == sp["t"].nunique() and x["other_ads"] == len(s) - len(sp)
             assert x["airing_days"] == prog[prog["yr"] == y]["t"].nunique()              # all advertisers' airing days
         assert r["total_ads"] == len(sub) and r["airing_days"] == prog["t"].nunique()
@@ -103,7 +113,7 @@ def test_modes_filters_and_gaps(sheet, tmp_path):
     cal = node("tenure", p, {"channel": CH, "program": PROG, "mode": "calendar"})
     assert [x["label"] for x in cal["periods"]] == ["2024", "2025", "2026"]
     r = next(x for x in cal["rows"] if x["advertiser"] == "Lanka Tea Co")
-    s = df[(df["ch"] == CH) & (df["prog"] == PROG) & (df["Advertiser"] == "Lanka Tea Co")]
+    s = df[(df["ch"] == CH) & (df["prog"] == PROG) & (df["Advertiser"] == "Lanka Tea Co") & ~df["freq"]]
     assert [x["total_ads"] for x in r["periods"]] == [int((s["t"].dt.year == y).sum()) for y in (2024, 2025, 2026)]
     # an advertiser and programme pick returns that one row; options cascade
     one = node("tenure", p, {"channel": CH, "program": PROG, "advertiser": "Ceylon Foods"})
@@ -138,22 +148,20 @@ def test_tenure_pdf(sheet):
     pdf = pytest.importorskip("pypdf").PdfReader(io.BytesIO(r.content))
     text = " ".join(pg.extract_text() for pg in pdf.pages)
     for s in ("Sponsorship over time", "Year 1", "Year 2", "Lanka Tea Co", "Dream Star", "Sponsored all 2 years", "Stopped after Year 1", "What ads ran", "Dream Star -Intro",
-              "started to ended", "1 Nov 2024", "31 Oct 2025", "Whole period", "Month by month in this programme", "Commercial-only value", "Steady sponsorship value", "prime time"):
+              "started to ended", "1 Nov 2024", "31 Oct 2025", "Whole period", "Frequency sponsorships by channel", "Month by month on this channel", "Com Break", "Month by month in this programme", "Commercial-only value", "Steady sponsorship value", "prime time"):
         assert s in text, s
     assert "—" not in text
 
 
 def test_lists_for_picking(sheet):
     """No programme or channel needs to be picked: advertisers are listed, then an advertiser's channels and programmes."""
-    from app.services.analytics_lmrb import is_sponsor_theme
     p, df = sheet
-    df = df.copy()
-    df["sp2"] = df["Advt_Theme"].map(is_sponsor_theme) | df["Advt_Theme"].str.contains(r"\b(?:Logo|Intro|Outro)\b", case=False, regex=True)
     sp = df[df["sp2"]]
     lite = node("tenure", p, {"lite": True})
     assert lite["rows"] == [] and not lite["empty"]
     summ = {a["advertiser"]: a for a in lite["advertiser_summary"]}
-    assert set(summ) == set(sp["Advertiser"])
+    assert set(summ) == set(sp["Advertiser"]) | set(df[df["freq"]]["Advertiser"])       # frequency-only buyers are listed too
+    assert summ["Ceylon Biscuits"]["frequency_ads"] == int((df["freq"] & (df["Advertiser"] == "Ceylon Biscuits")).sum())
     for adv, a in summ.items():
         x = sp[sp["Advertiser"] == adv]
         assert a["programmes"] == x.groupby(["ch", "prog"]).ngroups and a["channels"] == x["ch"].nunique() and a["sponsorship_ads"] == len(x)
@@ -175,7 +183,7 @@ def test_start_end_monthly_values_and_prime(sheet):
     """Each year's start and end, the monthly sponsorship vs commercial value, a steady-value check and prime vs non-prime time."""
     p, df = sheet
     d = node("tenure", p, {"channel": CH, "program": PROG})
-    prog = df[(df["ch"] == CH) & (df["prog"] == PROG)]
+    prog = df[(df["ch"] == CH) & (df["prog"] == PROG) & ~df["freq"]]
     rows = {r["advertiser"]: r for r in d["rows"]}
     for adv, r in rows.items():
         sub = prog[prog["Advertiser"] == adv]
@@ -214,3 +222,34 @@ def test_start_end_monthly_values_and_prime(sheet):
     m1 = sp1[sp1["yr"] == 0].groupby(sp1["t"].dt.strftime("%Y-%m"))["Cost"].sum().sort_index().iloc[1:]           # the first (part) month is left out
     assert by["Year 1"]["mean"] == pytest.approx(m1.mean())
     assert rows["Unilever Sri Lanka"]["pattern"] is None or rows["Unilever Sri Lanka"]["pattern"]["months"] >= 3
+
+
+def test_frequency_sponsorships(sheet):
+    """Tag, Com Break, Time Check and frequent short spots: listed by channel with monthly counts, never counted as programme sponsorship."""
+    p, df = sheet
+    fq = df[df["freq"]]
+    d = node("tenure", p, {"advertiser": "Ceylon Biscuits"})
+    assert all(r["advertiser"] == "Ceylon Biscuits" for r in d["rows"]) and not any(r["program"] == PROG for r in d["rows"])   # its tags are not a Dream Star sponsorship
+    f = {r["channel"]: r for r in d["frequency"]["rows"]}
+    cb = fq[fq["Advertiser"] == "Ceylon Biscuits"]
+    assert set(f) == set(cb["ch"])
+    r = f[CH]
+    x = cb[cb["ch"] == CH]
+    assert r["tag"] == int((x["Advt_Theme"] == "Tag").sum()) and r["com_break"] == int(x["Advt_Theme"].str.startswith("Com Break").sum()) and r["ads"] == len(x)
+    assert r["value"] == pytest.approx(x["Cost"].sum()) and r["days"] == x["t"].nunique() and r["daily_avg"] == pytest.approx(len(x) / x["t"].nunique())
+    for y in (0, 1):
+        xy = x[x["yr"] == y]
+        assert r["periods"][y]["ads"] == len(xy) and r["periods"][y]["start"] == (str(xy["t"].min().date()) if len(xy) else None)
+    for m in r["months"]:
+        xm = x[x["t"].dt.strftime("%Y-%m") == m["month"]]
+        assert m["total"] == len(xm) and m["tag"] == int((xm["Advt_Theme"] == "Tag").sum()) and m["value"] == pytest.approx(xm["Cost"].sum())
+    assert r["headline"].startswith("Ceylon Biscuits ran") and "Tag" in r["headline"] and "Com Break" in r["headline"]
+    # a 5 second spot 12 times a day is a frequency buy: it leaves Nestle's Dream Star numbers and shows as short spots
+    n = node("tenure", p, {"advertiser": "Nestle Lanka Ltd", "channel": CH})
+    nf = next(r for r in n["frequency"]["rows"] if r["channel"] == CH)
+    assert nf["short_spots"] == 720 and any(t["theme"] == "Maggi Reminder (5)" and t["type"] == "Short spots" and t["daily_avg"] == pytest.approx(12) for t in nf["themes"])
+    dream = next(r for r in n["rows"] if r["program"] == PROG)
+    assert dream["total_ads"] == int(((df["ch"] == CH) & (df["prog"] == PROG) & (df["Advertiser"] == "Nestle Lanka Ltd") & ~df["freq"]).sum())
+    assert not any(t["theme"] == "Maggi Reminder (5)" for t in dream["themes"])
+    # the background Time Check items are frequency too
+    assert any(r["time_check"] > 0 for r in node("tenure", p, {"advertiser": "Lanka Tea Co"})["frequency"]["rows"])
