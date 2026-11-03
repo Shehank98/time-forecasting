@@ -64,3 +64,28 @@ def test_unhandled_errors_do_not_leak_details(monkeypatch):
     c = api(raise_server_exceptions=False)
     r = c.get("/api/workspace/summary")
     assert r.status_code == 500 and "secret internals" not in r.text
+
+
+def test_sponsorship_items_setting_is_validated_and_admin_only():
+    """The tick boxes are saved as a shared setting: only an admin can change it, and only the ten known items with true or false."""
+    import json as _json
+    from helpers import api
+    from app import main as _m
+    from app.services import normalise
+    path = normalise.CONFIG_DIR / "sponsorship.json"
+    before = path.read_text(encoding="utf-8")
+    try:
+        c = api()
+        got = c.get("/api/config/sponsorship").json()
+        assert got["items"]["-tr"] is False and got["items"]["next card"] is True and len(got["items"]) == 10      # the standard list
+        ok = dict(got["items"], **{"-tr": True, "tag": False})
+        assert c.put("/api/config/sponsorship", json={"items": ok}).json() == {"saved": True}
+        assert c.get("/api/config/sponsorship").json()["items"]["-tr"] is True
+        from app.services.analytics_lmrb import is_sponsor_theme
+        assert is_sponsor_theme("News -Tr (5)") and not is_sponsor_theme("Tag")                                       # the server rule follows the saved setting
+        for bad in ({}, {"items": {}}, {"items": {"nonsense": True}}, {"items": {"tag": "yes"}}, {"items": []}):
+            assert c.put("/api/config/sponsorship", json=bad).status_code == 422, bad
+        assert _json.loads(path.read_text(encoding="utf-8"))["items"]["-tr"] is True                                  # a rejected edit changes nothing
+    finally:
+        path.write_text(before, encoding="utf-8")
+        normalise._cache.clear()

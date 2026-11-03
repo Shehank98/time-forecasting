@@ -220,7 +220,7 @@ def public_branding() -> dict:
 
 
 # ------------------------------------------------------------------ editable JSON config
-EDITABLE = {"channel_aliases": "channel_aliases.json", "holidays": "holidays_lk.json", "dayparts": "dayparts.json"}
+EDITABLE = {"channel_aliases": "channel_aliases.json", "holidays": "holidays_lk.json", "dayparts": "dayparts.json", "sponsorship": "sponsorship.json"}
 
 
 @router.get("/api/config/{name}")
@@ -247,6 +247,14 @@ def validate_config(name: str, body: dict) -> None:
         for sh in body.get("school_holidays", []):
             if not isinstance(sh, dict) or pd.isna(pd.to_datetime(sh.get("start"), errors="coerce")) or pd.isna(pd.to_datetime(sh.get("end"), errors="coerce")):
                 raise ValueError(f"Bad school holiday: {sh}")
+    elif name == "sponsorship":
+        from ..services.analytics_lmrb import SPONSOR_THEMES
+        items = body.get("items")
+        if not isinstance(items, dict) or not items:
+            raise ValueError("items must list the sponsorship items with true or false.")
+        for k, v in items.items():
+            if k not in SPONSOR_THEMES or not isinstance(v, bool):
+                raise ValueError(f"'{k}' must be one of {', '.join(SPONSOR_THEMES)} and set to true or false.")
     elif name == "dayparts":
         dps = body.get("dayparts")
         if not isinstance(dps, list) or not dps or not all(isinstance(d, dict) and isinstance(d.get("name"), str) and num(d.get("start")) and num(d.get("end")) and 0 <= d["start"] <= 24 and 0 <= d["end"] <= 24 for d in dps):
@@ -265,6 +273,8 @@ def put_config(name: str, body: dict, user: auth.User = Depends(admin_user)) -> 
         raise HTTPException(404, "Unknown config")
     try:
         validate_config(name, body)
+        if name == "sponsorship":       # keep the explanatory note in the file
+            body = {"_note": normalise.load_config(EDITABLE[name]).get("_note", ""), "items": body["items"]}
         text = json.dumps(body, indent=2, ensure_ascii=False)
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, f"Invalid config: {exc}") from exc

@@ -41,7 +41,7 @@
     // Frequency sponsorships are bought on the channel, not in a programme: Tag, Com Break and Time Check items, and any commercial that is
     // max_dur seconds or shorter and averages min_daily or more spots a day on the channel. They are kept out of programme sponsorship.
     const fq = MR.frequencyGroups(L, idx, opts);
-    const freqTheme = L.dicts.theme.map((t) => { const k = MR.sponsorKey(t); return FREQ_ITEMS[k] || null; });
+    const freqTheme = L.dicts.theme.map((t) => { const k = MR.sponsorKey(t); return k && MR.sponsorEnabled(k) ? (FREQ_ITEMS[k] || null) : null; });    // an item that is not ticked is a commercial
     // the short-spot rule only applies to commercials: an intro or next card that runs 10+ times a day is still programme sponsorship
     const isFreq = (i) => freqTheme[C.theme[i]] !== null || (!sc.kinds[C.theme[i]] && fq.groups.get(fq.key(i)).frequency);
     const kinds = sc.kinds.map((k, c) => (freqTheme[c] ? 0 : k));                // programme sponsorship kinds only
@@ -197,7 +197,7 @@
       advertiserChannels = [...m.entries()].map(([ch, a]) => ({ channel: nm('channel', ch), programmes: opts.show === 'all' ? a.progs.size : a.sp.size, ads: a.ads, sponsorship_ads: a.spAds })).filter((x) => x.programmes > 0).sort((x, y) => y.sponsorship_ads - x.sponsorship_ads || y.ads - x.ads);
     }
     const lim = opts.lite ? 0 : (opts.limit || 500);
-    return { empty: !out.length && !fOut.length, frequency, advertiser_summary: advertiserSummary, advertiser_channels: advertiserChannels, mode, periods, bounds: [isoFromDay(lo), isoFromDay(hi)], data_months: miMax - miMin + 1, options, rows: out.slice(0, lim), n_rows: out.length,
+    return { empty: !out.length && !fOut.length, items_counted: MR.SPONSOR_THEMES.filter((k) => MR.sponsorEnabled(k)).map((k) => MR.sponsorLabel(k)), frequency, advertiser_summary: advertiserSummary, advertiser_channels: advertiserChannels, mode, periods, bounds: [isoFromDay(lo), isoFromDay(hi)], data_months: miMax - miMin + 1, options, rows: out.slice(0, lim), n_rows: out.length,
       totals: { rows: out.length, all_years: out.filter((r) => r.status_code === 'all').length, advertisers: new Set(out.map((r) => r.advertiser)).size, programmes: new Set(out.map((r) => r.channel + '|' + r.program)).size,
         total_ads: out.reduce((s, r) => s + r.total_ads, 0), sponsorship_ads: out.reduce((s, r) => s + r.sponsorship_ads, 0) },
       selection: { channel: opts.channel || null, program: opts.program || null, advertiser: opts.advertiser || null, show: opts.show || 'sponsor' } };
@@ -225,10 +225,10 @@
     const out = [...g.values()].map((a) => {
       const i = a.i0, theme = nm('theme', C.theme[i]), key = MR.sponsorKey(theme), daily = a.ads / a.days.size, avgDur = a.timed ? a.secs / a.timed : null;
       let how, cls, why;
-      if (key && FREQ_ITEMS[key]) { cls = 'frequency'; how = `Frequency sponsorship: ${FREQ_ITEMS[key]}`; why = `${FREQ_ITEMS[key]} items are bought on the channel, so they are in the Frequency sponsorships by channel section, not in a programme.`; }
+      if (key && !MR.sponsorEnabled(key)) { cls = 'commercial'; how = 'Commercial (item switched off)'; why = `The theme is read as a ${MR.sponsorItem(theme)} item, but ${MR.sponsorItem(theme)} is not ticked in the Sponsorship items settings, so it is counted as a commercial. Tick it there to count it as sponsorship.`; }
+      else if (key && FREQ_ITEMS[key]) { cls = 'frequency'; how = `Frequency sponsorship: ${FREQ_ITEMS[key]}`; why = `${FREQ_ITEMS[key]} items are bought on the channel, so they are in the Frequency sponsorships by channel section, not in a programme.`; }
       else if (key) { cls = 'programme'; how = `Programme sponsorship: ${MR.sponsorItem(theme)}`; why = `Read as a ${MR.sponsorItem(theme)} item. It is listed in Who sponsored what under ${MR.title(nm('channel', C.channel[i]))} > ${MR.title(nm('program', C.program[i]))} for ${nm('advertiser', C.advertiser[i])}.`; }
       else if (fq.groups.get(fq.key(i)) && fq.groups.get(fq.key(i)).frequency) { cls = 'frequency'; how = 'Frequency sponsorship: short frequent spot'; why = `A commercial of about ${Math.round(avgDur || 0)} seconds averaging ${daily.toFixed(1)} a day on the channel (${fq.max_dur} seconds or less and ${fq.min_daily}+ a day), so it is in the Frequency sponsorships by channel section.`; }
-      else if (MR.sponsorItem(theme)) { cls = 'programme'; how = `Programme sponsorship: ${MR.sponsorItem(theme)}`; why = `Read as a ${MR.sponsorItem(theme)} item by its words.`; }
       else { cls = 'commercial'; how = 'Commercial (not a sponsorship item)'; why = `The theme "${theme}" does not contain a sponsorship item (${ITEM_WORDS}), so it is counted as a commercial and is not in the sponsorship lists. If it is a sponsorship, tell us how it is written (for example an abbreviation) and it can be added.`; }
       return { channel: nm('channel', C.channel[i]), program: nm('program', C.program[i]), advertiser: nm('advertiser', C.advertiser[i]), theme, ads: a.ads, spend: a.spend, days: a.days.size, daily_avg: daily, length: avgDur,
         first_seen: isoFromDay(a.dmin), last_seen: isoFromDay(a.dmax), class: cls, how, why, theme_match: themeHit.has(C.theme[i]), programme_match: progHit.has(C.program[i]) };

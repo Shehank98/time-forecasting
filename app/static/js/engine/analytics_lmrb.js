@@ -203,7 +203,7 @@
       }
       const ch = [...a.ch].sort();
       rows.push({ creative_id: L.dicts.creative[cid], advertiser: S(L, 'advertiser', a.i), product: S(L, 'product', a.i), theme: S(L, 'theme', a.i),
-        first_seen: isoFromDay(a.first), last_seen: isoFromDay(a.last), spots: a.spots, spend: a.spend, channels: ch, channel_count: ch.length, status });
+        first_seen: isoFromDay(a.first), last_seen: isoFromDay(a.last), spots: a.spots, spend: a.spend, channels: ch, channel_count: ch.length, status, sponsorship: isSponsorTheme(S(L, 'theme', a.i)) });
     }
     if (prevIds) {
       for (const cid of [...prevIds].sort((x, y) => x - y)) {
@@ -211,7 +211,7 @@
         let first = Infinity, last = -Infinity, i0 = -1; const ch = new Set();
         for (let k = 0; k < prev.length; k++) { const i = prev[k]; if (C.creative[i] !== cid) continue; if (i0 < 0) i0 = i; first = Math.min(first, C.date[i]); last = Math.max(last, C.date[i]); ch.add(S(L, 'channel', i)); }
         rows.push({ creative_id: L.dicts.creative[cid], advertiser: S(L, 'advertiser', i0), product: S(L, 'product', i0), theme: S(L, 'theme', i0), first_seen: isoFromDay(first),
-          last_seen: isoFromDay(last), spots: 0, spend: 0, channels: [...ch].sort(), channel_count: ch.size, status: 'DROPPED' });
+          last_seen: isoFromDay(last), spots: 0, spend: 0, channels: [...ch].sort(), channel_count: ch.size, status: 'DROPPED', sponsorship: isSponsorTheme(S(L, 'theme', i0)) });
       }
     }
     return rows.sort((a, b) => ((a.status !== 'NEW') - (b.status !== 'NEW')) || ((a.status !== 'DROPPED') - (b.status !== 'DROPPED')) || (b.spend - a.spend));
@@ -225,7 +225,7 @@
   const normTheme = (t) => String(t == null ? '' : t).toLowerCase().replace(/(\s*\([^)]*\))+\s*$/, '').replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim();
   /** The sponsorship item a theme is (its key in SPONSOR_THEMES), or null. "Tag", "Time Check (10)(Sin)", "Teledrama -BB", "Teledrama - BB (5)" all match; "Tag Line Promo" does not. */
   // items written after (or before) the programme name: "Lakshapathi Next Card", "Lakshapathi_Intro", "Next Card_Lakshapathi", "Lakshapathi BB"
-  const SPONSOR_PHRASES = [['next card', 'next card'], ['com break', 'com break'], ['time check', 'time check'], ['intro', '-intro'], ['extro', '-extro'], ['llogo', '-llogo']];
+  const SPONSOR_PHRASES = [['next card', 'next card'], ['com break', 'com break'], ['time check', 'time check'], ['intro', '-intro'], ['extro', '-extro'], ['outro', '-extro'], ['llogo', '-llogo'], ['logo', '-llogo']];
   const SPONSOR_LAST = { bb: '-bb', tr: '-tr', tag: 'tag', dj: 'dj' };   // only as the last word, so "Tag Line Promo" or "DJ Party Offer" stay commercials
   const sponsorKey = (t) => {
     const x = normTheme(t).replace(/[_/|]+/g, ' ').replace(/\s+/g, ' ').trim(); if (!x) return null;
@@ -235,9 +235,12 @@
     const words = w.trim().split(' ');
     return words.length > 1 && SPONSOR_LAST[words[words.length - 1]] ? SPONSOR_LAST[words[words.length - 1]] : null;
   };
-  const isSponsorTheme = (t) => sponsorKey(t) !== null;
+  /** Is this item ticked as a sponsorship? (Settings > Sponsorship items; -Tr is off unless ticked.) */
+  const sponsorEnabled = (k) => { const it = MR.cfg && MR.cfg.sponsorItems; return it && k in it ? !!it[k] : k !== '-tr'; };
+  const isSponsorTheme = (t) => { const k = sponsorKey(t); return k !== null && sponsorEnabled(k); };
   /** Display name of the sponsorship item ("-BB", "Time Check" ...); whole-word Logo, Intro and Outro themes give "Logo", "Intro", "Outro"; null for a commercial. */
-  const sponsorItem = (t) => { const k = sponsorKey(t); if (k) return SPONSOR_LABEL[k]; const x = normTheme(t).replace(/[_/|-]+/g, ' '); return /\b(outro|extro)\b/.test(x) ? 'Outro' : /\bintro\b/.test(x) ? 'Intro' : /\blogo\b/.test(x) ? 'Logo' : null; };
+  const sponsorItem = (t) => { const k = sponsorKey(t); if (!k) return null; const x = ` ${normTheme(t).replace(/[_/|-]+/g, ' ')} `;
+    if (k === '-extro' && x.includes(' outro ')) return 'Outro'; if (k === '-llogo' && x.includes(' logo ') && !x.includes(' llogo ')) return 'Logo'; return SPONSOR_LABEL[k]; };
   function pricing(L, cur) {
     const flag = L.dicts.theme.map(isSponsorTheme), T = L.cols.theme;
     const isSp = (i) => T[i] >= 0 && flag[T[i]];
@@ -485,5 +488,5 @@
     return out;
   }
 
-  Object.assign(MR, { lmrbDashboard: dashboard, headToHead, competitorSet, comparisonWindows, flightStats, grpSummary, lmrbBounds: bounds, lmrbSums: sums, POS_NAMES, isSponsorTheme, sponsorKey, sponsorItem, normTheme, SPONSOR_THEMES });
+  Object.assign(MR, { lmrbDashboard: dashboard, headToHead, competitorSet, comparisonWindows, flightStats, grpSummary, lmrbBounds: bounds, lmrbSums: sums, POS_NAMES, isSponsorTheme, sponsorKey, sponsorItem, sponsorEnabled, sponsorLabel: (k) => SPONSOR_LABEL[k], normTheme, SPONSOR_THEMES });
 })(typeof self !== 'undefined' ? self : globalThis);

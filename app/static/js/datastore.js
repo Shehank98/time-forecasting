@@ -27,8 +27,9 @@
     return new Promise((resolve, reject) => { waiting.set(id, { resolve, reject, onProgress }); w.postMessage({ id, op, args }); });
   }
   async function config() {
-    const [aliases, dayparts, holidays] = await Promise.all(['channel_aliases', 'dayparts', 'holidays'].map((n) => App.api.get('/api/config/' + n)));
-    return { aliases, dayparts, holidays };
+    const [aliases, dayparts, holidays, sponsorship] = await Promise.all(['channel_aliases', 'dayparts', 'holidays', 'sponsorship'].map((n) => App.api.get('/api/config/' + n)));
+    App.sponsorItems = (sponsorship && sponsorship.items) || {};
+    return { aliases, dayparts, holidays, sponsorship };
   }
   /** Opens the current user's store for the selected client. Safe to call many times. */
   function open() {
@@ -55,7 +56,9 @@
     async upload(kind, file, mode, onProgress) { await open(); persist(); return after(call('upload', { kind, file, mode }, onProgress)); },
     async remove(kind, name) { await open(); return after(call('remove', { kind, name })); },
     async clearAll() { await open(); return after(call('clearAll')); },
-    async reconfigure() { await open(); return call('configure', { config: await config() }); },
+    async reconfigure() { await open(); const r = await call('configure', { config: await config() }); App.data.version++; document.dispatchEvent(new CustomEvent('datachange', { detail: { sponsorship: true } })); return r; },
+    /** Applies the ticked sponsorship items right now, without saving (used when the settings cannot be saved). */
+    async applySponsorItems(items) { await open(); App.sponsorItems = items; if (window.MR && window.MR.configure) window.MR.configure({ sponsorship: { items } }); await call('configure', { config: { sponsorship: { items } } }); App.data.version++; document.dispatchEvent(new CustomEvent('datachange', { detail: { sponsorship: true } })); },
     state: (kind, name) => open().then(() => call('state', { kind, name })),
     globalOptions: () => open().then(() => call('globalOptions')),
     dashboard: (b) => open().then(() => call('dashboard', b)),

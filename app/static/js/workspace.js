@@ -79,7 +79,7 @@
   }
 
   async function openSettings() {
-    const names = [['channel_aliases', 'Channel aliases'], ['holidays', 'Holiday and event calendar'], ['dayparts', 'Dayparts and time-belts']];
+    const names = [['channel_aliases', 'Channel aliases'], ['holidays', 'Holiday and event calendar'], ['dayparts', 'Dayparts and time-belts'], ['sponsorship', 'Sponsorship items']];
     const m = modal('Settings (editable JSON)', `<p class="muted small">Edit the JSON and save. Channel aliases and dayparts apply to the next upload. The event calendar is used by the next forecast. Settings are shared by all clients.</p>
       <div class="seg" id="cfg-seg">${names.map(([k, l], i) => `<button type="button" data-k="${k}" aria-pressed="${i === 0}">${l}</button>`).join('')}</div>
       <textarea id="cfg-text" rows="18" style="margin-top:10px" spellcheck="false"></textarea><div class="row" style="margin-top:10px"><button class="btn primary" id="cfg-save">Save</button></div>`);

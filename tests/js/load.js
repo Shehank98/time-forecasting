@@ -9,7 +9,7 @@ function load() {
     if (fs.existsSync(p)) vm.runInThisContext(fs.readFileSync(p, 'utf8'), { filename: p });
   }
   const cfg = (n) => JSON.parse(fs.readFileSync(path.join(ROOT, 'app/config', n), 'utf8'));
-  globalThis.MR.configure({ aliases: cfg('channel_aliases.json'), dayparts: cfg('dayparts.json'), holidays: cfg('holidays_lk.json') });
+  globalThis.MR.configure({ aliases: cfg('channel_aliases.json'), dayparts: cfg('dayparts.json'), holidays: cfg('holidays_lk.json'), sponsorship: cfg('sponsorship.json') });
   return globalThis.MR;
 }
 const fileOf = (p) => ({ name: path.basename(p), text: fs.readFileSync(p, 'utf8') });

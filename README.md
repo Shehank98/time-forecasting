@@ -443,20 +443,20 @@ The numbers are computed in the browser (`app/static/js/engine/tenure.js`). `tes
 
 ## Sponsorship items (how a theme is recognised)
 
-These Advt_Theme values count as sponsorship (value-add); everything else is a commercial:
+These Advt_Theme values can count as sponsorship (value-add); everything else is a commercial. **-Tr is not counted unless you tick it.**
 
 | Item | Matches when the theme | Examples that match |
 |---|---|---|
 | -BB | ends in "-BB", or ends with the word "BB" | Teledrama -BB, Teledrama - BB (5)(Sin), Lakshapathi BB |
 | Com Break | contains the words "Com Break" | Com Break, COM BREAK (10), Com Break Sirasa |
 | DJ | is "DJ", or ends with the word "DJ" | DJ (Sin), Morning DJ |
-| -Extro | contains the word "Extro" | Dream Star - Extro, Lakshapathi_Extro |
+| -Extro | contains the word "Extro" or "Outro" | Dream Star - Extro, Lakshapathi_Extro, Show Outro |
 | -Intro | contains the word "Intro" | Dream Star -Intro (10)(Sin), Lakshapathi Intro, Lakshapathi_Intro |
-| -LLogo | contains the word "LLogo" | Dream Star - LLogo, Lakshapathi_LLogo |
+| -LLogo | contains the word "LLogo" or "Logo" | Dream Star - LLogo, Lakshapathi_LLogo, Island Tea Logo |
 | Next Card | contains the words "Next Card" | Next Card (5), Lakshapathi Next Card, Next Card_Lakshapathi |
 | Tag | is "Tag", or ends with the word "Tag" | Tag (5)(Sin), Lakshapathi Tag |
 | Time Check | contains the words "Time Check" | Time check, Time Check (10)(Sin), Lakshapathi Time Check |
-| -Tr | ends in "-Tr", or ends with the word "Tr" | News -Tr (5) |
+| -Tr (off by default) | ends in "-Tr", or ends with the word "Tr" | News -Tr (5) |
 
 **What the matching ignores:**
 - letter case;
@@ -468,4 +468,10 @@ These Advt_Theme values count as sponsorship (value-add); everything else is a c
 
 Commercials that only look similar, such as "Tag Line Promo", "DJ Party Offer", "Time Checker App" or "Next Cardigan Sale", stay commercials. Words count only when whole, and Tag, DJ, BB and Tr count only as the last word.
 
-**Extra keywords:** the Spotlight, Executive and Sponsorship-over-time views also treat a theme containing the whole word "Logo", "Intro" or "Outro" as a sponsorship item. The rule is the same in the browser (`app/static/js/engine/analytics_lmrb.js`) and on the server (`app/services/analytics_lmrb.py`), and `tests/test_sponsor_themes.py` checks that both agree.
+**One rule everywhere.** The Logo, Intro and Outro words are part of the -LLogo, -Intro and -Extro items above, so ticking or unticking those items controls them in every view. The rule is the same in the browser (`app/static/js/engine/analytics_lmrb.js`) and on the server (`app/services/analytics_lmrb.py`), and `tests/test_sponsor_themes.py` checks that both agree.
+
+**Tick what counts as sponsorship.** Click **Sponsorship items** at the top of the Spotlight tab or the Executive Negotiation Summary to open the tick boxes (one per item above). Save, and every sponsorship report, table and PDF uses your choice straight away:
+- An item that is not ticked is counted as an ordinary commercial. Unticking Tag, Com Break or Time Check also removes them from the frequency sponsorships.
+- The choice is saved as a shared setting (Settings > Sponsorship items, `app/config/sponsorship.json`), so it applies to the whole agency. Only an admin can save it. For anyone else it applies until the page is reloaded, and the page says so.
+- The PDFs list the items that were counted, and the Spotlight tab shows "Counting as sponsorship: ..." at the top. "Back to the standard list" restores the default (every item except -Tr).
+- The "Can't find an ad?" check says "Commercial (item switched off)" when a theme is recognised but its item is not ticked.

@@ -37,9 +37,12 @@ CASES = [
 LABEL = {"-bb": "-BB", "com break": "Com Break", "dj": "DJ", "-extro": "-Extro", "-intro": "-Intro", "-llogo": "-LLogo", "next card": "Next Card", "tag": "Tag", "time check": "Time Check", "-tr": "-Tr"}
 
 
+COUNTED = lambda key: key is not None and key != "-tr"       # -Tr is recognised but not counted as sponsorship unless it is ticked   # noqa: E731
+
+
 @pytest.mark.parametrize("theme,key", CASES)
 def test_python_rule(theme, key):
-    assert sponsor_key(theme) == key and is_sponsor_theme(theme) == (key is not None)
+    assert sponsor_key(theme) == key and is_sponsor_theme(theme) == COUNTED(key)
 
 
 @needs_node
@@ -52,14 +55,14 @@ def test_browser_rule_matches_python():
         if t is None:
             continue
         r = got[t]
-        assert r["key"] == key and r["sponsor"] == (key is not None) == is_sponsor_theme(t), t
+        assert r["key"] == key and r["sponsor"] == COUNTED(key) == is_sponsor_theme(t), t
         if key:
             assert r["item"] == LABEL[key], t                       # shown with the names used in the sheet
 
 
 @needs_node
 def test_all_ten_count_as_value_add_in_reports(tmp_path):
-    """A sheet using all ten items, with "(10)(Sin)" tags and odd spacing, puts every one of them in value-add (sponsorship) spend."""
+    """A sheet using all ten items, with "(10)(Sin)" tags and odd spacing, puts the nine ticked ones in value-add (sponsorship) spend; -Tr is off by default."""
     lm = synth.make_lmrb(days=30, start="2026-06-01", seed=3)
     base = lm[lm["Channel"] == "Tv - Derana"].head(10)
     names = ["Dream Star -BB (5)(Sin)", "Com Break", "DJ (Sin)", "Dream Star - Extro", "Dream Star -Intro (10)(Sin)", "Dream Star -LLogo", "Next Card (5)", "Tag (5)(Sin)", "Time Check (10)(Sin)", "News -Tr"]
@@ -72,7 +75,56 @@ def test_all_ten_count_as_value_add_in_reports(tmp_path):
     d = json.loads(out.stdout)
     lt = df[df["Advertiser"] == "Lanka Tea Co"]
     sp = lt[lt["Advt_Theme"].map(is_sponsor_theme)]
-    assert set(names) <= set(sp["Advt_Theme"])                     # Python counts all ten
+    assert set(names) - {"News -Tr"} <= set(sp["Advt_Theme"]) and "News -Tr" not in set(sp["Advt_Theme"])      # Python counts nine; -Tr is off by default
     assert d["overall"]["value_add_items"] == len(sp) and d["overall"]["value_add_spend"] == pytest.approx(sp["Cost"].sum())
     items = {r["theme"]: r["item"] for r in d["classified"] if r["advertiser"] == "Lanka Tea Co" and r["sponsorship"]}
-    assert {n: items.get(n) for n in names} == dict(zip(names, ["-BB", "Com Break", "DJ", "-Extro", "-Intro", "-LLogo", "Next Card", "Tag", "Time Check", "-Tr"]))
+    assert {n: items.get(n) for n in names} == dict(zip(names, ["-BB", "Com Break", "DJ", "-Extro", "-Intro", "-LLogo", "Next Card", "Tag", "Time Check", None]))   # -Tr: a commercial
+
+
+# ------------------------------------------------------------------ the tick boxes
+def test_ticks_decide_what_counts_python():
+    allon = {k: True for k in ("-bb", "com break", "dj", "-extro", "-intro", "-llogo", "next card", "tag", "time check", "-tr")}
+    assert is_sponsor_theme("News -Tr (5)", allon) and not is_sponsor_theme("News -Tr (5)")             # ticked: counted; the standard list: not
+    off = dict(allon, tag=False, **{"next card": False})
+    assert not is_sponsor_theme("Tag (5)(Sin)", off) and not is_sponsor_theme("Lakshapathi Next Card", off) and is_sponsor_theme("Dream Star -Intro", off)
+    assert sponsor_key("Tag") == "tag"                                                                   # still recognised, just not counted
+    assert is_sponsor_theme("Dream Star Logo") and is_sponsor_theme("Big Show Outro") and not is_sponsor_theme("Dream Star Logo", dict(allon, **{"-llogo": False}))
+
+
+@needs_node
+def test_ticks_decide_what_counts_in_the_browser():
+    themes = ["News -Tr (5)", "Tag (5)(Sin)", "Lakshapathi Next Card", "Dream Star -Intro", "Dream Star Logo", "Big Show Outro", "Island Tea Offer (30)"]
+
+    def run(items=None):
+        args = ["node", str(ROOT / "tests/js/themes.js"), json.dumps(themes)] + ([json.dumps(items)] if items else [])
+        out = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        assert out.returncode == 0, out.stderr
+        return {r["theme"]: r["sponsor"] for r in json.loads(out.stdout)}
+    std = run()
+    assert std == {"News -Tr (5)": False, "Tag (5)(Sin)": True, "Lakshapathi Next Card": True, "Dream Star -Intro": True, "Dream Star Logo": True, "Big Show Outro": True, "Island Tea Offer (30)": False}
+    on = run({"-tr": True, "tag": False, "next card": False, "-llogo": False, "-extro": False})
+    assert on == {"News -Tr (5)": True, "Tag (5)(Sin)": False, "Lakshapathi Next Card": False, "Dream Star -Intro": True, "Dream Star Logo": False, "Big Show Outro": False, "Island Tea Offer (30)": False}
+
+
+@needs_node
+def test_unticked_items_leave_every_report(tmp_path):
+    """Untick Next Card and Tag: they become commercials, the frequency section loses the tags, and the lookup says why."""
+    lm = synth.make_lmrb(days=30, start="2026-06-01", seed=3)
+    base = lm[lm["Channel"] == "Tv - Derana"].head(12)
+    parts = [lm] + [base.assign(Advertiser="Sampath Bank", Advt_Theme=n, Cost=11000 + 41 * k, AdPos=700 + k) for k, n in enumerate(["Lakshapathi Next Card", "Tag", "Dream Star -Intro"])]
+    p = tmp_path / "t.csv"; pd.concat(parts, ignore_index=True).to_csv(p, index=False)
+    spot = ROOT / "tests/js/spotlight.js"
+
+    def run(op, opts, items=None):
+        env_opts = dict(opts, **({"_items": items} if items else {}))
+        out = subprocess.run(["node", str(spot), op, str(p), json.dumps(env_opts)], capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, out.stderr
+        return json.loads(out.stdout)
+    d = run("exec", {"advertisers": ["Sampath Bank"]})
+    assert d["overall"]["value_add_items"] == 36 and d["items_counted"] == ["-BB", "Com Break", "DJ", "-Extro", "-Intro", "-LLogo", "Next Card", "Tag", "Time Check"]
+    d2 = run("exec", {"advertisers": ["Sampath Bank"]}, {"next card": False, "tag": False})
+    assert d2["overall"]["value_add_items"] == 12 and "Next Card" not in d2["items_counted"] and "Tag" not in d2["items_counted"]
+    t2 = run("tenure", {"advertiser": "Sampath Bank"}, {"tag": False})
+    assert t2["frequency"]["rows"] == [] or all(r["tag"] == 0 for r in t2["frequency"]["rows"])          # no tag frequency once Tag is unticked
+    lk = run("lookup", {"q": "next card"}, {"next card": False})["rows"]
+    assert lk and all(r["class"] == "commercial" and r["how"] == "Commercial (item switched off)" and "not ticked in the Sponsorship items settings" in r["why"] for r in lk)

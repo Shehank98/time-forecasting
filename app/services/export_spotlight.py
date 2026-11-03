@@ -213,7 +213,7 @@ def build_spotlight_pdf(rep: dict, meta: dict, client: dict, branding: dict, log
             rows.append([_title(ch), _title(pg), k["date"], _n(k["spots"]), _n(usual, "dec")])
         el.append(_table(rows, [3, 6, 2.4, 2, 2.4], s, brand))
 
-    el += [Spacer(1, 8), Paragraph("Sponsorship items are found from the theme: billboards (-BB, Intro, Extro, Com Break, Next Card) and logo items (LLogo, Tag, Time Check, DJ, -Tr). "
+    el += [Spacer(1, 8), Paragraph("Sponsorship items are found from the theme, using the items ticked in the Sponsorship items settings (" + safe(", ".join(rep.get("items_counted") or []) or "none") + "). "
                                    "A special placement is a 60 second or longer spot at 3 times or more the programme's median spot cost. Spend is monitored rate-card spend, not invoiced cost.", s.small)]
     footer_txt = safe(f"{agency} | {cname} | Programme and sponsorship report | {branding.get('report_footer', '')}")
 
@@ -457,7 +457,7 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
             dt_ += [[x["theme"], x["type"], _n(x["ads"]), _n(x.get("prime_ads")), _n(x.get("other_time_ads")), _n(x["days"]), _n(x["daily_avg"], "dec"), f"{x['length']:.0f}s" if x.get("length") else "n/a", _d(x.get("first_seen")), _d(x.get("last_seen")), _n(x.get("value"))] for x in th]
             el += [Paragraph("<b>What ads ran</b>", ParagraphStyle("fw", parent=s.body, keepWithNext=1)), Spacer(1, 2),
                    _table(dt_, [4.4, 2.0, 1.3, 1.5, 1.5, 1.5, 1.6, 1.3, 2.0, 2.0, 2.0], s, brand, [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in (2, 3, 4, 5, 6, 7, 10)])]
-    el += [Spacer(1, 8), Paragraph("Programme sponsorship = -BB, -Intro, -Extro, -LLogo, Next Card, DJ and -Tr items. A year counts as sponsored when they were on at least half of the programme's airing days that year; fewer is shown as occasional. Tag, Com Break, Time Check and frequent short spots are frequency sponsorships, shown in their own section. "
+    el += [Spacer(1, 8), Paragraph("Programme sponsorship = the ticked sponsorship items (" + safe(", ".join(i for i in (rep.get("items_counted") or []) if i not in ("Tag", "Time Check", "Com Break")) or "none") + "). A year counts as sponsored when they were on at least half of the programme's airing days that year; fewer is shown as occasional. Tag, Com Break, Time Check and frequent short spots are frequency sponsorships, shown in their own section. "
                                    "Airing days are days the programme aired with any advertiser. Spend is monitored rate-card spend, not invoiced cost.", s.small)]
     footer_txt = safe(f"{agency} | {cname} | Sponsorship over time | {branding.get('report_footer', '')}")
 

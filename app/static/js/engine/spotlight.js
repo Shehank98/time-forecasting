@@ -14,8 +14,6 @@
   const MR = root.MR;
   const { isoFromDay } = MR;
   const BILLBOARD = ['-bb', 'com break', '-extro', '-intro', '-outro', 'next card'];
-  // keywords that mark a sponsorship item even when the theme is not in the core list (whole words only: "Intro Offer" still counts, "Introduction" does not)
-  const EXTRA_BILLBOARD = /\b(intro|outro|extro)\b/i, EXTRA_LOGO = /\blogo\b/i;
   const DUR = ['5s', '10s', '15s', '20s', '30s', '30s+'];
   const durIdx = (d) => (!(d > 0) ? -1 : d <= 7 ? 0 : d <= 12 ? 1 : d <= 17 ? 2 : d <= 25 ? 3 : d <= 30 ? 4 : 5);
   const DUR_FILTER = { all: () => true, 5: (d) => durIdx(d) === 0, 10: (d) => durIdx(d) === 1, le10: (d) => d > 0 && d <= 12, 15: (d) => durIdx(d) === 2, 20: (d) => durIdx(d) === 3, 30: (d) => durIdx(d) === 4, '30p': (d) => durIdx(d) === 5 };
@@ -26,11 +24,7 @@
 
   /** Per theme code: 0 = not sponsorship, 1 = billboard kind, 2 = logo kind. */
   function themeKinds(L) {
-    return L.dicts.theme.map((t) => {
-      const k = MR.sponsorKey(t);
-      if (!k) return EXTRA_BILLBOARD.test(String(t)) ? 1 : EXTRA_LOGO.test(String(t)) ? 2 : 0;
-      return BILLBOARD.includes(k) ? 1 : 2;
-    });
+    return L.dicts.theme.map((t) => { const k = MR.sponsorKey(t); return k && MR.sponsorEnabled(k) ? (BILLBOARD.includes(k) ? 1 : 2) : 0; });
   }
 
   function acc() { return { spend: 0, spots: 0, sp_spend: 0, sp_items: 0, bb: 0, logo: 0, special: 0, special_spend: 0, reg_spend: 0, reg_spots: 0, secs: 0, c_secs: 0, c_spend: 0, clutSum: 0, clutN: 0, posSum: 0, posN: 0, first: 0, last: 0, both: 0, dur: [0, 0, 0, 0, 0, 0, 0], days: new Set(), dmin: Infinity, dmax: -Infinity }; }
@@ -337,7 +331,7 @@
     });
     const th = themeRows(L, rows, sc, { ...opts, show: opts.show || 'sponsor' });
     const [lo, hi] = MR.minMax(C.date, rows);
-    return { empty: false, selection: sel, sponsorships: th.list.slice(0, 300), sponsorship_totals: th.totals, rule: { min_daily: th.fq.min_daily, max_dur: th.fq.max_dur }, period: [isoFromDay(lo), isoFromDay(hi)], range: [opts.date_from || isoFromDay(MR.minMax(C.date, idx)[0]), opts.date_to || isoFromDay(MR.minMax(C.date, idx)[1])], clutter_threshold: thr,
+    return { empty: false, items_counted: MR.SPONSOR_THEMES.filter((k) => MR.sponsorEnabled(k)).map((k) => MR.sponsorLabel(k)), selection: sel, sponsorships: th.list.slice(0, 300), sponsorship_totals: th.totals, rule: { min_daily: th.fq.min_daily, max_dur: th.fq.max_dur }, period: [isoFromDay(lo), isoFromDay(hi)], range: [opts.date_from || isoFromDay(MR.minMax(C.date, idx)[0]), opts.date_to || isoFromDay(MR.minMax(C.date, idx)[1])], clutter_threshold: thr,
       totals: { ...out(tot), channels: channels.length, programmes: programmes.length, programmes_shown: kept.length, advertisers: byA.size,
         sponsorships: [...roleCount.values()].reduce((s, r) => s + r[0], 0) },
       channels, advertisers: advertisers.slice(0, 40), monthly, briefs };

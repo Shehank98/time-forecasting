@@ -75,11 +75,12 @@
   const headerKey = (h) => String(h == null ? '' : h).trim().toLowerCase().replace(/%/g, 'pct').replace(/[^a-z0-9]/g, '');
 
   /* ---------------- configuration (channel aliases, dayparts) ---------------- */
-  const cfg = { aliases: {}, dayparts: [], prime: ['Prime'], bands: [], minPoints: { daily: 14, weekly: 8, monthly: 12 }, timebelt: 30 };
+  const cfg = { aliases: {}, dayparts: [], prime: ['Prime'], bands: [], minPoints: { daily: 14, weekly: 8, monthly: 12 }, timebelt: 30, sponsorItems: null };
   let aliasLookup = null, chanCache = new Map();
   const clean = (v) => String(v).replace(/\s+/g, ' ').trim().toUpperCase();
   function configure(c) {
     if (c.aliases) { cfg.aliases = c.aliases; aliasLookup = null; chanCache = new Map(); }
+    if (c.sponsorship) cfg.sponsorItems = (c.sponsorship && c.sponsorship.items) || null;     // which items count as sponsorship (Settings > Sponsorship items)
     if (c.dayparts) {
       cfg.dayparts = c.dayparts.dayparts || [];
       cfg.prime = c.dayparts.prime || ['Prime'];

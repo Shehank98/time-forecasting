@@ -24,7 +24,10 @@
 
   function tab(p, ctx) {
     p.innerHTML = `<div class="card-head" style="margin-bottom:12px"><div class="seg" id="sp-view"><button type="button" data-v="programme" aria-pressed="${st.view === 'programme'}">Programme Spotlight</button><button type="button" data-v="matrix" aria-pressed="${st.view === 'matrix'}">Short-form &amp; Sponsorship Matrix</button><button type="button" data-v="tenure" aria-pressed="${st.view === 'tenure'}">Sponsorship over time</button><button type="button" data-v="report" aria-pressed="${st.view === 'report'}">PDF report</button></div>
-      <div class="muted small">Sponsorship items: -BB, Intro, Extro, Com Break, Next Card (billboards) and LLogo, Tag, Time Check, DJ, -Tr (logo items).</div></div><div id="sp-body"></div>`;
+      <div class="row" style="gap:10px;align-items:center"><div class="muted small" id="sp-items-note"></div><button class="btn sm" type="button" id="sp-items-btn">Sponsorship items</button></div></div><div id="sp-body"></div>`;
+    const note = () => { const el = p.querySelector('#sp-items-note'); if (el) el.textContent = 'Counting as sponsorship: ' + App.sponsorItemsPanel.label() + '.'; };
+    note(); p.querySelector('#sp-items-btn').onclick = () => App.sponsorItemsPanel.open();
+    document.addEventListener('datachange', (e) => { if (e.detail && e.detail.sponsorship) { note(); if (p.isConnected) show(p, ctx); } });
     p.querySelectorAll('#sp-view button').forEach((b) => { b.onclick = () => { st.view = b.dataset.v; save(); p.querySelectorAll('#sp-view button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); show(p, ctx); }; });
     show(p, ctx);
   }

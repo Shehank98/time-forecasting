@@ -235,13 +235,13 @@ def creatives(df_all: pd.DataFrame, cur: pd.DataFrame, prev: pd.DataFrame | None
                 status = "PAUSED"
         rows.append({"creative_id": cid, "advertiser": r.advertiser, "product": r["product"], "theme": r["theme"],
                      "first_seen": r.first_seen, "last_seen": r.last_seen, "spots": int(r.spots), "spend": float(r.spend),
-                     "channels": r.channels, "channel_count": len(r.channels), "status": status})
+                     "channels": r.channels, "channel_count": len(r.channels), "status": status, "sponsorship": is_sponsor_theme(r["theme"])})
     if prev is not None and len(prev):
         for cid in prev_ids - cmp_ids - set(agg.index):
             p = prev[prev["creative_id"] == cid]
             rows.append({"creative_id": cid, "advertiser": p["advertiser"].iloc[0], "product": p["product"].iloc[0], "theme": p["theme"].iloc[0],
                          "first_seen": p["date"].min(), "last_seen": p["date"].max(), "spots": 0, "spend": 0.0,
-                         "channels": sorted(p["channel"].unique()), "channel_count": p["channel"].nunique(), "status": "DROPPED"})
+                         "channels": sorted(p["channel"].unique()), "channel_count": p["channel"].nunique(), "status": "DROPPED", "sponsorship": is_sponsor_theme(p["theme"].iloc[0])})
     return sorted(rows, key=lambda x: (x["status"] != "NEW", x["status"] != "DROPPED", -x["spend"]))
 
 
@@ -262,12 +262,13 @@ def norm_theme(t) -> str:
 
 _SEPARATORS = re.compile(r"[_/|]+")
 # items written after (or before) the programme name: "Lakshapathi Next Card", "Lakshapathi_Intro", "Next Card_Lakshapathi", "Lakshapathi BB"
-SPONSOR_PHRASES = (("next card", "next card"), ("com break", "com break"), ("time check", "time check"), ("intro", "-intro"), ("extro", "-extro"), ("llogo", "-llogo"))
+SPONSOR_PHRASES = (("next card", "next card"), ("com break", "com break"), ("time check", "time check"), ("intro", "-intro"), ("extro", "-extro"), ("outro", "-extro"), ("llogo", "-llogo"), ("logo", "-llogo"))
 SPONSOR_LAST = {"bb": "-bb", "tr": "-tr", "tag": "tag", "dj": "dj"}   # only as the last word, so "Tag Line Promo" or "DJ Party Offer" stay commercials
 
 
 def sponsor_key(t) -> str | None:
-    """Which sponsorship item a theme is (-BB, Com Break, DJ, -Extro, -Intro, -LLogo, Next Card, Tag, Time Check, -Tr), or None for a commercial."""
+    """Which sponsorship item a theme is (-BB, Com Break, DJ, -Extro, -Intro, -LLogo, Next Card, Tag, Time Check, -Tr), or None for a commercial.
+    This only recognises the item; whether it counts as sponsorship is set in the Sponsorship items settings (see is_sponsor_theme)."""
     x = _SPACES.sub(" ", _SEPARATORS.sub(" ", norm_theme(t))).strip()
     if not x:
         return None
@@ -282,8 +283,23 @@ def sponsor_key(t) -> str | None:
     return SPONSOR_LAST.get(words[-1]) if len(words) > 1 else None
 
 
-def is_sponsor_theme(t) -> bool:
-    return sponsor_key(t) is not None
+DEFAULT_OFF = ("-tr",)       # items that are not counted as sponsorship unless ticked
+
+
+def sponsor_enabled(key: str, items: dict | None = None) -> bool:
+    """Is this item ticked as a sponsorship? `items` overrides the saved setting (used by tests)."""
+    if items is None:
+        try:
+            from . import normalise
+            items = normalise.load_config("sponsorship.json").get("items", {})
+        except (OSError, ValueError):
+            items = {}
+    return bool(items[key]) if key in items else key not in DEFAULT_OFF
+
+
+def is_sponsor_theme(t, items: dict | None = None) -> bool:
+    k = sponsor_key(t)
+    return k is not None and sponsor_enabled(k, items)
 
 
 def pricing(cur: pd.DataFrame) -> dict:

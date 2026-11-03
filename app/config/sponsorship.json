@@ -1,0 +1,15 @@
+{
+  "_note": "Which items count as sponsorship (value addition). true = counted, false = treated as a commercial. Edit under Settings, or tick them in the Sponsorship items panel.",
+  "items": {
+    "-bb": true,
+    "com break": true,
+    "dj": true,
+    "-extro": true,
+    "-intro": true,
+    "-llogo": true,
+    "next card": true,
+    "tag": true,
+    "time check": true,
+    "-tr": false
+  }
+}

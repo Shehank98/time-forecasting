@@ -17,7 +17,7 @@
 
   function tab(p, ctx) {
     p.innerHTML = `<div class="card"><div class="card-head"><div><h3>Executive Negotiation Summary</h3><div class="sub">Overall campaign, channel by channel, and programmes and sponsorship. Click any channel or programme row for the full breakdown.</div></div>
-        <button class="btn primary" type="button" id="ex-pdf">Export Executive Summary PDF</button></div>
+        <div class="row" style="gap:8px"><button class="btn" type="button" id="ex-items">Sponsorship items</button><button class="btn primary" type="button" id="ex-pdf">Export Executive Summary PDF</button></div></div>
       <div class="rp-grid"><div data-ms="ex_advertisers"></div><div data-ms="ex_channels"></div>
         <div class="field"><label for="ex-from">From</label><input id="ex-from" type="date" value="${esc(st.from)}"></div>
         <div class="field"><label for="ex-to">To</label><input id="ex-to" type="date" value="${esc(st.to)}"></div><div></div></div>
@@ -58,6 +58,8 @@
       if (q === '30' || q === '90') { from = back(end, +q - 1); to = end; } else if (q === 'month') { to = new Date(Date.parse(end.slice(0, 8) + '01T00:00:00Z') - 864e5).toISOString().slice(0, 10); from = to.slice(0, 8) + '01'; } else if (q === 'year') { from = end.slice(0, 4) + '-01-01'; to = end; }
       st.from = from; st.to = to; p.querySelector('#ex-from').value = from; p.querySelector('#ex-to').value = to; save(); run(); }; });
     p.querySelector('#ex-pdf').onclick = () => pdf(p, ctx);
+    p.querySelector('#ex-items').onclick = () => App.sponsorItemsPanel.open();
+    document.addEventListener('datachange', (e) => { if (e.detail && e.detail.sponsorship && p.isConnected) run(); });
     run();
   }
 

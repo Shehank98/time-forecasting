@@ -136,7 +136,7 @@
         airing_days: a.days.size, spots_per_airing: a.days.size ? o.spots / a.days.size : null }; })
       .sort((a, b) => (b.exclusive_ads > 0) - (a.exclusive_ads > 0) || (b.sponsored - a.sponsored) || (b.frequency_ads > 0) - (a.frequency_ads > 0) || b.value_add_spend - a.value_add_spend || b.spend - a.spend);
     const [lo, hi] = MR.minMax(C.date, rows);
-    const res = { empty: false, selection: sel, options, bounds, period: [isoFromDay(lo), isoFromDay(hi)], range: [opts.date_from || bounds[0], opts.date_to || bounds[1]], has_ratings: !!C.grp,
+    const res = { empty: false, items_counted: MR.SPONSOR_THEMES.filter((k) => MR.sponsorEnabled(k)).map((k) => MR.sponsorLabel(k)), selection: sel, options, bounds, period: [isoFromDay(lo), isoFromDay(hi)], range: [opts.date_from || bounds[0], opts.date_to || bounds[1]], has_ratings: !!C.grp,
       rule: { min_daily: minDaily, max_dur: maxDur, consistent_share: CONSISTENT_SHARE * 100, consistent_days: CONSISTENT_DAYS }, labels: { frequency: HF, exclusive: EX, sponsorship: SPN },
       overall, languages, media, durations, brands, channels, programmes: programmes.slice(0, 80), n_programmes: programmes.length, sponsored_programmes: programmes.filter((p) => p.sponsored).length,
       classified: groups.filter((r) => r.sponsorship || r.frequency).sort(sortClass).slice(0, 150), n_classified: groups.filter((r) => r.sponsorship || r.frequency).length };
