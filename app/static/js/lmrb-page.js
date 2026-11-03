@@ -107,8 +107,14 @@
   /* ---------------- Creatives ---------------- */
   let cstat = 'ALL';
   const SPONSOR_TH = ['-bb', 'com break', 'dj', '-extro', '-intro', '-llogo', 'next card', 'tag', 'time check', '-tr'];
-  // same rule as the engine (analytics_lmrb.js sponsorKey): "(10)(Sin)" tags and spaces around dashes do not matter
-  const isSponsorTheme = (t) => { const x = String(t == null ? '' : t).toLowerCase().replace(/(\s*\([^)]*\))+\s*$/, '').replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim(); return !!x && SPONSOR_TH.some((k) => x === k || (k[0] === '-' && x.endsWith(k))); };
+  // same rule as the engine (analytics_lmrb.js sponsorKey): "(10)(Sin)" tags, spaces around dashes and the programme name before or after do not matter
+  const SP_PHRASES = [['next card', 1], ['com break', 1], ['time check', 1], ['intro', 1], ['extro', 1], ['llogo', 1]], SP_LAST = { bb: 1, tr: 1, tag: 1, dj: 1 };
+  const isSponsorTheme = (t) => {
+    const x = String(t == null ? '' : t).toLowerCase().replace(/(\s*\([^)]*\))+\s*$/, '').replace(/\s*-\s*/g, '-').replace(/[_/|]+/g, ' ').replace(/\s+/g, ' ').trim(); if (!x) return false;
+    if (SPONSOR_TH.some((k) => x === k || (k[0] === '-' && x.endsWith(k)))) return true;
+    const w = ` ${x.replace(/-/g, ' ').replace(/\s+/g, ' ')} `, words = w.trim().split(' ');
+    return SP_PHRASES.some(([ph]) => w.includes(` ${ph} `)) || (words.length > 1 && !!SP_LAST[words[words.length - 1]]);
+  };
   function creatives(p, ctx) {
     const all = ctx.data.creatives.map((r) => ({ ...r, kind: isSponsorTheme(r.theme) ? 'Sponsorship' : 'Commercial' }));
     const counts = {}; all.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });

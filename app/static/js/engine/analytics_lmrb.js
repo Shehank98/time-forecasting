@@ -224,10 +224,20 @@
   /** Theme name made comparable: lower case, the usual "(10)(Sin)" length and language tags at the end removed, spaces around dashes and double spaces removed. */
   const normTheme = (t) => String(t == null ? '' : t).toLowerCase().replace(/(\s*\([^)]*\))+\s*$/, '').replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim();
   /** The sponsorship item a theme is (its key in SPONSOR_THEMES), or null. "Tag", "Time Check (10)(Sin)", "Teledrama -BB", "Teledrama - BB (5)" all match; "Tag Line Promo" does not. */
-  const sponsorKey = (t) => { const x = normTheme(t); if (!x) return null; for (const k of SPONSOR_THEMES) if (x === k || (k[0] === '-' && x.endsWith(k))) return k; return null; };
+  // items written after (or before) the programme name: "Lakshapathi Next Card", "Lakshapathi_Intro", "Next Card_Lakshapathi", "Lakshapathi BB"
+  const SPONSOR_PHRASES = [['next card', 'next card'], ['com break', 'com break'], ['time check', 'time check'], ['intro', '-intro'], ['extro', '-extro'], ['llogo', '-llogo']];
+  const SPONSOR_LAST = { bb: '-bb', tr: '-tr', tag: 'tag', dj: 'dj' };   // only as the last word, so "Tag Line Promo" or "DJ Party Offer" stay commercials
+  const sponsorKey = (t) => {
+    const x = normTheme(t).replace(/[_/|]+/g, ' ').replace(/\s+/g, ' ').trim(); if (!x) return null;
+    for (const k of SPONSOR_THEMES) if (x === k || (k[0] === '-' && x.endsWith(k))) return k;
+    const w = ` ${x.replace(/-/g, ' ').replace(/\s+/g, ' ')} `;
+    for (const [ph, k] of SPONSOR_PHRASES) if (w.includes(` ${ph} `)) return k;
+    const words = w.trim().split(' ');
+    return words.length > 1 && SPONSOR_LAST[words[words.length - 1]] ? SPONSOR_LAST[words[words.length - 1]] : null;
+  };
   const isSponsorTheme = (t) => sponsorKey(t) !== null;
   /** Display name of the sponsorship item ("-BB", "Time Check" ...); whole-word Logo, Intro and Outro themes give "Logo", "Intro", "Outro"; null for a commercial. */
-  const sponsorItem = (t) => { const k = sponsorKey(t); if (k) return SPONSOR_LABEL[k]; const x = normTheme(t); return /\b(outro|extro)\b/.test(x) ? 'Outro' : /\bintro\b/.test(x) ? 'Intro' : /\blogo\b/.test(x) ? 'Logo' : null; };
+  const sponsorItem = (t) => { const k = sponsorKey(t); if (k) return SPONSOR_LABEL[k]; const x = normTheme(t).replace(/[_/|-]+/g, ' '); return /\b(outro|extro)\b/.test(x) ? 'Outro' : /\bintro\b/.test(x) ? 'Intro' : /\blogo\b/.test(x) ? 'Logo' : null; };
   function pricing(L, cur) {
     const flag = L.dicts.theme.map(isSponsorTheme), T = L.cols.theme;
     const isSp = (i) => T[i] >= 0 && flag[T[i]];

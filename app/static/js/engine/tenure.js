@@ -38,11 +38,12 @@
       const a = mode === 'calendar' ? Math.max(miMin, (Math.floor(miMin / 12) + p) * 12) : miMin + 12 * p, b = Math.min(miMax, mode === 'calendar' ? (Math.floor(miMin / 12) + p) * 12 + 11 : miMin + 12 * p + 11);
       return { index: p, label: mode === 'calendar' ? String(Math.floor(miMin / 12) + p) : ordinal(p), from: monthName(a), to: monthName(b), months: b - a + 1, range: `${monthName(a)} to ${monthName(b)}` };
     });
-    // Frequency sponsorships are bought on the channel, not in a programme: Tag, Com Break and Time Check items, and any ad that is
+    // Frequency sponsorships are bought on the channel, not in a programme: Tag, Com Break and Time Check items, and any commercial that is
     // max_dur seconds or shorter and averages min_daily or more spots a day on the channel. They are kept out of programme sponsorship.
     const fq = MR.frequencyGroups(L, idx, opts);
     const freqTheme = L.dicts.theme.map((t) => { const k = MR.sponsorKey(t); return FREQ_ITEMS[k] || null; });
-    const isFreq = (i) => freqTheme[C.theme[i]] !== null || fq.groups.get(fq.key(i)).frequency;
+    // the short-spot rule only applies to commercials: an intro or next card that runs 10+ times a day is still programme sponsorship
+    const isFreq = (i) => freqTheme[C.theme[i]] !== null || (!sc.kinds[C.theme[i]] && fq.groups.get(fq.key(i)).frequency);
     const kinds = sc.kinds.map((k, c) => (freqTheme[c] ? 0 : k));                // programme sponsorship kinds only
     const chCode = opts.channel ? L.dicts.channel.indexOf(opts.channel) : -2, pgCode = opts.program ? L.dicts.program.indexOf(opts.program) : -2, adCode = opts.advertiser ? L.dicts.advertiser.indexOf(opts.advertiser) : -2;
     // ---- picker lists, each narrowed by the choice above it (always from the whole upload)

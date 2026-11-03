@@ -422,10 +422,10 @@ The same start and end dates, month-by-month table, steady-value note and prime-
 
 **Programme sponsorship vs frequency sponsorship.** In this view the two are kept apart:
 - **Programme sponsorship:** -BB, -Intro, -Extro, -LLogo, Next Card, DJ and -Tr items (plus whole-word Logo, Intro and Outro themes) placed in a programme. These drive the programme tables, the "Sponsored all N years" status and the year and month figures above.
-- **Frequency sponsorship:** **Tag, Com Break and Time Check** items, and any ad that is **10 seconds or shorter and averages 10 or more spots a day** on a channel (the same ad and theme, judged across the whole upload). They are bought on the channel, so they are **never counted as programme sponsorship**.
+- **Frequency sponsorship:** **Tag, Com Break and Time Check** items, and any commercial that is **10 seconds or shorter and averages 10 or more spots a day** on a channel (the same ad and theme, judged across the whole upload). Programme sponsorship items are never turned into frequency spots, so an intro or next card that runs 12 times a day stays programme sponsorship. They are bought on the channel, so they are **never counted as programme sponsorship**.
 - **Where they are shown:**
   - On screen, a **Frequency sponsorships by channel** table appears under the programme list. Click a channel for the month-by-month counts and the ads that ran.
-  - In the PDF, the same table follows the programme overview: per channel, the Tag, Com Break, Time Check and short-spot counts, total ads, each year with its start and end dates, days on air, daily average and value. Each channel then gets a page with a month-by-month table (Tag, Com Break, Time Check, short spots, total and value) and "What ads ran".
+  - In the PDF, "Who sponsored what, year by year" is grouped by channel, with a channel row and its totals followed by its programmes. The frequency table follows it: per channel, the Tag, Com Break, Time Check and short-spot counts, total ads, each year with its start and end dates, days on air, daily average and value. Each channel then gets a page with a month-by-month table (Tag, Com Break, Time Check, short spots, total and value) and "What ads ran".
 
 The numbers are computed in the browser (`app/static/js/engine/tenure.js`). `tests/test_tenure.py` checks them against pandas on a 2-year sample with a both-years sponsor, a year-1-only sponsor, a year-2-only sponsor and an occasional one.
 
@@ -433,25 +433,27 @@ The numbers are computed in the browser (`app/static/js/engine/tenure.js`). `tes
 
 These Advt_Theme values count as sponsorship (value-add); everything else is a commercial:
 
-| Item | Matches when the theme is | Examples that match |
+| Item | Matches when the theme | Examples that match |
 |---|---|---|
-| -BB | anything ending in "-BB" | Teledrama -BB, Teledrama - BB (5)(Sin) |
-| Com Break | exactly "Com Break" | COM BREAK, Com Break (10) |
-| DJ | exactly "DJ" | DJ (Sin) |
-| -Extro | anything ending in "-Extro" | Dream Star - Extro |
-| -Intro | anything ending in "-Intro" | Dream Star -Intro (10)(Sin) |
-| -LLogo | anything ending in "-LLogo" | Dream Star - LLogo |
-| Next Card | exactly "Next Card" | Next Card (5) |
-| Tag | exactly "Tag" | Tag (5)(Sin) |
-| Time Check | exactly "Time Check" | Time check, Time Check (10)(Sin) |
-| -Tr | anything ending in "-Tr" | News -Tr (5) |
+| -BB | ends in "-BB", or ends with the word "BB" | Teledrama -BB, Teledrama - BB (5)(Sin), Lakshapathi BB |
+| Com Break | contains the words "Com Break" | Com Break, COM BREAK (10), Com Break Sirasa |
+| DJ | is "DJ", or ends with the word "DJ" | DJ (Sin), Morning DJ |
+| -Extro | contains the word "Extro" | Dream Star - Extro, Lakshapathi_Extro |
+| -Intro | contains the word "Intro" | Dream Star -Intro (10)(Sin), Lakshapathi Intro, Lakshapathi_Intro |
+| -LLogo | contains the word "LLogo" | Dream Star - LLogo, Lakshapathi_LLogo |
+| Next Card | contains the words "Next Card" | Next Card (5), Lakshapathi Next Card, Next Card_Lakshapathi |
+| Tag | is "Tag", or ends with the word "Tag" | Tag (5)(Sin), Lakshapathi Tag |
+| Time Check | contains the words "Time Check" | Time check, Time Check (10)(Sin), Lakshapathi Time Check |
+| -Tr | ends in "-Tr", or ends with the word "Tr" | News -Tr (5) |
 
 **What the matching ignores:**
 - letter case;
 - the "(length)(language)" tags at the end, for example "(10)(Sin)";
 - spaces around the dash;
-- double spaces.
+- underscores, which are read as spaces;
+- double spaces;
+- the programme name written before or after the item.
 
-Commercials that only look similar, such as "Tag Line Promo", "DJ Party Offer" or "Time Checker App", stay commercials.
+Commercials that only look similar, such as "Tag Line Promo", "DJ Party Offer", "Time Checker App" or "Next Cardigan Sale", stay commercials. Words count only when whole, and Tag, DJ, BB and Tr count only as the last word.
 
 **Extra keywords:** the Spotlight, Executive and Sponsorship-over-time views also treat a theme containing the whole word "Logo", "Intro" or "Outro" as a sponsorship item. The rule is the same in the browser (`app/static/js/engine/analytics_lmrb.js`) and on the server (`app/services/analytics_lmrb.py`), and `tests/test_sponsor_themes.py` checks that both agree.

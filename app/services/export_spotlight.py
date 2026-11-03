@@ -292,31 +292,44 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
     el += [PageBreak(), Paragraph("Who sponsored what, year by year", s.h2),
            Paragraph("One row per advertiser and programme. Each year column shows when the sponsorship started and ended in that year and the ads they ran in the programme that year. "
                      "The ad themes are the sponsorship items (and other ads) behind it.", s.small), Spacer(1, 3)]
-    head = ["Advertiser", "Channel", "Programme", "Status", "Ad themes"] + [f"{p['label']}: started to ended (ads)" for p in periods] + ["Total ads", "Sponsorship ads", "Spend LKR"]
+    # grouped by channel: a channel row with its totals, then the programmes on that channel
+    head = ["Channel / programme", "Advertiser", "Status", "Ad themes"] + [f"{p['label']}: started to ended (ads)" for p in periods] + ["Total ads", "Sponsorship ads", "Spend LKR"]
     cell = s.cell
     data = [head]
-    for r in rows[:60]:
-        rc = STATUS_COLOR.get(r.get("status_code"), "#646A8A")
-        themes = [t for t in (r.get("themes") or []) if t.get("sponsorship")][:3] or (r.get("themes") or [])[:2]
-        th_txt = "<br/>".join(f"{safe(t['theme'])} <font color='#646A8A'>({safe(t.get('item', ''))}, {t['spots']:,})</font>" for t in themes) or "n/a"
-        yr = []
-        for x in r.get("periods") or []:
-            if x.get("sponsored"):
-                tag = "" if x.get("consistent") else " <font color='#c27a06'>occasional</font>"
-                yr.append(Paragraph(f"{_d(x.get('sponsored_start'))}<br/>to {_d(x.get('sponsored_end'))}{tag}<br/><b>{x['total_ads']:,} ads</b>", cell))
-            else:
-                yr.append(Paragraph(f"<font color='#646A8A'>{'Not on air' if not x.get('aired') else 'No sponsorship'}</font><br/><b>{x['total_ads']:,} ads</b>", cell))
-        data.append([Paragraph(f"<b>{safe(r['advertiser'])}</b>", cell), _title(r["channel"]), _title(r["program"]), Paragraph(f"<font color='{rc}'><b>{safe(r.get('status', ''))}</b></font>", cell),
-                     Paragraph(th_txt, cell)] + yr + [_n(r.get("total_ads")), _n(r.get("sponsorship_ads")), _n(r.get("spend"))])
     style = []
+    shown = rows[:60]
+    groups: dict[str, list] = {}
+    for r in shown:
+        groups.setdefault(r["channel"], []).append(r)
+    order = sorted(groups, key=lambda c: -sum(r.get("sponsorship_ads") or 0 for r in groups[c]))
+    ch_bg = colors.HexColor("#e9eafc")
+    for ch in order:
+        g = groups[ch]
+        yt = [sum((r["periods"][i]["total_ads"] if i < len(r.get("periods") or []) else 0) for r in g) for i in range(len(periods))]
+        data.append([Paragraph(f"<b>{safe(_title(ch))}</b> <font size=6.5 color='#646A8A'>{len(g)} programme{'s' if len(g) != 1 else ''}</font>", cell), "", "", ""]
+                    + [Paragraph(f"<b>{v:,} ads</b>", cell) for v in yt] + [_n(sum(r.get("total_ads") or 0 for r in g)), _n(sum(r.get("sponsorship_ads") or 0 for r in g)), _n(sum(r.get("spend") or 0 for r in g))])
+        style += [("BACKGROUND", (0, len(data) - 1), (-1, len(data) - 1), ch_bg), ("FONTNAME", (0, len(data) - 1), (-1, len(data) - 1), "Helvetica-Bold"), ("LINEABOVE", (0, len(data) - 1), (-1, len(data) - 1), 0.8, brand)]
+        for r in g:
+            rc = STATUS_COLOR.get(r.get("status_code"), "#646A8A")
+            themes = [t for t in (r.get("themes") or []) if t.get("sponsorship")][:3] or (r.get("themes") or [])[:2]
+            th_txt = "<br/>".join(f"{safe(t['theme'])} <font color='#646A8A'>({safe(t.get('item', ''))}, {t['spots']:,})</font>" for t in themes) or "n/a"
+            yr = []
+            for x in r.get("periods") or []:
+                if x.get("sponsored"):
+                    tag = "" if x.get("consistent") else " <font color='#c27a06'>occasional</font>"
+                    yr.append(Paragraph(f"{_d(x.get('sponsored_start'))}<br/>to {_d(x.get('sponsored_end'))}{tag}<br/><b>{x['total_ads']:,} ads</b>", cell))
+                else:
+                    yr.append(Paragraph(f"<font color='#646A8A'>{'Not on air' if not x.get('aired') else 'No sponsorship'}</font><br/><b>{x['total_ads']:,} ads</b>", cell))
+            data.append([Paragraph(f"&nbsp;&nbsp;&nbsp;{safe(_title(r['program']))}", cell), Paragraph(f"<b>{safe(r['advertiser'])}</b>", cell), Paragraph(f"<font color='{rc}'><b>{safe(r.get('status', ''))}</b></font>", cell),
+                         Paragraph(th_txt, cell)] + yr + [_n(r.get("total_ads")), _n(r.get("sponsorship_ads")), _n(r.get("spend"))])
     if len(data) > 1:
         n = len(data) - 1
-        sm = lambda f: sum(f(r) for r in rows[:60])  # noqa: E731
-        data.append(["Total", "", "", "", ""] + [_n(sum((r["periods"][i]["total_ads"] if i < len(r.get("periods") or []) else 0) for r in rows[:60])) for i in range(len(periods))]
+        sm = lambda f: sum(f(r) for r in shown)  # noqa: E731
+        data.append(["Total", "", "", ""] + [_n(sum((r["periods"][i]["total_ads"] if i < len(r.get("periods") or []) else 0) for r in shown)) for i in range(len(periods))]
                     + [_n(sm(lambda r: r.get("total_ads") or 0)), _n(sm(lambda r: r.get("sponsorship_ads") or 0)), _n(sm(lambda r: r.get("spend") or 0))])
         style += [("FONTNAME", (0, n + 1), (-1, n + 1), "Helvetica-Bold"), ("LINEABOVE", (0, n + 1), (-1, n + 1), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, n + 1), (-1, n + 1), colors.HexColor("#e1e3fb"))]
-    style += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(5 + len(periods), len(head))] + [("VALIGN", (0, 0), (-1, -1), "TOP")]
-    el.append(_table(data, [2.8, 1.6, 2.4, 2.8, 4.6] + [3.2] * len(periods) + [1.3, 1.5, 2.1], s, brand, style))
+    style += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(4 + len(periods), len(head))] + [("VALIGN", (0, 0), (-1, -1), "TOP")]
+    el.append(_table(data, [3.2, 2.8, 2.8, 4.6] + [3.2] * len(periods) + [1.3, 1.5, 2.1], s, brand, style))
     if len(rows) > 60:
         el.append(Paragraph(f"Showing 60 of {len(rows)} rows. Pick a channel or advertiser for the rest.", s.small))
 
@@ -330,7 +343,7 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
                          "These are bought on the channel, not in a programme, so they are not counted in the programme sponsorships above. Each year column shows the ads that year and when they started and ended.", s.small), Spacer(1, 3)]
         head = ["Advertiser", "Channel", "Tag", "Com Break", "Time Check", f"Short spots ({frule.get('max_dur', 10)}s, {frule.get('min_daily', 10)}+ a day)", "Total ads"] + [f"{p['label']}" for p in periods] + ["Days on air", "Daily average", "Value LKR"]
         data = [head]
-        for r in frows[:60]:
+        for r in sorted(frows[:60], key=lambda r: (r["channel"], -r["ads"])):
             data.append([Paragraph(f"<b>{safe(r['advertiser'])}</b>", s.cell), _title(r["channel"]), _n(r.get("tag")), _n(r.get("com_break")), _n(r.get("time_check")), _n(r.get("short_spots")), _n(r.get("ads"))]
                         + [Paragraph(f"<b>{x['ads']:,}</b>" + (f"<br/><font size=6.5 color='#646A8A'>{_d(x.get('start'))} to {_d(x.get('end'))}</font>" if x.get("start") else ""), s.cell) for x in r.get("periods") or []]
                         + [_n(r.get("days")), _n(r.get("daily_avg"), "dec"), _n(r.get("value"))])

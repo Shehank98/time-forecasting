@@ -260,12 +260,26 @@ def norm_theme(t) -> str:
     return _SPACES.sub(" ", _DASH.sub("-", _TRAILING_TAGS.sub("", x))).strip()
 
 
+_SEPARATORS = re.compile(r"[_/|]+")
+# items written after (or before) the programme name: "Lakshapathi Next Card", "Lakshapathi_Intro", "Next Card_Lakshapathi", "Lakshapathi BB"
+SPONSOR_PHRASES = (("next card", "next card"), ("com break", "com break"), ("time check", "time check"), ("intro", "-intro"), ("extro", "-extro"), ("llogo", "-llogo"))
+SPONSOR_LAST = {"bb": "-bb", "tr": "-tr", "tag": "tag", "dj": "dj"}   # only as the last word, so "Tag Line Promo" or "DJ Party Offer" stay commercials
+
+
 def sponsor_key(t) -> str | None:
     """Which sponsorship item a theme is (-BB, Com Break, DJ, -Extro, -Intro, -LLogo, Next Card, Tag, Time Check, -Tr), or None for a commercial."""
-    x = norm_theme(t)
+    x = _SPACES.sub(" ", _SEPARATORS.sub(" ", norm_theme(t))).strip()
     if not x:
         return None
-    return next((k for k in SPONSOR_THEMES if x == k or (k[0] == "-" and x.endswith(k))), None)
+    k = next((k for k in SPONSOR_THEMES if x == k or (k[0] == "-" and x.endswith(k))), None)
+    if k:
+        return k
+    w = " " + _SPACES.sub(" ", x.replace("-", " ")) + " "
+    k = next((k for ph, k in SPONSOR_PHRASES if f" {ph} " in w), None)
+    if k:
+        return k
+    words = w.split()
+    return SPONSOR_LAST.get(words[-1]) if len(words) > 1 else None
 
 
 def is_sponsor_theme(t) -> bool:

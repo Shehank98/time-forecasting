@@ -26,9 +26,13 @@ CASES = [
     ("Tag", "tag"), ("Tag (5)(Sin)", "tag"), (" tag ", "tag"),
     ("Time Check", "time check"), ("Time check", "time check"), ("Time Check (10)(Sin)", "time check"),
     ("News -Tr", "-tr"), ("News -Tr (5)", "-tr"),
+    # the item written after or before the programme name
+    ("Lakshapathi Next Card", "next card"), ("Lakshapathi - Next Card (5)(Sin)", "next card"), ("Next Card_Lakshapathi", "next card"), ("Lakshapathi Intro", "-intro"),
+    ("Lakshapathi_Intro (10)(Sin)", "-intro"), ("Lakshapathi BB", "-bb"), ("Lakshapathi_LLogo", "-llogo"), ("Lakshapathi Tag", "tag"), ("Lakshapathi Time Check", "time check"),
+    ("Com Break Sirasa", "com break"), ("Lakshapathi_Extro", "-extro"),
     # commercials that only look similar
     ("Island Tea Reminder (30)", None), ("Tag Line Promo (30)", None), ("Christmas Tree (30)", None), ("Dj Party Offer (30)", None),
-    ("Hemadamath Rasawath_Pumpkin Curry (10)(Sin)", None), ("Extra Value (20)", None), ("Introduction Offer (30)", None), ("Time Checker App (30)", None), ("", None), (None, None),
+    ("Hemadamath Rasawath_Pumpkin Curry (10)(Sin)", None), ("Extra Value (20)", None), ("Introduction Offer (30)", None), ("Time Checker App (30)", None), ("Next Cardigan Sale (30)", None), ("Tagline Offer (30)", None), ("", None), (None, None),
 ]
 LABEL = {"-bb": "-BB", "com break": "Com Break", "dj": "DJ", "-extro": "-Extro", "-intro": "-Intro", "-llogo": "-LLogo", "next card": "Next Card", "tag": "Tag", "time check": "Time Check", "-tr": "-Tr"}
 

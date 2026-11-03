@@ -44,6 +44,7 @@ def sheet(tmp_path_factory):
              make_rows(tm, y1[::2], "Ceylon Biscuits", "Lemon Puff", "Tag", k=3, dur=5, offset=700),               # frequency: tags, never programme sponsorship
              make_rows(tm, y2[::3], "Ceylon Biscuits", "Lemon Puff", "Com Break (10)(Sin)", k=2, dur=10, offset=800), # frequency: com breaks
              make_rows(tm, y2[:60], "Nestle Lanka Ltd", "Maggi", "Maggi Reminder (5)", k=12, dur=5, offset=600),   # frequency: a 5s spot 12 times a day
+             make_rows(tm, y2[:30], "Nestle Lanka Ltd", "Maggi", "Lakshapathi Next Card", k=12, dur=5, offset=1200),  # a 5s next card 12 times a day: still programme sponsorship
              make_rows(tm, dates[::10], "Ceylon Biscuits", "Lemon Puff", "Lemon Puff (30)", dur=30, offset=400)]  # only ordinary spots
     p = tmp_path_factory.mktemp("ten") / "lm.csv"
     all_ = pd.concat(parts, ignore_index=True)
@@ -61,9 +62,11 @@ def sheet(tmp_path_factory):
     df["freq_item"] = df["Advt_Theme"].map(lambda t: sponsor_key(t) in ("tag", "com break", "time check"))
     g = df.assign(d=df["Dur"].where(df["Dur"] > 0)).groupby(["Advertiser", "ch", "Advt_Theme"]).agg(med=("d", "median"), n=("Cost", "size"), days=("t", "nunique"))
     short = set(g[(g["med"] <= 10) & (g["n"] / g["days"] >= 10)].index)
-    df["freq"] = df["freq_item"] | pd.Series([k in short for k in zip(df["Advertiser"], df["ch"], df["Advt_Theme"])], index=df.index)
-    words = df["Advt_Theme"].str.contains(r"\b(?:Logo|Intro|Outro)\b", case=False, regex=True)
-    df["sp2"] = (df["Advt_Theme"].map(is_sponsor_theme) | words) & ~df["freq"]
+    words = df["Advt_Theme"].str.replace("_", " ").str.contains(r"\b(?:Logo|Intro|Outro)\b", case=False, regex=True)
+    sponsor = df["Advt_Theme"].map(is_sponsor_theme) | words
+    # the short-spot rule only applies to commercials: sponsorship items are never turned into frequency spots
+    df["freq"] = df["freq_item"] | (pd.Series([k in short for k in zip(df["Advertiser"], df["ch"], df["Advt_Theme"])], index=df.index) & ~sponsor)
+    df["sp2"] = sponsor & ~df["freq"]
     return p, df
 
 
@@ -148,7 +151,7 @@ def test_tenure_pdf(sheet):
     pdf = pytest.importorskip("pypdf").PdfReader(io.BytesIO(r.content))
     text = " ".join(pg.extract_text() for pg in pdf.pages)
     for s in ("Sponsorship over time", "Year 1", "Year 2", "Lanka Tea Co", "Dream Star", "Sponsored all 2 years", "Stopped after Year 1", "What ads ran", "Dream Star -Intro",
-              "started to ended", "1 Nov 2024", "31 Oct 2025", "Whole period", "Frequency sponsorships by channel", "Month by month on this channel", "Com Break", "Month by month in this programme", "Commercial-only value", "Steady sponsorship value", "prime time"):
+              "started to ended", "1 Nov 2024", "31 Oct 2025", "Whole period", "Frequency sponsorships by channel", "Month by month on this channel", "Com Break", "Channel / programme", "Month by month in this programme", "Commercial-only value", "Steady sponsorship value", "prime time"):
         assert s in text, s
     assert "—" not in text
 
@@ -251,5 +254,9 @@ def test_frequency_sponsorships(sheet):
     dream = next(r for r in n["rows"] if r["program"] == PROG)
     assert dream["total_ads"] == int(((df["ch"] == CH) & (df["prog"] == PROG) & (df["Advertiser"] == "Nestle Lanka Ltd") & ~df["freq"]).sum())
     assert not any(t["theme"] == "Maggi Reminder (5)" for t in dream["themes"])
+    # a next card running 12 times a day stays in the programme sponsorship (it is not a frequency spot)
+    nc = next(t for t in dream["themes"] if t["theme"] == "Lakshapathi Next Card")
+    assert nc["sponsorship"] and nc["item"] == "Next Card" and nc["spots"] == 360
+    assert not any(t["theme"] == "Lakshapathi Next Card" for r in n["frequency"]["rows"] for t in r["themes"])
     # the background Time Check items are frequency too
     assert any(r["time_check"] > 0 for r in node("tenure", p, {"advertiser": "Lanka Tea Co"})["frequency"]["rows"])

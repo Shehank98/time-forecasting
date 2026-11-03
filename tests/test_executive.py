@@ -133,5 +133,5 @@ def test_keywords_logo_intro_outro(tmp_path):
     p = tmp_path / "k.csv"; pd.concat(parts, ignore_index=True).to_csv(p, index=False)
     d = node("exec", p, {"channels": ["DERANA"]})
     items = {r["theme"]: r["item"] for r in d["classified"] if r["advertiser"] == "Lanka Tea Co"}
-    assert items["Island Tea Logo"] == "Logo" and items["Big Show Intro"] == "Intro" and items["Big Show Outro"] == "Outro"
+    assert items["Island Tea Logo"] == "Logo" and items["Big Show Intro"] == "-Intro" and items["Big Show Outro"] == "Outro"
     assert "Introduction Offer (30)" not in items            # a whole word only: this is a normal commercial
