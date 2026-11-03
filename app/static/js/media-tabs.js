@@ -86,11 +86,46 @@
     try {
       const X = await loadXlsx(), wb = X.utils.book_new(), M = d.months;
       const fmtCells = (ws, r0, r1, c0, c1) => { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) { const a = ws[X.utils.encode_cell({ r, c })]; if (a && a.t === 'n') a.z = '#,##0'; } };
-      const sum = [['Spend by year, all channels (LKR)'], ...(d.no_medium ? [['WARNING: this LMRB sheet was loaded before TV, radio and press were split. Upload the LMRB sheet again, then download this file again. Press channels are shown as TV until then.']] : []), ['Advertisers', d.advertisers.length ? d.advertisers.join(', ') : 'All'], ['Sponsorship items counted as VAL', d.items_counted.join(', ') || 'none'], [],
-        ['Year', 'Medium', 'Commercial only', 'VAL (value addition)', 'Total']];
-      d.years.forEach((y) => ORDER.forEach((m) => { const c = y.commercial.media.find((x) => x.medium === m).total, v = y.value_add.media.find((x) => x.medium === m).total; if (c || v) sum.push([y.year, m, Math.round(c), Math.round(v), Math.round(c + v)]); }));
-      d.years.forEach((y) => sum.push([y.year, 'All media', Math.round(y.commercial.grand.total), Math.round(y.value_add.grand.total), Math.round(y.total.grand.total)]));
-      const ws0 = X.utils.aoa_to_sheet(sum); ws0['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 16 }]; fmtCells(ws0, 5, sum.length, 2, 4); X.utils.book_append_sheet(wb, ws0, 'Summary');
+      const R = Math.round, sh = (a, b) => (b > 0 ? a / b : 0), ys = d.years;
+      const fmtCols = (ws, rows, num, pc) => { rows.forEach((r) => { num.forEach((c) => { const a = ws[X.utils.encode_cell({ r, c })]; if (a && a.t === 'n') a.z = '#,##0'; }); pc.forEach((c) => { const a = ws[X.utils.encode_cell({ r, c })]; if (a && a.t === 'n') a.z = '0.0%'; }); }); };
+      const mt = (b, m) => b.media.find((x) => x.medium === m).total;
+      const top = [['Spend summary, all channels (LKR)'], ...(d.no_medium ? [['WARNING: this LMRB sheet was loaded before TV, radio and press were split. Upload the LMRB sheet again, then download this file again. Press channels are shown as TV until then.']] : []),
+        ['Advertisers', d.advertisers.length ? d.advertisers.join(', ') : 'All'], ['Sponsorship items counted as VAL', d.items_counted.join(', ') || 'none'], ['Press', 'All press is commercial'], []];
+      // 1. each year: commercial, VAL, total
+      const A = [...top, ['1. Totals by year'], ['Year', 'Commercial only', 'VAL (value addition)', 'Total', 'VAL share of total', 'Change on previous year', 'Channels', 'Busiest month', 'Busiest month spend']];
+      const a0 = A.length, rowsA = [];
+      ys.forEach((y, k) => { const t = y.total.grand, pk = t.months.indexOf(Math.max(...t.months)), prev = k ? ys[k - 1].total.grand.total : 0;
+        rowsA.push(A.length); A.push([y.year, R(y.commercial.grand.total), R(y.value_add.grand.total), R(t.total), sh(y.value_add.grand.total, t.total), prev > 0 ? t.total / prev - 1 : '', y.total.rows.length, M[pk], R(t.months[pk])]); });
+      A.push([]);
+      // 2. each year by medium
+      A.push(['2. Medium share by year (TV, radio, press)']); A.push(['Year', 'Medium', 'Commercial only', 'VAL (value addition)', 'Total', 'Share of year total', 'VAL share of medium', 'Channels']);
+      const rowsB = [];
+      ys.forEach((y) => ORDER.forEach((m) => { const c = mt(y.commercial, m), v = mt(y.value_add, m), t = mt(y.total, m); if (!t) return;
+        rowsB.push(A.length); A.push([y.year, m, R(c), R(v), R(t), sh(t, y.total.grand.total), sh(v, t), y.total.media.find((x) => x.medium === m).channels]); }));
+      A.push([]);
+      // 3. medium across the years
+      if (ys.length > 1) {
+        A.push(['3. Medium across the years (total spend)']); A.push(['Medium', ...ys.map((y) => y.year), ...ys.slice(1).map((y, k) => `Change ${ys[k].year} to ${y.year}`)]);
+        const rowsC = [];
+        ORDER.forEach((m) => { const v = ys.map((y) => mt(y.total, m)); if (!v.some(Boolean)) return; rowsC.push(A.length);
+          A.push([m, ...v.map(R), ...v.slice(1).map((x, k) => (v[k] > 0 ? x / v[k] - 1 : ''))]); });
+        rowsC.push(A.length); const all = ys.map((y) => y.total.grand.total); A.push(['All media', ...all.map(R), ...all.slice(1).map((x, k) => (all[k] > 0 ? x / all[k] - 1 : ''))]);
+        var cRows = rowsC, cN = ys.length;
+      }
+      const ws0 = X.utils.aoa_to_sheet(A); ws0['!cols'] = [{ wch: 26 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 18 }];
+      fmtCols(ws0, rowsA, [1, 2, 3, 8], [4, 5]); fmtCols(ws0, rowsB, [2, 3, 4], [5, 6]);
+      if (cRows) fmtCols(ws0, cRows, Array.from({ length: cN }, (_, k) => k + 1), Array.from({ length: cN - 1 }, (_, k) => cN + 1 + k));
+      X.utils.book_append_sheet(wb, ws0, 'Summary');
+      // Channel share: every channel, every year
+      const H = ['Year', 'Medium', 'Channel', 'Commercial only', 'VAL (value addition)', 'Total', 'Share of year total', 'Share of its medium', 'Rank in year', 'VAL share of channel', 'Active months', 'Busiest month', 'Busiest month spend'];
+      const CS = [['Channel share by year (LKR), biggest first within each year'], ...(d.no_medium ? [['WARNING: old upload, medium not split. Upload the LMRB sheet again.']] : []), [`Advertisers: ${d.advertisers.length ? d.advertisers.join(', ') : 'All'}`], [], H];
+      const rowsD = [];
+      ys.forEach((y) => { const com = new Map(y.commercial.rows.map((r) => [r.medium + '|' + r.name, r.total])), val = new Map(y.value_add.rows.map((r) => [r.medium + '|' + r.name, r.total]));
+        [...y.total.rows].sort((a, b) => b.total - a.total).forEach((r, k) => { const key = r.medium + '|' + r.name, pk = r.months.indexOf(Math.max(...r.months)), mtot = mt(y.total, r.medium);
+          rowsD.push(CS.length); CS.push([y.year, r.medium, tt(r.name), R(com.get(key) || 0), R(val.get(key) || 0), R(r.total), sh(r.total, y.total.grand.total), sh(r.total, mtot), k + 1, sh(val.get(key) || 0, r.total), r.months.filter((v) => v > 0).length, M[pk], R(r.months[pk])]); });
+        rowsD.push(CS.length); CS.push([y.year, 'All media', 'All channels', R(y.commercial.grand.total), R(y.value_add.grand.total), R(y.total.grand.total), 1, '', '', sh(y.value_add.grand.total, y.total.grand.total), '', '', '']); CS.push([]); });
+      const wsC = X.utils.aoa_to_sheet(CS); wsC['!cols'] = [{ wch: 7 }, { wch: 11 }, { wch: 28 }, { wch: 17 }, { wch: 19 }, { wch: 15 }, { wch: 17 }, { wch: 17 }, { wch: 12 }, { wch: 19 }, { wch: 14 }, { wch: 14 }, { wch: 19 }];
+      fmtCols(wsC, rowsD, [3, 4, 5, 12], [6, 7, 9]); X.utils.book_append_sheet(wb, wsC, 'Channel share');
       d.years.forEach((y) => {
         const aoa = [[`Spend ${y.year}: TV, radio and press (LKR)`].concat(d.no_medium ? ['(old upload: medium not split, upload the LMRB sheet again)'] : []), [`Advertisers: ${d.advertisers.length ? d.advertisers.join(', ') : 'All'}`], []];
         const marks = [];
