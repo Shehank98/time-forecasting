@@ -148,36 +148,38 @@
         : `${advName} ran ${totalAds.toLocaleString('en-US')} ad${totalAds === 1 ? '' : 's'} in ${pgTitle} on ${chTitle} (${first} to ${last}), with no sponsorship items.`;
       return { advertiser: advName, channel: chName, program: pgName, products: prods.slice(0, 3), status, status_code: code, first_seen: first, last_seen: last, sponsored_from: sFirst ? sFirst.label : null, sponsored_to: sLast ? sLast.label : null,
         months_span: span, months_with_sponsorship: spMonths.length, years_sponsored: consIdx.length, years_with_items: spon.length, years_aired: aired.length, periods: per, total_ads: totalAds, sponsorship_ads: spAds, other_ads: totalAds - spAds, spend: sumK('spend'), sponsorship_spend: sumK('sponsorship_spend'),
-        airing_days: airDays, days_present: present, days_sponsored: sumK('days_sponsored'), presence_pct: pct(sumK('days_sponsored'), airDays), sponsored_first: per.map((x) => x.sponsored_start).filter(Boolean).sort()[0] || null, sponsored_last: per.map((x) => x.sponsored_end).filter(Boolean).sort().slice(-1)[0] || null, gaps: realGaps, months, themes, pattern, prime: primeSplit, time_mix: timeMix, headline };
+        airing_days: airDays, days_present: present, days_sponsored: sumK('days_sponsored'), presence_pct: pct(sumK('days_sponsored'), airDays), sponsored_first: per.map((x) => x.sponsored_start).filter(Boolean).sort()[0] || null, sponsored_last: per.map((x) => x.sponsored_end).filter(Boolean).sort().slice(-1)[0] || null, gaps: realGaps, months, themes, pattern, prime: primeSplit, time_mix: timeMix, prime_ads: pt.va_pt, other_time_ads: pt.va_npt, prime_value: pt.va_pt_v, other_time_value: pt.va_npt_v, headline };
     }).sort((x, y) => RANK[x.status_code] - RANK[y.status_code] || y.sponsorship_ads - x.sponsorship_ads || y.months_span - x.months_span);
     // ---- frequency sponsorships by advertiser x channel
     const fRows = MR.where(L, inCh, (i) => (adCode === -2 || C.advertiser[i] === adCode) && isFreq(i)), nC = L.dicts.channel.length + 1, fg = new Map();
     for (let k = 0; k < fRows.length; k++) {
       const i = fRows[k], key = C.advertiser[i] * nC + C.channel[i], d = C.date[i], mi = mIdx(d), type = freqTheme[C.theme[i]] || 'Short spots', cost = C.cost[i];
       let a = fg.get(key);
-      if (!a) fg.set(key, (a = { adv: C.advertiser[i], ch: C.channel[i], ads: 0, value: 0, types: {}, days: new Set(), months: new Map(), themes: new Map(), per: Array.from({ length: nPer }, () => ({ ads: 0, first: Infinity, last: -Infinity })), dmin: Infinity, dmax: -Infinity }));
-      a.ads++; a.value += cost; a.types[type] = (a.types[type] || 0) + 1; a.days.add(d); if (d < a.dmin) a.dmin = d; if (d > a.dmax) a.dmax = d;
-      const q = a.per[periodOf(mi)]; q.ads++; if (d < q.first) q.first = d; if (d > q.last) q.last = d;
-      const m = a.months.get(mi) || { Tag: 0, 'Com Break': 0, 'Time Check': 0, 'Short spots': 0, value: 0 }; m[type]++; m.value += cost; a.months.set(mi, m);
-      let t = a.themes.get(C.theme[i]); if (!t) a.themes.set(C.theme[i], (t = { type, ads: 0, value: 0, days: new Set(), secs: 0, timed: 0, dmin: Infinity, dmax: -Infinity }));
-      t.ads++; t.value += cost; t.days.add(d); if (C.dur[i] > 0) { t.secs += C.dur[i]; t.timed++; } if (d < t.dmin) t.dmin = d; if (d > t.dmax) t.dmax = d;
+      if (!a) fg.set(key, (a = { adv: C.advertiser[i], ch: C.channel[i], ads: 0, value: 0, pt: 0, pt_v: 0, types: {}, ptypes: {}, days: new Set(), months: new Map(), themes: new Map(), per: Array.from({ length: nPer }, () => ({ ads: 0, pt: 0, first: Infinity, last: -Infinity })), dmin: Infinity, dmax: -Infinity }));
+      const prime = primeCodes.has(C.daypart[i]);
+      a.ads++; a.value += cost; a.types[type] = (a.types[type] || 0) + 1; a.days.add(d); if (prime) { a.pt++; a.pt_v += cost; a.ptypes[type] = (a.ptypes[type] || 0) + 1; } if (d < a.dmin) a.dmin = d; if (d > a.dmax) a.dmax = d;
+      const q = a.per[periodOf(mi)]; q.ads++; if (prime) q.pt++; if (d < q.first) q.first = d; if (d > q.last) q.last = d;
+      const m = a.months.get(mi) || { Tag: 0, 'Com Break': 0, 'Time Check': 0, 'Short spots': 0, value: 0, pt: 0, pt_v: 0 }; m[type]++; m.value += cost; if (prime) { m.pt++; m.pt_v += cost; } a.months.set(mi, m);
+      let t = a.themes.get(C.theme[i]); if (!t) a.themes.set(C.theme[i], (t = { type, ads: 0, value: 0, pt: 0, days: new Set(), secs: 0, timed: 0, dmin: Infinity, dmax: -Infinity }));
+      t.ads++; t.value += cost; if (prime) t.pt++; t.days.add(d); if (C.dur[i] > 0) { t.secs += C.dur[i]; t.timed++; } if (d < t.dmin) t.dmin = d; if (d > t.dmax) t.dmax = d;
     }
     const fOut = [...fg.values()].map((a) => {
       const adv = nm('advertiser', a.adv), ch = nm('channel', a.ch), ty = (k) => a.types[k] || 0, daily = a.ads / a.days.size;
-      const base = { advertiser: adv, channel: ch, ads: a.ads, value: a.value, tag: ty('Tag'), com_break: ty('Com Break'), time_check: ty('Time Check'), short_spots: ty('Short spots'), days: a.days.size, daily_avg: daily,
-        first_seen: isoFromDay(a.dmin), last_seen: isoFromDay(a.dmax), periods: a.per.map((q, p) => ({ label: periods[p].label, range: periods[p].range, ads: q.ads, start: q.ads ? isoFromDay(q.first) : null, end: q.ads ? isoFromDay(q.last) : null })) };
+      const base = { advertiser: adv, channel: ch, ads: a.ads, value: a.value, tag: ty('Tag'), com_break: ty('Com Break'), time_check: ty('Time Check'), short_spots: ty('Short spots'), days: a.days.size, daily_avg: daily, prime_ads: a.pt, other_time_ads: a.ads - a.pt, prime_value: a.pt_v, other_time_value: a.value - a.pt_v, prime_share_pct: a.ads ? (a.pt / a.ads) * 100 : null,
+        time_mix: !a.ads ? null : a.pt / a.ads >= 0.9 ? 'Prime time' : a.pt / a.ads <= 0.1 ? 'Non-prime time' : 'Prime and non-prime', prime_by_type: { tag: a.ptypes.Tag || 0, com_break: a.ptypes['Com Break'] || 0, time_check: a.ptypes['Time Check'] || 0, short_spots: a.ptypes['Short spots'] || 0 },
+        first_seen: isoFromDay(a.dmin), last_seen: isoFromDay(a.dmax), periods: a.per.map((q, p) => ({ label: periods[p].label, range: periods[p].range, ads: q.ads, prime_ads: q.pt, start: q.ads ? isoFromDay(q.first) : null, end: q.ads ? isoFromDay(q.last) : null })) };
       if (opts.lite) return base;
       const mF = Math.min(...a.months.keys()), mL = Math.max(...a.months.keys()), months = [];
-      for (let mi = mF; mi <= mL; mi++) { const m = a.months.get(mi) || { Tag: 0, 'Com Break': 0, 'Time Check': 0, 'Short spots': 0, value: 0 };
-        months.push({ month: monthKey(mi), label: monthName(mi), period: periodOf(mi), tag: m.Tag, com_break: m['Com Break'], time_check: m['Time Check'], short_spots: m['Short spots'], total: m.Tag + m['Com Break'] + m['Time Check'] + m['Short spots'], value: m.value }); }
-      const themes = [...a.themes.entries()].map(([tc, t]) => ({ theme: nm('theme', tc), type: t.type, ads: t.ads, value: t.value, days: t.days.size, daily_avg: t.ads / t.days.size, length: t.timed ? t.secs / t.timed : null, first_seen: isoFromDay(t.dmin), last_seen: isoFromDay(t.dmax) }))
+      for (let mi = mF; mi <= mL; mi++) { const m = a.months.get(mi) || { Tag: 0, 'Com Break': 0, 'Time Check': 0, 'Short spots': 0, value: 0, pt: 0, pt_v: 0 };
+        months.push({ month: monthKey(mi), label: monthName(mi), period: periodOf(mi), tag: m.Tag, com_break: m['Com Break'], time_check: m['Time Check'], short_spots: m['Short spots'], total: m.Tag + m['Com Break'] + m['Time Check'] + m['Short spots'], prime_ads: m.pt, other_time_ads: m.Tag + m['Com Break'] + m['Time Check'] + m['Short spots'] - m.pt, prime_value: m.pt_v, value: m.value }); }
+      const themes = [...a.themes.entries()].map(([tc, t]) => ({ theme: nm('theme', tc), type: t.type, ads: t.ads, value: t.value, prime_ads: t.pt, other_time_ads: t.ads - t.pt, days: t.days.size, daily_avg: t.ads / t.days.size, length: t.timed ? t.secs / t.timed : null, first_seen: isoFromDay(t.dmin), last_seen: isoFromDay(t.dmax) }))
         .sort((x, y) => y.ads - x.ads).slice(0, 12);
       const parts = [['Tag', base.tag], ['Com Break', base.com_break], ['Time Check', base.time_check], [`short spots (${fq.max_dur}s and under, ${fq.min_daily}+ a day)`, base.short_spots]].filter((x) => x[1]).map(([n, v]) => `${v.toLocaleString('en-US')} ${n}`);
-      const headline = `${adv} ran ${a.ads.toLocaleString('en-US')} frequency ads on ${MR.title(ch)} from ${dayName(a.dmin)} to ${dayName(a.dmax)}: ${parts.join(', ')}. About ${daily.toFixed(1)} a day on the ${a.days.size.toLocaleString('en-US')} days they ran.`;
+      const headline = `${adv} ran ${a.ads.toLocaleString('en-US')} frequency ads on ${MR.title(ch)} from ${dayName(a.dmin)} to ${dayName(a.dmax)}: ${parts.join(', ')}. About ${daily.toFixed(1)} a day on the ${a.days.size.toLocaleString('en-US')} days they ran. ${a.pt.toLocaleString('en-US')} sat in prime time and ${(a.ads - a.pt).toLocaleString('en-US')} in other times.`;
       return { ...base, months, themes, headline };
     }).sort((x, y) => y.ads - x.ads);
     const frequency = { rule: { min_daily: fq.min_daily, max_dur: fq.max_dur, items: Object.values(FREQ_ITEMS) }, rows: opts.lite ? [] : fOut.slice(0, 200), n_rows: fOut.length,
-      totals: { ads: fOut.reduce((s2, r) => s2 + r.ads, 0), value: fOut.reduce((s2, r) => s2 + r.value, 0), advertisers: new Set(fOut.map((r) => r.advertiser)).size, channels: new Set(fOut.map((r) => r.channel)).size } };
+      totals: { ads: fOut.reduce((s2, r) => s2 + r.ads, 0), prime_ads: fOut.reduce((s2, r) => s2 + r.prime_ads, 0), other_time_ads: fOut.reduce((s2, r) => s2 + r.other_time_ads, 0), value: fOut.reduce((s2, r) => s2 + r.value, 0), advertisers: new Set(fOut.map((r) => r.advertiser)).size, channels: new Set(fOut.map((r) => r.channel)).size } };
     // advertisers who only buy frequency still belong in the advertiser list
     const fBy = new Map(); fOut.forEach((r) => { const x = fBy.get(r.advertiser) || { ads: 0, channels: new Set() }; x.ads += r.ads; x.channels.add(r.channel); fBy.set(r.advertiser, x); });
     const bySum = new Map();

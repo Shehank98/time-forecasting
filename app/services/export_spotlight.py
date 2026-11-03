@@ -34,6 +34,11 @@ def _d(iso: Any) -> str:
         return "n/a"
 
 
+def _pt(prime: Any, other: Any) -> str:
+    """"612 / 759": ads in prime time / ads in other times."""
+    return f"{int(prime or 0):,} / {int(other or 0):,}"
+
+
 def _title(s: Any) -> str:
     return str(s or "").title()
 
@@ -293,7 +298,7 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
            Paragraph("One row per advertiser and programme. Each year column shows when the sponsorship started and ended in that year and the ads they ran in the programme that year. "
                      "The ad themes are the sponsorship items (and other ads) behind it.", s.small), Spacer(1, 3)]
     # grouped by channel: a channel row with its totals, then the programmes on that channel
-    head = ["Channel / programme", "Advertiser", "Status", "Ad themes"] + [f"{p['label']}: started to ended (ads)" for p in periods] + ["Total ads", "Sponsorship ads", "Spend LKR"]
+    head = ["Channel / programme", "Advertiser", "Status", "Ad themes"] + [f"{p['label']}: started to ended (ads)" for p in periods] + ["Total ads", "Sponsorship ads", "Sponsor ads: prime / other time", "Spend LKR"]
     cell = s.cell
     data = [head]
     style = []
@@ -307,7 +312,7 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
         g = groups[ch]
         yt = [sum((r["periods"][i]["total_ads"] if i < len(r.get("periods") or []) else 0) for r in g) for i in range(len(periods))]
         data.append([Paragraph(f"<b>{safe(_title(ch))}</b> <font size=6.5 color='#646A8A'>{len(g)} programme{'s' if len(g) != 1 else ''}</font>", cell), "", "", ""]
-                    + [Paragraph(f"<b>{v:,} ads</b>", cell) for v in yt] + [_n(sum(r.get("total_ads") or 0 for r in g)), _n(sum(r.get("sponsorship_ads") or 0 for r in g)), _n(sum(r.get("spend") or 0 for r in g))])
+                    + [Paragraph(f"<b>{v:,} ads</b>", cell) for v in yt] + [_n(sum(r.get("total_ads") or 0 for r in g)), _n(sum(r.get("sponsorship_ads") or 0 for r in g)), _pt(sum(r.get("prime_ads") or 0 for r in g), sum(r.get("other_time_ads") or 0 for r in g)), _n(sum(r.get("spend") or 0 for r in g))])
         style += [("BACKGROUND", (0, len(data) - 1), (-1, len(data) - 1), ch_bg), ("FONTNAME", (0, len(data) - 1), (-1, len(data) - 1), "Helvetica-Bold"), ("LINEABOVE", (0, len(data) - 1), (-1, len(data) - 1), 0.8, brand)]
         for r in g:
             rc = STATUS_COLOR.get(r.get("status_code"), "#646A8A")
@@ -321,15 +326,15 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
                 else:
                     yr.append(Paragraph(f"<font color='#646A8A'>{'Not on air' if not x.get('aired') else 'No sponsorship'}</font><br/><b>{x['total_ads']:,} ads</b>", cell))
             data.append([Paragraph(f"&nbsp;&nbsp;&nbsp;{safe(_title(r['program']))}", cell), Paragraph(f"<b>{safe(r['advertiser'])}</b>", cell), Paragraph(f"<font color='{rc}'><b>{safe(r.get('status', ''))}</b></font>", cell),
-                         Paragraph(th_txt, cell)] + yr + [_n(r.get("total_ads")), _n(r.get("sponsorship_ads")), _n(r.get("spend"))])
+                         Paragraph(th_txt, cell)] + yr + [_n(r.get("total_ads")), _n(r.get("sponsorship_ads")), _pt(r.get("prime_ads"), r.get("other_time_ads")), _n(r.get("spend"))])
     if len(data) > 1:
         n = len(data) - 1
         sm = lambda f: sum(f(r) for r in shown)  # noqa: E731
         data.append(["Total", "", "", ""] + [_n(sum((r["periods"][i]["total_ads"] if i < len(r.get("periods") or []) else 0) for r in shown)) for i in range(len(periods))]
-                    + [_n(sm(lambda r: r.get("total_ads") or 0)), _n(sm(lambda r: r.get("sponsorship_ads") or 0)), _n(sm(lambda r: r.get("spend") or 0))])
+                    + [_n(sm(lambda r: r.get("total_ads") or 0)), _n(sm(lambda r: r.get("sponsorship_ads") or 0)), _pt(sm(lambda r: r.get("prime_ads") or 0), sm(lambda r: r.get("other_time_ads") or 0)), _n(sm(lambda r: r.get("spend") or 0))])
         style += [("FONTNAME", (0, n + 1), (-1, n + 1), "Helvetica-Bold"), ("LINEABOVE", (0, n + 1), (-1, n + 1), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, n + 1), (-1, n + 1), colors.HexColor("#e1e3fb"))]
     style += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(4 + len(periods), len(head))] + [("VALIGN", (0, 0), (-1, -1), "TOP")]
-    el.append(_table(data, [3.2, 2.8, 2.8, 4.6] + [3.2] * len(periods) + [1.3, 1.5, 2.1], s, brand, style))
+    el.append(_table(data, [3.2, 2.8, 2.8, 4.4] + [3.2] * len(periods) + [1.3, 1.5, 2.2, 2.1], s, brand, style))
     if len(rows) > 60:
         el.append(Paragraph(f"Showing 60 of {len(rows)} rows. Pick a channel or advertiser for the rest.", s.small))
 
@@ -341,18 +346,18 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
         el += [PageBreak(), Paragraph("Frequency sponsorships by channel", s.h2),
                Paragraph(f"Tag, Com Break and Time Check items, and any ad of {frule.get('max_dur', 10)} seconds or less running {frule.get('min_daily', 10)} or more times a day on the channel. "
                          "These are bought on the channel, not in a programme, so they are not counted in the programme sponsorships above. Each year column shows the ads that year and when they started and ended.", s.small), Spacer(1, 3)]
-        head = ["Advertiser", "Channel", "Tag", "Com Break", "Time Check", f"Short spots ({frule.get('max_dur', 10)}s, {frule.get('min_daily', 10)}+ a day)", "Total ads"] + [f"{p['label']}" for p in periods] + ["Days on air", "Daily average", "Value LKR"]
+        head = ["Advertiser", "Channel", "Tag", "Com Break", "Time Check", f"Short spots ({frule.get('max_dur', 10)}s, {frule.get('min_daily', 10)}+ a day)", "Total ads", "In prime time", "Other times", "Time"] + [f"{p['label']}" for p in periods] + ["Days on air", "Daily average", "Value LKR"]
         data = [head]
         for r in sorted(frows[:60], key=lambda r: (r["channel"], -r["ads"])):
-            data.append([Paragraph(f"<b>{safe(r['advertiser'])}</b>", s.cell), _title(r["channel"]), _n(r.get("tag")), _n(r.get("com_break")), _n(r.get("time_check")), _n(r.get("short_spots")), _n(r.get("ads"))]
+            data.append([Paragraph(f"<b>{safe(r['advertiser'])}</b>", s.cell), _title(r["channel"]), _n(r.get("tag")), _n(r.get("com_break")), _n(r.get("time_check")), _n(r.get("short_spots")), _n(r.get("ads")), _n(r.get("prime_ads")), _n(r.get("other_time_ads")), r.get("time_mix") or ""]
                         + [Paragraph(f"<b>{x['ads']:,}</b>" + (f"<br/><font size=6.5 color='#646A8A'>{_d(x.get('start'))} to {_d(x.get('end'))}</font>" if x.get("start") else ""), s.cell) for x in r.get("periods") or []]
                         + [_n(r.get("days")), _n(r.get("daily_avg"), "dec"), _n(r.get("value"))])
         n = len(data) - 1
         fs = lambda k: sum((r.get(k) or 0) for r in frows[:60])  # noqa: E731
-        data.append(["Total", "", _n(fs("tag")), _n(fs("com_break")), _n(fs("time_check")), _n(fs("short_spots")), _n(fs("ads"))] + [_n(sum((r["periods"][i]["ads"] if i < len(r.get("periods") or []) else 0) for r in frows[:60])) for i in range(len(periods))] + ["", "", _n(fs("value"))])
+        data.append(["Total", "", _n(fs("tag")), _n(fs("com_break")), _n(fs("time_check")), _n(fs("short_spots")), _n(fs("ads")), _n(fs("prime_ads")), _n(fs("other_time_ads")), ""] + [_n(sum((r["periods"][i]["ads"] if i < len(r.get("periods") or []) else 0) for r in frows[:60])) for i in range(len(periods))] + ["", "", _n(fs("value"))])
         fst = [("FONTNAME", (0, n + 1), (-1, n + 1), "Helvetica-Bold"), ("LINEABOVE", (0, n + 1), (-1, n + 1), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, n + 1), (-1, n + 1), colors.HexColor("#e1e3fb"))]
-        fst += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(2, len(head))] + [("VALIGN", (0, 0), (-1, -1), "TOP")]
-        el.append(_table(data, [3.0, 1.8, 1.2, 1.5, 1.5, 2.6, 1.5] + [2.8] * len(periods) + [1.5, 1.5, 2.2], s, brand, fst))
+        fst += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in list(range(2, 9)) + list(range(10, len(head)))] + [("VALIGN", (0, 0), (-1, -1), "TOP")]
+        el.append(_table(data, [2.7, 1.6, 1.1, 1.4, 1.4, 2.4, 1.4, 1.4, 1.4, 2.0] + [2.6] * len(periods) + [1.5, 1.9, 2.1], s, brand, fst))
 
     # ---------------- one section per row (the first 8)
     for r in rows[:8]:
@@ -435,20 +440,20 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
         el += [PageBreak(), Paragraph(f"Frequency: {safe(r['advertiser'])} on {safe(_title(r['channel']))}", s.h2), Paragraph(safe(r.get("headline", "")), s.body), Spacer(1, 4)]
         ms = r.get("months") or []
         if ms:
-            hm = ["Month", "Year period", "Tag", "Com Break", "Time Check", f"Short spots ({frule.get('max_dur', 10)}s, {frule.get('min_daily', 10)}+ a day)", "Total frequency ads", "Value LKR"]
-            dm = [hm] + [[m["label"], periods[m["period"]]["label"] if m["period"] < len(periods) else "", _n(m["tag"]), _n(m["com_break"]), _n(m["time_check"]), _n(m["short_spots"]), _n(m["total"]), _n(m["value"])] for m in ms]
+            hm = ["Month", "Year period", "Tag", "Com Break", "Time Check", f"Short spots ({frule.get('max_dur', 10)}s, {frule.get('min_daily', 10)}+ a day)", "Total frequency ads", "In prime time", "Other times", "Value LKR"]
+            dm = [hm] + [[m["label"], periods[m["period"]]["label"] if m["period"] < len(periods) else "", _n(m["tag"]), _n(m["com_break"]), _n(m["time_check"]), _n(m["short_spots"]), _n(m["total"]), _n(m.get("prime_ads")), _n(m.get("other_time_ads")), _n(m["value"])] for m in ms]
             t = lambda k: sum((m.get(k) or 0) for m in ms)  # noqa: E731
-            dm.append(["Total", "", _n(t("tag")), _n(t("com_break")), _n(t("time_check")), _n(t("short_spots")), _n(t("total")), _n(t("value"))])
+            dm.append(["Total", "", _n(t("tag")), _n(t("com_break")), _n(t("time_check")), _n(t("short_spots")), _n(t("total")), _n(t("prime_ads")), _n(t("other_time_ads")), _n(t("value"))])
             lm_ = len(dm) - 1
             sty = [("FONTNAME", (0, lm_), (-1, lm_), "Helvetica-Bold"), ("LINEABOVE", (0, lm_), (-1, lm_), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, lm_), (-1, lm_), colors.HexColor("#e1e3fb"))]
-            sty += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(2, 8)]
-            el += [Paragraph("<b>Month by month on this channel</b>", ParagraphStyle("fm", parent=s.body, keepWithNext=1)), Spacer(1, 2), _table(dm, [2.2, 2.0, 1.6, 1.8, 1.8, 3.2, 2.4, 2.6], s, brand, sty), Spacer(1, 6)]
+            sty += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(2, 10)]
+            el += [Paragraph("<b>Month by month on this channel</b>", ParagraphStyle("fm", parent=s.body, keepWithNext=1)), Spacer(1, 2), _table(dm, [2.0, 1.8, 1.4, 1.6, 1.6, 3.0, 2.2, 1.8, 1.8, 2.4], s, brand, sty), Spacer(1, 6)]
         th = r.get("themes") or []
         if th:
-            dt_ = [["What ads ran (theme)", "Type", "Ads", "Days on air", "Daily average", "Length", "First seen", "Last seen", "Value LKR"]]
-            dt_ += [[x["theme"], x["type"], _n(x["ads"]), _n(x["days"]), _n(x["daily_avg"], "dec"), f"{x['length']:.0f}s" if x.get("length") else "n/a", _d(x.get("first_seen")), _d(x.get("last_seen")), _n(x.get("value"))] for x in th]
+            dt_ = [["What ads ran (theme)", "Type", "Ads", "In prime time", "Other times", "Days on air", "Daily average", "Length", "First seen", "Last seen", "Value LKR"]]
+            dt_ += [[x["theme"], x["type"], _n(x["ads"]), _n(x.get("prime_ads")), _n(x.get("other_time_ads")), _n(x["days"]), _n(x["daily_avg"], "dec"), f"{x['length']:.0f}s" if x.get("length") else "n/a", _d(x.get("first_seen")), _d(x.get("last_seen")), _n(x.get("value"))] for x in th]
             el += [Paragraph("<b>What ads ran</b>", ParagraphStyle("fw", parent=s.body, keepWithNext=1)), Spacer(1, 2),
-                   _table(dt_, [5.0, 2.2, 1.4, 1.6, 1.6, 1.3, 2.2, 2.2, 2.2], s, brand, [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in (2, 3, 4, 5, 8)])]
+                   _table(dt_, [4.4, 2.0, 1.3, 1.5, 1.5, 1.5, 1.6, 1.3, 2.0, 2.0, 2.0], s, brand, [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in (2, 3, 4, 5, 6, 7, 10)])]
     el += [Spacer(1, 8), Paragraph("Programme sponsorship = -BB, -Intro, -Extro, -LLogo, Next Card, DJ and -Tr items. A year counts as sponsored when they were on at least half of the programme's airing days that year; fewer is shown as occasional. Tag, Com Break, Time Check and frequent short spots are frequency sponsorships, shown in their own section. "
                                    "Airing days are days the programme aired with any advertiser. Spend is monitored rate-card spend, not invoiced cost.", s.small)]
     footer_txt = safe(f"{agency} | {cname} | Sponsorship over time | {branding.get('report_footer', '')}")

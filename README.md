@@ -418,6 +418,10 @@ The fourth view of the Programme & Sponsorship Spotlight tab. It answers: "Did t
   - **Prime time vs non-prime time:** the sponsorship ads in prime time (the Prime daypart, 20:00 to 23:00) and in other times, with their value, and a label: Prime time, Non-prime time, or Prime and non-prime.
   - A copy is kept under Reports.
 
+**Prime time vs other times** is shown for both kinds of sponsorship. Prime time is the Prime daypart in your settings (20:00 to 23:00); everything else counts as other times.
+- **Programme sponsorship:** a "Sponsor ads: prime / other time" column in the overview table (and on each channel header), and a prime time vs non-prime time note and columns in each programme's section.
+- **Frequency sponsorships:** "In prime time" and "Other times" columns in the channel table, with a label (Prime time, Non-prime time, or Prime and non-prime), and the same two columns in the month-by-month table and in "What ads ran". The one-line summary says how many sat in prime time and how many in other times.
+
 The same start and end dates, month-by-month table, steady-value note and prime-time split are shown on screen when you open a programme.
 
 **Programme sponsorship vs frequency sponsorship.** In this view the two are kept apart:

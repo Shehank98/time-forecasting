@@ -151,7 +151,7 @@ def test_tenure_pdf(sheet):
     pdf = pytest.importorskip("pypdf").PdfReader(io.BytesIO(r.content))
     text = " ".join(pg.extract_text() for pg in pdf.pages)
     for s in ("Sponsorship over time", "Year 1", "Year 2", "Lanka Tea Co", "Dream Star", "Sponsored all 2 years", "Stopped after Year 1", "What ads ran", "Dream Star -Intro",
-              "started to ended", "1 Nov 2024", "31 Oct 2025", "Whole period", "Frequency sponsorships by channel", "Month by month on this channel", "Com Break", "Channel / programme", "Month by month in this programme", "Commercial-only value", "Steady sponsorship value", "prime time"):
+              "Year 1: started", "1 Nov 2024", "31 Oct 2025", "Whole period", "Frequency sponsorships by channel", "Month by month on this channel", "Com Break", "Channel / programme", "Month by month in this programme", "Commercial-only value", "Steady sponsorship value", "prime time"):
         assert s in text, s
     assert "—" not in text
 
@@ -260,3 +260,62 @@ def test_frequency_sponsorships(sheet):
     assert not any(t["theme"] == "Lakshapathi Next Card" for r in n["frequency"]["rows"] for t in r["themes"])
     # the background Time Check items are frequency too
     assert any(r["time_check"] > 0 for r in node("tenure", p, {"advertiser": "Lanka Tea Co"})["frequency"]["rows"])
+
+
+def test_prime_vs_other_time_for_frequency_and_overview(sheet):
+    """Prime time (20:00 to 23:00) vs other times, for frequency sponsorships (row, month, theme, year) and the programme overview."""
+    p, df = sheet
+    # programme sponsorship overview: prime / other time columns
+    d = node("tenure", p, {"channel": CH, "program": PROG})
+    prog = df[(df["ch"] == CH) & (df["prog"] == PROG) & ~df["freq"]]
+    for r in d["rows"]:
+        sp = prog[(prog["Advertiser"] == r["advertiser"]) & prog["sp2"]]
+        assert r["prime_ads"] == int(sp["prime"].sum()) and r["other_time_ads"] == len(sp) - int(sp["prime"].sum())
+        assert r["prime_value"] == pytest.approx(sp[sp["prime"]]["Cost"].sum())
+    assert next(r for r in d["rows"] if r["advertiser"] == "Ceylon Foods")["prime_ads"] > 0         # its logo runs at 20:30
+    # frequency sponsorships: build a sheet with the same ad in prime time and in the morning
+    import synth
+    lm = synth.make_lmrb(days=40, start="2026-06-01", seed=5)
+    tm = lm.iloc[0].to_dict()
+    days = [d_ for d in pd.date_range("2026-06-01", periods=30) for d_ in [d]]
+    parts = [lm, make_rows(tm, days, "Lanka Tea Co", "Island Tea", "Tag", k=3, dur=5, offset=10, time="20:15:00"),        # 3 tags a day in prime time
+               make_rows(tm, days[:20], "Lanka Tea Co", "Island Tea", "Tag", k=2, dur=5, offset=80, time="09:30:00"),      # 2 tags a day in the morning
+               make_rows(tm, days[:10], "Lanka Tea Co", "Island Tea", "Com Break", k=1, dur=10, offset=140, time="21:40:00"),   # com break in prime time
+               make_rows(tm, days, "Lanka Tea Co", "Island Tea", "Island Quick (5)", k=11, dur=5, offset=200, time="13:00:00")] # a 5s spot 11 a day, afternoon
+    import tempfile, pathlib
+    q = pathlib.Path(tempfile.mkdtemp()) / "pt.csv"
+    full = pd.concat(parts, ignore_index=True); full.to_csv(q, index=False)
+    full["ch"] = full["Channel"].map(lambda c: nz.normalise_channel(c)[0])
+    full["t"] = pd.to_datetime(dict(year=full["Yr"], month=full["Mn"], day=full["Dd"]))
+    secs = pd.to_timedelta(full["Advt_time"].astype(str)).dt.total_seconds()
+    pr = set(nz.prime_dayparts())
+    full["prime"] = [nz.daypart_for_hour(x / 3600.0) in pr for x in secs]
+    out = node("tenure", q, {"advertiser": "Lanka Tea Co"})
+    x = full[(full["Advertiser"] == "Lanka Tea Co") & (full["ch"] == CH)]
+    x = x[x["Advt_Theme"].isin(["Tag", "Com Break", "Time Check", "Island Quick (5)"])]        # Time Check also comes with the background data
+    f = next(r for r in out["frequency"]["rows"] if r["channel"] == CH)
+    assert f["ads"] == len(x) and f["prime_ads"] == int(x["prime"].sum()) and f["other_time_ads"] == len(x) - int(x["prime"].sum())
+    assert f["prime_value"] == pytest.approx(x[x["prime"]]["Cost"].sum()) and f["other_time_value"] == pytest.approx(x[~x["prime"]]["Cost"].sum())
+    assert f["prime_share_pct"] == pytest.approx(x["prime"].mean() * 100)
+    th = {t["theme"]: t for t in f["themes"]}
+    assert (th["Tag"]["prime_ads"], th["Tag"]["other_time_ads"]) == (90, 40)                    # 3 tags a day x 30 days at 20:15, 2 a day x 20 days at 09:30
+    assert (th["Com Break"]["prime_ads"], th["Com Break"]["other_time_ads"]) == (10, 0)         # 10 com breaks at 21:40
+    assert (th["Island Quick (5)"]["prime_ads"], th["Island Quick (5)"]["other_time_ads"]) == (0, 330)   # 11 a day x 30 days at 13:00: a short frequent spot
+    tc = x[x["Advt_Theme"] == "Time Check"]
+    assert f["prime_by_type"] == {"tag": 90, "com_break": 10, "time_check": int(tc["prime"].sum()), "short_spots": 0} and f["time_mix"] == "Prime and non-prime"
+    for m in f["months"]:
+        xm = x[x["t"].dt.strftime("%Y-%m") == m["month"]]
+        assert m["total"] == len(xm) and m["prime_ads"] == int(xm["prime"].sum()) and m["other_time_ads"] == len(xm) - int(xm["prime"].sum())
+        assert m["prime_value"] == pytest.approx(xm[xm["prime"]]["Cost"].sum())
+    for t in f["themes"]:
+        xt = x[x["Advt_Theme"] == t["theme"]]
+        assert t["prime_ads"] == int(xt["prime"].sum()) and t["other_time_ads"] == len(xt) - int(xt["prime"].sum())
+    assert sum(y["prime_ads"] for y in f["periods"]) == f["prime_ads"]
+    assert out["frequency"]["totals"]["prime_ads"] >= f["prime_ads"] and "sat in prime time" in f["headline"]
+    # the PDF carries the same columns
+    from helpers import api
+    r = api().post("/api/spotlight/tenure/pdf", json={"report": out, "meta": {}})
+    assert r.status_code == 200
+    text = " ".join(pg.extract_text() for pg in pytest.importorskip("pypdf").PdfReader(io.BytesIO(r.content)).pages)
+    flat = " ".join(text.split())                                    # table cells wrap: compare without the line breaks
+    assert "In prime time" in flat and "Other times" in flat and "Prime and non-prime" in flat and "sat in prime time" in flat and "prime / other time" in flat
