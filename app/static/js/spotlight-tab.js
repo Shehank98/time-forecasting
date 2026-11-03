@@ -45,7 +45,11 @@
         <div class="field"><label>Years</label><div class="seg" id="tn-mode"><button type="button" data-m="data" aria-pressed="${st.tn.mode === 'data'}">Data years</button><button type="button" data-m="calendar" aria-pressed="${st.tn.mode === 'calendar'}">Calendar years</button></div></div>
         <div class="field"><label>Show</label><div class="seg" id="tn-show"><button type="button" data-s="sponsor" aria-pressed="${st.tn.show !== 'all'}">Sponsorships</button><button type="button" data-s="all" aria-pressed="${st.tn.show === 'all'}">All ads</button></div></div>
         <div class="field"><label>&nbsp;</label><button class="btn sm ghost" type="button" id="tn-clear">Clear</button></div></div>
-      <div class="tn-chips" id="tn-chips"></div><div class="muted small" id="tn-note" style="margin-top:6px"></div></div><div id="tn-out" style="margin-top:16px">${App.skeleton(2)}</div>`;
+      <div class="tn-chips" id="tn-chips"></div><div class="muted small" id="tn-note" style="margin-top:6px"></div>
+      <details class="tn-find" id="tn-find"><summary><b>Can't find an ad?</b> Check how it is counted</summary>
+        <div class="tn-find-bar"><div class="field"><label for="tn-q">Ad theme or programme (for example Lakshapathi)</label><input id="tn-q" type="search" placeholder="Type part of the theme or programme name" autocomplete="off"></div>
+          <div class="field"><label>&nbsp;</label><button class="btn sm" type="button" id="tn-q-go">Check</button></div></div>
+        <div id="tn-q-out" class="muted small">Shows every ad whose theme or programme contains your text, how it is counted, and why. Use it when a sponsorship you expect is missing from the lists.</div></details></div><div id="tn-out" style="margin-top:16px">${App.skeleton(2)}</div>`;
     const go = () => { save(); run(); };
     let advNames = new Set();
     const adv = el.querySelector('#tn-adv');
@@ -65,6 +69,21 @@
         App.download(res.blob, res.name); App.toast('Sponsorship over time report downloaded. A copy is kept under Reports.', 'ok');
       } catch (e) { App.toast('The PDF could not be built: ' + e.message, 'error'); } finally { b.disabled = false; b.textContent = txt; }
     };
+    const lookup = async () => {
+      const box = el.querySelector('#tn-q-out'), q = el.querySelector('#tn-q').value.trim();
+      if (q.length < 2) { box.textContent = 'Type at least 2 letters.'; return; }
+      box.innerHTML = App.skeleton(1);
+      let d;
+      try { d = await App.data.sponsorshipLookup({ filters: ctx.filters(), options: { q, advertiser: st.tn.advertiser || null, min_daily: st.fmin, max_dur: st.fdur } }); } catch (e) { box.innerHTML = App.emptyState('The check could not run', e.message); return; }
+      if (!box.isConnected) return;
+      if (d.empty) { box.innerHTML = App.emptyState(`Nothing in this upload contains "${esc(q)}"`, 'Check the spelling, or clear the advertiser above, or the page filters, which also narrow this check.'); return; }
+      const badge = (c, t) => `<span class="badge ${c === 'programme' ? 'good' : c === 'frequency' ? 'warn' : ''}">${esc(t)}</span>`;
+      box.innerHTML = `<div class="tn-find-sum"><b>${fmt.num(d.n_rows)}</b> theme and programme combinations contain "${esc(q)}"${st.tn.advertiser ? ` for ${esc(st.tn.advertiser)}` : ' (all advertisers)'}: ${badge('programme', fmt.num(d.counts.programme) + ' programme sponsorship')} ${badge('frequency', fmt.num(d.counts.frequency) + ' frequency')} ${badge('commercial', fmt.num(d.counts.commercial) + ' commercial')}</div>
+        <div class="tbl-scroll" style="max-height:420px"><table class="tbl ex-tbl"><thead><tr><th>Channel</th><th>Programme</th><th>Advertiser</th><th>Theme as written in the sheet</th><th class="num">Ads</th><th>Ran</th><th>How it is counted</th><th>Why</th></tr></thead><tbody>
+        ${d.rows.map((r, k) => `<tr class="${k % 2 ? 'ex-z' : ''}"><td>${esc(tt(r.channel))}</td><td>${esc(tt(r.program))}</td><td>${esc(r.advertiser)}</td><td><b>${esc(r.theme)}</b></td><td class="num">${fmt.num(r.ads)}</td><td class="small">${esc(dshort(r.first_seen))}<br>to ${esc(dshort(r.last_seen))}</td><td>${badge(r.class, r.how)}</td><td class="small">${esc(r.why)}</td></tr>`).join('')}</tbody></table></div>${d.n_rows > d.rows.length ? `<div class="muted small">Showing ${d.rows.length} of ${d.n_rows}. Add the advertiser above, or type more of the name.</div>` : ''}`;
+    };
+    el.querySelector('#tn-q-go').onclick = lookup;
+    el.querySelector('#tn-q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); lookup(); } };
     let seq = 0;
     async function run() {
       const my = ++seq, out = el.querySelector('#tn-out'); if (!out) return;

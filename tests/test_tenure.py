@@ -319,3 +319,58 @@ def test_prime_vs_other_time_for_frequency_and_overview(sheet):
     text = " ".join(pg.extract_text() for pg in pytest.importorskip("pypdf").PdfReader(io.BytesIO(r.content)).pages)
     flat = " ".join(text.split())                                    # table cells wrap: compare without the line breaks
     assert "In prime time" in flat and "Other times" in flat and "Prime and non-prime" in flat and "sat in prime time" in flat and "prime / other time" in flat
+
+
+def test_lookup_shows_how_each_ad_is_counted(tmp_path):
+    """The "Can't find an ad?" check: the same programme with a next card written several ways, a look-alike commercial and an abbreviation."""
+    import synth
+    lm = synth.make_lmrb(days=40, start="2026-06-01", seed=9)
+    tm = lm.iloc[0].to_dict()
+    days = list(pd.date_range("2026-06-01", periods=20))
+
+    def rows(theme, adv="Sampath Bank", n=1, dur=5, off=0):
+        d = make_rows(tm, days, adv, "Sampath", theme, k=n, dur=dur, offset=off)
+        d["Channel"], d["Program"] = "Tv - Sirasa", "Lakshapathi"
+        return d
+    parts = [lm, rows("Lakshapathi_Next Card (5)(Sin)", off=0), rows("Lakshapathi Intro", off=50), rows("Lakshapathi NC (5)(Sin)", off=100),          # NC: an abbreviation we do not know
+             rows("Lakshapathi Tag", off=150), rows("Sampath Savings Offer (30)", dur=30, off=200), rows("Lakshapathi Quick (5)", n=11, off=300)]
+    q = tmp_path / "lk.csv"; pd.concat(parts, ignore_index=True).to_csv(q, index=False)
+    d = node("lookup", q, {"q": "lakshapathi"})
+    by = {r["theme"]: r for r in d["rows"] if r["advertiser"] == "Sampath Bank"}
+    assert by["Lakshapathi_Next Card (5)(Sin)"]["class"] == "programme" and by["Lakshapathi_Next Card (5)(Sin)"]["how"] == "Programme sponsorship: Next Card"
+    assert "Who sponsored what under Sirasa > Lakshapathi for Sampath Bank" in by["Lakshapathi_Next Card (5)(Sin)"]["why"]
+    assert by["Lakshapathi Intro"]["how"] == "Programme sponsorship: -Intro"
+    assert by["Lakshapathi Tag"]["class"] == "frequency" and "Tag" in by["Lakshapathi Tag"]["how"]
+    assert by["Lakshapathi Quick (5)"]["class"] == "frequency" and "short frequent spot" in by["Lakshapathi Quick (5)"]["how"] and "11.0 a day" in by["Lakshapathi Quick (5)"]["why"]
+    nc = by["Lakshapathi NC (5)(Sin)"]                                                        # not recognised: the check says so and shows the exact text
+    assert nc["class"] == "commercial" and 'The theme "Lakshapathi NC (5)(Sin)" does not contain a sponsorship item' in nc["why"] and nc["ads"] == 20
+    assert by["Sampath Savings Offer (30)"]["class"] == "commercial" and by["Sampath Savings Offer (30)"]["programme_match"] and not by["Sampath Savings Offer (30)"]["theme_match"]
+    assert d["counts"]["programme"] >= 2 and d["counts"]["commercial"] >= 2 and d["programmes_matched"] == 1 and "SIRASA" in d["channels"]
+    # programme sponsorship rows are listed first; a search on the theme alone, with an advertiser filter
+    assert d["rows"][0]["class"] == "programme"
+    n = node("lookup", q, {"q": "next card", "advertiser": "Sampath Bank"})
+    assert {r["theme"] for r in n["rows"]} == {"Lakshapathi_Next Card (5)(Sin)"} and node("lookup", q, {"q": "zzzz"})["empty"] is True and node("lookup", q, {"q": "a"})["empty"] is True
+    # and the report really lists it: the Sirasa Lakshapathi next card is a row in Who sponsored what
+    t = node("tenure", q, {"advertiser": "Sampath Bank"})
+    assert any(r["channel"] == "SIRASA" and r["program"] == "LAKSHAPATHI" and any(x["theme"] == "Lakshapathi_Next Card (5)(Sin)" and x["sponsorship"] for x in r["themes"]) for r in t["rows"])
+
+
+def test_pdf_lists_every_programme_not_just_60(sheet):
+    """The overview used to stop at 60 rows and cut the smallest (occasional) sponsorships: a bank with 90 programmes must have all 90 in the PDF."""
+    import copy
+    from app.services.export_spotlight import build_tenure_pdf
+    p, _ = sheet
+    rep = node("tenure", p, {"advertiser": "Lanka Tea Co"})
+    base = rep["rows"][-1]
+    rows = list(rep["rows"])
+    for k in range(90):
+        r = copy.deepcopy(base)
+        r["program"], r["channel"], r["status_code"], r["status"] = f"ZZ SHOW {k:02d}", ("SIRASA" if k % 2 else "HIRU"), "occasional", "Occasional sponsorship items (1 of 2 years)"
+        rows.append(r)
+    rep["rows"] = rows
+    assert len(rows) > 90
+    pdf = pytest.importorskip("pypdf").PdfReader(io.BytesIO(build_tenure_pdf(rep, {}, {"name": "c"}, {}, {})))
+    text = " ".join(" ".join(pg.extract_text().split()) for pg in pdf.pages)
+    for k in (0, 45, 89):
+        assert f"Zz Show {k:02d}" in text, k                          # the last rows are in the table too
+    assert "Showing 60 of" not in text and "All " in text and "programmes are listed" in text

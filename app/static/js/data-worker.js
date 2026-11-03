@@ -279,6 +279,7 @@ const OPS = {
     if (vaultCache.sig !== k) vaultCache.rows = kind === 'tv' ? MR.vaultRowsTv(T) : MR.vaultRowsLmrb(T), vaultCache.sig = k;
     return { total: vaultCache.rows.length, rows: vaultCache.rows.slice(offset || 0, (offset || 0) + (limit || 20000)) };
   },
+  sponsorshipLookup({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipLookup(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   sponsorshipTenure({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipTenure(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   executiveSummary({ filters, options }) { table('lmrb'); const L = lmrbBase(options); return MR.executiveSummary(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   executiveDetail({ filters, options }) { table('lmrb'); const L = lmrbBase(options); return MR.executiveDetail(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },

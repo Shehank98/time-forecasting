@@ -418,6 +418,14 @@ The fourth view of the Programme & Sponsorship Spotlight tab. It answers: "Did t
   - **Prime time vs non-prime time:** the sponsorship ads in prime time (the Prime daypart, 20:00 to 23:00) and in other times, with their value, and a label: Prime time, Non-prime time, or Prime and non-prime.
   - A copy is kept under Reports.
 
+**Can't find an ad? Check how it is counted.** Open "Can't find an ad?" in the Sponsorship over time view and type part of a theme or programme name (for example "Lakshapathi"). It lists every ad whose theme or programme contains that text, with:
+- the channel, programme, advertiser and the **theme exactly as written in your sheet**;
+- the ad count and the dates it ran;
+- **how it is counted**: programme sponsorship (and which item, such as Next Card), frequency sponsorship, or commercial;
+- **why**: for a commercial, the exact theme text and the sponsorship items it was checked against, so a theme written in an unexpected way (for example an abbreviation) shows up straight away. Typing an advertiser above narrows the check to that advertiser.
+
+**Every programme is in the PDF.** "Who sponsored what, year by year" lists every programme the screen lists (up to 400 rows, flowing over several pages) and the frequency table lists every channel. Before, the PDF stopped at 60 rows and cut the smallest sponsorships first.
+
 **Prime time vs other times** is shown for both kinds of sponsorship. Prime time is the Prime daypart in your settings (20:00 to 23:00); everything else counts as other times.
 - **Programme sponsorship:** a "Sponsor ads: prime / other time" column in the overview table (and on each channel header), and a prime time vs non-prime time note and columns in each programme's section.
 - **Frequency sponsorships:** "In prime time" and "Other times" columns in the channel table, with a label (Prime time, Non-prime time, or Prime and non-prime), and the same two columns in the month-by-month table and in "What ads ran". The one-line summary says how many sat in prime time and how many in other times.

@@ -19,6 +19,7 @@ from .export_negotiation import GOOD, LINE, PAGE, WARN, WIDTH, ZEBRA, _n, _Style
 from .export_pdf import MUTED, _logo, safe
 
 log = logging.getLogger(__name__)
+MAX_ROWS = 400   # rows in the overview tables; every programme the screen lists is listed here too
 DURS = ["5s", "10s", "15s", "20s", "30s", "30s+"]
 ROLE_COLOR = {"Sponsorship": "#4F46E5", "Frequency": "#c27a06", "Regular Spot": "#646A8A"}
 BAND_WORD = {"good": "Good", "fair": "Fair", "poor": "Poor"}
@@ -302,7 +303,7 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
     cell = s.cell
     data = [head]
     style = []
-    shown = rows[:60]
+    shown = rows[:MAX_ROWS]
     groups: dict[str, list] = {}
     for r in shown:
         groups.setdefault(r["channel"], []).append(r)
@@ -335,8 +336,10 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
         style += [("FONTNAME", (0, n + 1), (-1, n + 1), "Helvetica-Bold"), ("LINEABOVE", (0, n + 1), (-1, n + 1), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, n + 1), (-1, n + 1), colors.HexColor("#e1e3fb"))]
     style += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(4 + len(periods), len(head))] + [("VALIGN", (0, 0), (-1, -1), "TOP")]
     el.append(_table(data, [3.2, 2.8, 2.8, 4.4] + [3.2] * len(periods) + [1.3, 1.5, 2.2, 2.1], s, brand, style))
-    if len(rows) > 60:
-        el.append(Paragraph(f"Showing 60 of {len(rows)} rows. Pick a channel or advertiser for the rest.", s.small))
+    if len(rows) > MAX_ROWS:
+        el.append(Paragraph(f"Showing {MAX_ROWS} of {len(rows)} rows. Pick a channel or advertiser for the rest.", s.small))
+    elif len(rows) > 60:
+        el.append(Paragraph(f"All {len(rows)} programmes are listed. The table continues over several pages.", s.small))
 
     # ---------------- frequency sponsorships: Tag, Com Break, Time Check and frequent short spots, by channel
     fr = rep.get("frequency") or {}
@@ -348,13 +351,13 @@ def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos:
                          "These are bought on the channel, not in a programme, so they are not counted in the programme sponsorships above. Each year column shows the ads that year and when they started and ended.", s.small), Spacer(1, 3)]
         head = ["Advertiser", "Channel", "Tag", "Com Break", "Time Check", f"Short spots ({frule.get('max_dur', 10)}s, {frule.get('min_daily', 10)}+ a day)", "Total ads", "In prime time", "Other times", "Time"] + [f"{p['label']}" for p in periods] + ["Days on air", "Daily average", "Value LKR"]
         data = [head]
-        for r in sorted(frows[:60], key=lambda r: (r["channel"], -r["ads"])):
+        for r in sorted(frows[:MAX_ROWS], key=lambda r: (r["channel"], -r["ads"])):
             data.append([Paragraph(f"<b>{safe(r['advertiser'])}</b>", s.cell), _title(r["channel"]), _n(r.get("tag")), _n(r.get("com_break")), _n(r.get("time_check")), _n(r.get("short_spots")), _n(r.get("ads")), _n(r.get("prime_ads")), _n(r.get("other_time_ads")), r.get("time_mix") or ""]
                         + [Paragraph(f"<b>{x['ads']:,}</b>" + (f"<br/><font size=6.5 color='#646A8A'>{_d(x.get('start'))} to {_d(x.get('end'))}</font>" if x.get("start") else ""), s.cell) for x in r.get("periods") or []]
                         + [_n(r.get("days")), _n(r.get("daily_avg"), "dec"), _n(r.get("value"))])
         n = len(data) - 1
-        fs = lambda k: sum((r.get(k) or 0) for r in frows[:60])  # noqa: E731
-        data.append(["Total", "", _n(fs("tag")), _n(fs("com_break")), _n(fs("time_check")), _n(fs("short_spots")), _n(fs("ads")), _n(fs("prime_ads")), _n(fs("other_time_ads")), ""] + [_n(sum((r["periods"][i]["ads"] if i < len(r.get("periods") or []) else 0) for r in frows[:60])) for i in range(len(periods))] + ["", "", _n(fs("value"))])
+        fs = lambda k: sum((r.get(k) or 0) for r in frows[:MAX_ROWS])  # noqa: E731
+        data.append(["Total", "", _n(fs("tag")), _n(fs("com_break")), _n(fs("time_check")), _n(fs("short_spots")), _n(fs("ads")), _n(fs("prime_ads")), _n(fs("other_time_ads")), ""] + [_n(sum((r["periods"][i]["ads"] if i < len(r.get("periods") or []) else 0) for r in frows[:MAX_ROWS])) for i in range(len(periods))] + ["", "", _n(fs("value"))])
         fst = [("FONTNAME", (0, n + 1), (-1, n + 1), "Helvetica-Bold"), ("LINEABOVE", (0, n + 1), (-1, n + 1), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, n + 1), (-1, n + 1), colors.HexColor("#e1e3fb"))]
         fst += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in list(range(2, 9)) + list(range(10, len(head)))] + [("VALIGN", (0, 0), (-1, -1), "TOP")]
         el.append(_table(data, [2.7, 1.6, 1.1, 1.4, 1.4, 2.4, 1.4, 1.4, 1.4, 2.0] + [2.6] * len(periods) + [1.5, 1.9, 2.1], s, brand, fst))

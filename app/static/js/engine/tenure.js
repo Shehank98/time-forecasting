@@ -202,5 +202,41 @@
         total_ads: out.reduce((s, r) => s + r.total_ads, 0), sponsorship_ads: out.reduce((s, r) => s + r.sponsorship_ads, 0) },
       selection: { channel: opts.channel || null, program: opts.program || null, advertiser: opts.advertiser || null, show: opts.show || 'sponsor' } };
   }
-  Object.assign(MR, { sponsorshipTenure });
+
+  /**
+   * "Can't find an ad?": every ad whose theme, or whose programme, contains the search text, with how it is counted and why.
+   * opts: {q, advertiser, channel, limit}
+   */
+  function sponsorshipLookup(L, idx, opts = {}) {
+    const C = L.cols, q = String(opts.q || '').trim().toLowerCase().replace(/[_]+/g, ' ').replace(/\s+/g, ' ');
+    if (q.length < 2) return { empty: true, q, rows: [], note: 'Type at least 2 letters.' };
+    const sc = scan(L, idx), fq = MR.frequencyGroups(L, idx, opts);
+    const flat = (t) => String(t == null ? '' : t).toLowerCase().replace(/[_]+/g, ' ').replace(/\s+/g, ' ');
+    const themeHit = new Set(L.dicts.theme.map((t, c) => (flat(t).includes(q) ? c : -1)).filter((c) => c >= 0)), progHit = new Set(L.dicts.program.map((t, c) => (flat(t).includes(q) ? c : -1)).filter((c) => c >= 0));
+    const ch = opts.channel ? L.dicts.channel.indexOf(opts.channel) : -2, ad = opts.advertiser ? L.dicts.advertiser.indexOf(opts.advertiser) : -2;
+    const rows = MR.where(L, idx, (i) => (themeHit.has(C.theme[i]) || progHit.has(C.program[i])) && (ch === -2 || C.channel[i] === ch) && (ad === -2 || C.advertiser[i] === ad));
+    const nA = L.dicts.advertiser.length + 1, nT = L.dicts.theme.length + 1, g = new Map();
+    for (let k = 0; k < rows.length; k++) {
+      const i = rows[k], key = ((sc.pkey(i)) * nA + C.advertiser[i]) * nT + (C.theme[i] + 1); let a = g.get(key);
+      if (!a) g.set(key, (a = { i0: i, ads: 0, spend: 0, days: new Set(), secs: 0, timed: 0, dmin: Infinity, dmax: -Infinity }));
+      const d = C.date[i]; a.ads++; a.spend += C.cost[i]; a.days.add(d); if (C.dur[i] > 0) { a.secs += C.dur[i]; a.timed++; } if (d < a.dmin) a.dmin = d; if (d > a.dmax) a.dmax = d;
+    }
+    const nm = (col, c) => (c >= 0 ? L.dicts[col][c] : 'UNKNOWN'), ITEM_WORDS = 'Next Card, Intro, Extro, LLogo, Com Break, Time Check, BB, Tag, DJ and Tr';
+    const out = [...g.values()].map((a) => {
+      const i = a.i0, theme = nm('theme', C.theme[i]), key = MR.sponsorKey(theme), daily = a.ads / a.days.size, avgDur = a.timed ? a.secs / a.timed : null;
+      let how, cls, why;
+      if (key && FREQ_ITEMS[key]) { cls = 'frequency'; how = `Frequency sponsorship: ${FREQ_ITEMS[key]}`; why = `${FREQ_ITEMS[key]} items are bought on the channel, so they are in the Frequency sponsorships by channel section, not in a programme.`; }
+      else if (key) { cls = 'programme'; how = `Programme sponsorship: ${MR.sponsorItem(theme)}`; why = `Read as a ${MR.sponsorItem(theme)} item. It is listed in Who sponsored what under ${MR.title(nm('channel', C.channel[i]))} > ${MR.title(nm('program', C.program[i]))} for ${nm('advertiser', C.advertiser[i])}.`; }
+      else if (fq.groups.get(fq.key(i)) && fq.groups.get(fq.key(i)).frequency) { cls = 'frequency'; how = 'Frequency sponsorship: short frequent spot'; why = `A commercial of about ${Math.round(avgDur || 0)} seconds averaging ${daily.toFixed(1)} a day on the channel (${fq.max_dur} seconds or less and ${fq.min_daily}+ a day), so it is in the Frequency sponsorships by channel section.`; }
+      else if (MR.sponsorItem(theme)) { cls = 'programme'; how = `Programme sponsorship: ${MR.sponsorItem(theme)}`; why = `Read as a ${MR.sponsorItem(theme)} item by its words.`; }
+      else { cls = 'commercial'; how = 'Commercial (not a sponsorship item)'; why = `The theme "${theme}" does not contain a sponsorship item (${ITEM_WORDS}), so it is counted as a commercial and is not in the sponsorship lists. If it is a sponsorship, tell us how it is written (for example an abbreviation) and it can be added.`; }
+      return { channel: nm('channel', C.channel[i]), program: nm('program', C.program[i]), advertiser: nm('advertiser', C.advertiser[i]), theme, ads: a.ads, spend: a.spend, days: a.days.size, daily_avg: daily, length: avgDur,
+        first_seen: isoFromDay(a.dmin), last_seen: isoFromDay(a.dmax), class: cls, how, why, theme_match: themeHit.has(C.theme[i]), programme_match: progHit.has(C.program[i]) };
+    }).sort((x, y) => ({ programme: 0, frequency: 1, commercial: 2 }[x.class] - { programme: 0, frequency: 1, commercial: 2 }[y.class]) || y.ads - x.ads);
+    const lim = opts.limit || 300, n = (c) => out.filter((r) => r.class === c).length;
+    return { empty: !out.length, q, rows: out.slice(0, lim), n_rows: out.length, counts: { programme: n('programme'), frequency: n('frequency'), commercial: n('commercial') }, themes_matched: themeHit.size, programmes_matched: progHit.size,
+      channels: [...new Set(out.map((r) => r.channel))] };
+  }
+
+  Object.assign(MR, { sponsorshipTenure, sponsorshipLookup });
 })(typeof self !== 'undefined' ? self : globalThis);

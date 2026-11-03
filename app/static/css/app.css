@@ -781,3 +781,6 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .tn-tbl tr.tn-ch td { background: var(--accent-soft); font-weight: 600; }
 @media (max-width: 1000px) { .tn-grid { grid-template-columns: 1fr; } }
 .tn-fgrid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; } @media (max-width: 900px) { .tn-fgrid { grid-template-columns: 1fr; } }
+.tn-find { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 10px; } .tn-find summary { cursor: pointer; }
+.tn-find-bar { display: grid; grid-template-columns: minmax(240px, 2fr) auto; gap: 12px; align-items: end; margin: 10px 0; }
+.tn-find-sum { margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
