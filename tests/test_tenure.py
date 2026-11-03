@@ -133,3 +133,31 @@ def test_tenure_pdf(sheet):
     for s in ("Sponsorship over time", "Year 1", "Year 2", "Lanka Tea Co", "Dream Star", "Sponsored all 2 years", "Stopped after Year 1", "What ads ran", "Dream Star -Intro"):
         assert s in text, s
     assert "—" not in text
+
+
+def test_lists_for_picking(sheet):
+    """No programme or channel needs to be picked: advertisers are listed, then an advertiser's channels and programmes."""
+    from app.services.analytics_lmrb import is_sponsor_theme
+    p, df = sheet
+    df = df.copy()
+    df["sp2"] = df["Advt_Theme"].map(is_sponsor_theme) | df["Advt_Theme"].str.contains(r"\b(?:Logo|Intro|Outro)\b", case=False, regex=True)
+    sp = df[df["sp2"]]
+    lite = node("tenure", p, {"lite": True})
+    assert lite["rows"] == [] and not lite["empty"]
+    summ = {a["advertiser"]: a for a in lite["advertiser_summary"]}
+    assert set(summ) == set(sp["Advertiser"])
+    for adv, a in summ.items():
+        x = sp[sp["Advertiser"] == adv]
+        assert a["programmes"] == x.groupby(["ch", "prog"]).ngroups and a["channels"] == x["ch"].nunique() and a["sponsorship_ads"] == len(x)
+    assert summ["Lanka Tea Co"]["all_years"] >= 1 and summ["Nestle Lanka Ltd"]["consistent"] >= 1
+    assert lite["advertiser_summary"][0]["all_years"] == max(a["all_years"] for a in summ.values())          # long tenures first
+    # one advertiser: its channels (with programme counts) and every programme under them
+    d = node("tenure", p, {"advertiser": "Lanka Tea Co"})
+    x = sp[sp["Advertiser"] == "Lanka Tea Co"]
+    assert {c["channel"]: c["programmes"] for c in d["advertiser_channels"]} == x.groupby("ch")["prog"].nunique().to_dict()
+    assert {(r["channel"], r["program"]) for r in d["rows"]} == set(map(tuple, x[["ch", "prog"]].drop_duplicates().values))
+    assert {r["advertiser"] for r in d["rows"]} == {"Lanka Tea Co"} and any(r["program"] == "Dream Star" or r["program"] == PROG for r in d["rows"])
+    # choosing a channel keeps the full channel list so every channel can still be clicked
+    one = node("tenure", p, {"advertiser": "Lanka Tea Co", "channel": CH})
+    assert {c["channel"] for c in one["advertiser_channels"]} == {c["channel"] for c in d["advertiser_channels"]}
+    assert {r["channel"] for r in one["rows"]} == {CH}

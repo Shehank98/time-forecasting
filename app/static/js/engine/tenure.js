@@ -26,7 +26,7 @@
   const CONSISTENT = 0.5;                         // share of the programme's airing days
   const RANK = { all: 0, started: 1, stopped: 1, some: 1, single: 2, occasional: 3, none: 4 };
 
-  /** opts: {channel, program, advertiser, mode ('data'|'calendar'), show ('sponsor'|'all'), limit} */
+  /** opts: {channel, program, advertiser, mode ('data'|'calendar'), show ('sponsor'|'all'), limit, lite (advertiser list only: no per-row months, themes or rows)} */
   function sponsorshipTenure(L, idx, opts = {}) {
     const C = L.cols, mode = opts.mode === 'calendar' ? 'calendar' : 'data', sc = scan(L, idx);
     const memo = new Map(), mIdx = (d) => { let v = memo.get(d); if (v === undefined) { const s = isoFromDay(d); v = +s.slice(0, 4) * 12 + (+s.slice(5, 7) - 1); memo.set(d, v); } return v; };
@@ -109,7 +109,7 @@
       const totalAds = sumK('total_ads'), spAds = sumK('sponsorship_ads'), airDays = A.reduce((s, x) => s + x.size, 0), present = sumK('days_present');
       const prods = [...a.products.entries()].sort((x, y) => y[1] - x[1]).map((e) => L.dicts.product[e[0]]);
       const advName = nm('advertiser', a.adv), chName = nm('channel', a.ch), pgName = nm('program', a.pg), chTitle = MR.title(chName), pgTitle = MR.title(pgName);
-      const themes = [...a.themes.entries()].map(([t, v]) => ({ theme: nm('theme', t), item: themeItem(nm('theme', t), v.kind), sponsorship: v.kind > 0, per_period: v.per, spots: v.spots, spend: v.spend, first_seen: isoFromDay(v.dmin), last_seen: isoFromDay(v.dmax) }))
+      const themes = opts.lite ? [] : [...a.themes.entries()].map(([t, v]) => ({ theme: nm('theme', t), item: themeItem(nm('theme', t), v.kind), sponsorship: v.kind > 0, per_period: v.per, spots: v.spots, spend: v.spend, first_seen: isoFromDay(v.dmin), last_seen: isoFromDay(v.dmax) }))
         .sort((x, y) => (y.sponsorship - x.sponsorship) || y.spots - x.spots).slice(0, 15);
       const headline = spAds ? `${advName} sponsored ${pgTitle} on ${chTitle} for ${span} month${span === 1 ? '' : 's'} (${sFirst.label} to ${sLast.label}): ${spAds.toLocaleString('en-US')} sponsorship ad${spAds === 1 ? '' : 's'} and ${(totalAds - spAds).toLocaleString('en-US')} other ad${totalAds - spAds === 1 ? '' : 's'}, ${totalAds.toLocaleString('en-US')} in total. ${status}.`
         : `${advName} ran ${totalAds.toLocaleString('en-US')} ad${totalAds === 1 ? '' : 's'} in ${pgTitle} on ${chTitle} (${first} to ${last}), with no sponsorship items.`;
@@ -117,8 +117,21 @@
         months_span: span, months_with_sponsorship: spMonths.length, years_sponsored: consIdx.length, years_with_items: spon.length, years_aired: aired.length, periods: per, total_ads: totalAds, sponsorship_ads: spAds, other_ads: totalAds - spAds, spend: sumK('spend'), sponsorship_spend: sumK('sponsorship_spend'),
         airing_days: airDays, days_present: present, days_sponsored: sumK('days_sponsored'), presence_pct: pct(sumK('days_sponsored'), airDays), gaps: realGaps, months, themes, headline };
     }).sort((x, y) => RANK[x.status_code] - RANK[y.status_code] || y.sponsorship_ads - x.sponsorship_ads || y.months_span - x.months_span);
-    const lim = opts.limit || 300;
-    return { empty: !out.length, mode, periods, bounds: [isoFromDay(lo), isoFromDay(hi)], data_months: miMax - miMin + 1, options, rows: out.slice(0, lim), n_rows: out.length,
+    const bySum = new Map();
+    out.forEach((r) => { let a = bySum.get(r.advertiser); if (!a) bySum.set(r.advertiser, (a = { advertiser: r.advertiser, programmes: 0, channels: new Set(), consistent: 0, all_years: 0, occasional: 0, sponsorship_ads: 0, total_ads: 0, spend: 0 }));
+      a.programmes++; a.channels.add(r.channel); a.sponsorship_ads += r.sponsorship_ads; a.total_ads += r.total_ads; a.spend += r.spend;
+      if (r.status_code === 'all') a.all_years++; if (['all', 'started', 'stopped', 'some', 'single'].includes(r.status_code)) a.consistent++; if (r.status_code === 'occasional') a.occasional++; });
+    const advertiserSummary = [...bySum.values()].map((a) => ({ ...a, channels: a.channels.size })).sort((x, y) => y.all_years - x.all_years || y.consistent - x.consistent || y.sponsorship_ads - x.sponsorship_ads).slice(0, 400);
+    // the channels (and how many programmes) the chosen advertiser sponsors, ignoring the channel filter so they can all be listed
+    let advertiserChannels = [];
+    if (adCode >= 0) {
+      const m = new Map();
+      for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (C.advertiser[i] !== adCode) continue; const ch = C.channel[i]; let a = m.get(ch); if (!a) m.set(ch, (a = { progs: new Set(), sp: new Set(), ads: 0, spAds: 0 }));
+        a.progs.add(C.program[i]); a.ads++; if (sc.kinds[C.theme[i]]) { a.sp.add(C.program[i]); a.spAds++; } }
+      advertiserChannels = [...m.entries()].map(([ch, a]) => ({ channel: nm('channel', ch), programmes: opts.show === 'all' ? a.progs.size : a.sp.size, ads: a.ads, sponsorship_ads: a.spAds })).filter((x) => x.programmes > 0).sort((x, y) => y.sponsorship_ads - x.sponsorship_ads || y.ads - x.ads);
+    }
+    const lim = opts.lite ? 0 : (opts.limit || 500);
+    return { empty: !out.length, advertiser_summary: advertiserSummary, advertiser_channels: advertiserChannels, mode, periods, bounds: [isoFromDay(lo), isoFromDay(hi)], data_months: miMax - miMin + 1, options, rows: out.slice(0, lim), n_rows: out.length,
       totals: { rows: out.length, all_years: out.filter((r) => r.status_code === 'all').length, advertisers: new Set(out.map((r) => r.advertiser)).size, programmes: new Set(out.map((r) => r.channel + '|' + r.program)).size,
         total_ads: out.reduce((s, r) => s + r.total_ads, 0), sponsorship_ads: out.reduce((s, r) => s + r.sponsorship_ads, 0) },
       selection: { channel: opts.channel || null, program: opts.program || null, advertiser: opts.advertiser || null, show: opts.show || 'sponsor' } };

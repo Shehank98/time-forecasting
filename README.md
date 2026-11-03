@@ -389,9 +389,12 @@ The numbers are computed in the browser (`app/static/js/engine/executive.js`). `
 
 The fourth view of the Programme & Sponsorship Spotlight tab. It answers: "Did this advertiser sponsor this programme across the whole upload, and what ran in each year?"
 
-- **Pick a channel, a programme and an advertiser** (each list narrows the next), or leave them on All to see every sponsorship at once. Example: Lanka Tea Co, Derana, Dream Star.
+- **You only pick the advertiser** (type to search). Nothing else needs choosing, because the app lists the channels and programmes for you:
+  1. With no advertiser chosen, it lists every advertiser that has sponsorships, with long, consistent sponsorships first. Click one.
+  2. With an advertiser chosen, it lists every **channel**, and under each channel every **programme** they sponsored, with status, the ads in each year, total ads, sponsorship ads and spend. Channel buttons above the table narrow it to one channel.
+  3. Click a programme (for example Dream Star on Derana) to see exactly what ran.
 - **Year periods:** "Data years" are 12-month blocks counted from the first month of the upload (Year 1, Year 2), so a 2-year file gives two like-for-like years. "Calendar years" splits by calendar year instead.
-- **Overview table** (Who sponsored what, year by year): one row per advertiser and programme, with status, the months sponsored, the ads in each year, total ads, sponsorship ads and spend, and a bold totals row. Click a row to open it.
+- **Channels and programmes list:** each channel has a header row with its totals, then one row per programme with the ads in each year, and a bold totals row at the end.
 - **Detail for one advertiser and programme:**
   - a plain sentence, for example "Lanka Tea Co sponsored Dream Star on Derana for 24 months (Nov 2024 to Oct 2026): 1,371 sponsorship ads and 234 other ads, 1,605 in total. Sponsored all 2 years.";
   - a year-by-year table: programme airing days, days sponsored, sponsorship ads, other ads, total ads, ads per airing and spend, with a whole-period total;
