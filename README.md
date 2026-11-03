@@ -384,3 +384,25 @@ A table-first summary for agency heads and brand managers. It is the second tab,
 **Export Executive Summary PDF** (`POST /api/executive/pdf`) contains the three summary sections with totals, a table of the classified ads, then the full drill-down for the top 10 channels and the top 12 programmes. A copy is kept under Reports.
 
 The numbers are computed in the browser (`app/static/js/engine/executive.js`). `tests/test_executive.py` checks them against pandas and tests each edge case of the classification.
+
+## Sponsorship over time (Market card, Spotlight tab)
+
+The fourth view of the Programme & Sponsorship Spotlight tab. It answers: "Did this advertiser sponsor this programme across the whole upload, and what ran in each year?"
+
+- **Pick a channel, a programme and an advertiser** (each list narrows the next), or leave them on All to see every sponsorship at once. Example: Lanka Tea Co, Derana, Dream Star.
+- **Year periods:** "Data years" are 12-month blocks counted from the first month of the upload (Year 1, Year 2), so a 2-year file gives two like-for-like years. "Calendar years" splits by calendar year instead.
+- **Overview table** (Who sponsored what, year by year): one row per advertiser and programme, with status, the months sponsored, the ads in each year, total ads, sponsorship ads and spend, and a bold totals row. Click a row to open it.
+- **Detail for one advertiser and programme:**
+  - a plain sentence, for example "Lanka Tea Co sponsored Dream Star on Derana for 24 months (Nov 2024 to Oct 2026): 1,371 sponsorship ads and 234 other ads, 1,605 in total. Sponsored all 2 years.";
+  - a year-by-year table: programme airing days, days sponsored, sponsorship ads, other ads, total ads, ads per airing and spend, with a whole-period total;
+  - an ads-per-month chart with a line where each new year starts;
+  - pauses in the middle of the sponsorship (for example Jan to Feb 2026);
+  - **What ads ran:** each theme with its ad count in every year, and first and last seen.
+- **Status:**
+  - **A year counts as sponsored** when the advertiser's sponsorship items (billboard, logo, intro, outro, tag, time check and so on) were on at least half of the programme's airing days that year.
+  - **Sponsored all N years:** sponsored that way in every year the programme aired.
+  - **Started in Year N / Stopped after Year N / Sponsored in X of N years:** the other patterns.
+  - **Occasional sponsorship items:** only a few stray items, which are listed last.
+- **Download Sponsorship over Time PDF** (`POST /api/spotlight/tenure/pdf`): a cover with the year periods, the overview table, then a page per advertiser and programme (the first 8) with the year table, the monthly chart and the ads that ran. A copy is kept under Reports.
+
+The numbers are computed in the browser (`app/static/js/engine/tenure.js`). `tests/test_tenure.py` checks them against pandas on a 2-year sample with a both-years sponsor, a year-1-only sponsor, a year-2-only sponsor and an occasional one.

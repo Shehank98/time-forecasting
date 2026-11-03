@@ -91,3 +91,28 @@ def executive_pdf(req: ExecutiveReq, ws: Workspace = Depends(workspace)) -> Resp
                                                                         "dataset": str(req.meta.get("dataset") or "")[:200]}, ws.user_id)
     log.info("[executive pdf] built %s (%d bytes) for client %s", fname, len(content), ws.client_id)
     return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})
+
+
+class TenureReq(BaseModel):
+    report: dict[str, Any]
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/api/spotlight/tenure/pdf")
+def tenure_pdf(req: TenureReq, ws: Workspace = Depends(workspace)) -> Response:
+    """Sponsorship over time: who sponsored which programme, year by year, with the ads that ran."""
+    rep = req.report
+    if rep.get("empty") or not rep.get("rows"):
+        raise HTTPException(422, "No sponsorships match the chosen channel, programme and advertiser, so there is nothing to put in the report.")
+    client = repo.get_client(ws.client_id) or {"name": "client"}
+    try:
+        content = export_spotlight.build_tenure_pdf(rep, req.meta, client, repo.get_branding(), {"agency": repo.agency_logo(), "client": repo.client_logo(ws.client_id)})
+    except Exception:
+        log.exception("Sponsorship over time PDF failed")
+        raise HTTPException(500, "The sponsorship over time report could not be built. Try a single channel or programme.") from None
+    name = re.sub(r"[^A-Za-z0-9]+", "_", client.get("name") or "client").strip("_")[:40] or "client"
+    fname = f"{name}_sponsorship_over_time_{dt.datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    rid = repo.save_report(ws.client_id, "lmrb", "pdf", fname, content, {"kind": "tenure", "format": "pdf", "title": "Sponsorship over time",
+                                                                        "dataset": str(req.meta.get("dataset") or "")[:200]}, ws.user_id)
+    log.info("[tenure pdf] built %s (%d bytes) for client %s", fname, len(content), ws.client_id)
+    return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})

@@ -16,19 +16,119 @@
       <div class="sf-dur-l small">${DURS.filter((k) => s[k]).slice(0, 4).map((k) => `${k} ${fmt.num(s[k])}`).join(' · ') || 'no length'}</div>`; };
   const alpha = (c, a) => (/^#[0-9a-f]{6}$/i.test(c) ? c + Math.round(a * 255).toString(16).padStart(2, '0') : /^hsl\(/.test(c) ? c.replace(')', ` / ${a})`) : c);
   const load = () => { try { return App.store.get(KEY, null) || {}; } catch (e) { return {}; } };
-  const st = Object.assign({ view: 'programme', program: null, channel: null, brand: '', gran: 'auto', dur: 'all', mchannel: '', tag: '', search: '', sort: 'spend', desc: true, rep: {}, lch: '', ladv: '', show: 'sponsor', fmin: 10, fdur: 10 }, load());
+  const st = Object.assign({ view: 'programme', program: null, channel: null, brand: '', gran: 'auto', dur: 'all', mchannel: '', tag: '', search: '', sort: 'spend', desc: true, rep: {}, tn: {}, lch: '', ladv: '', show: 'sponsor', fmin: 10, fdur: 10 }, load());
+  st.tn = Object.assign({ channel: '', program: '', advertiser: '', mode: 'data', show: 'sponsor' }, st.tn || {});
   st.rep = Object.assign({ rp_channels: [], rp_programs: [], rp_advertisers: [], from: '', to: '' }, st.rep || {});
   const save = () => { try { App.store.set(KEY, st); } catch (e) { /* storage blocked */ } };
   const clutterThr = () => { try { return (App.store.get('neg:lmrb', {}) || {}).clutter_threshold || 35; } catch (e) { return 35; } };
 
   function tab(p, ctx) {
-    p.innerHTML = `<div class="card-head" style="margin-bottom:12px"><div class="seg" id="sp-view"><button type="button" data-v="programme" aria-pressed="${st.view === 'programme'}">Programme Spotlight</button><button type="button" data-v="matrix" aria-pressed="${st.view === 'matrix'}">Short-form &amp; Sponsorship Matrix</button><button type="button" data-v="report" aria-pressed="${st.view === 'report'}">PDF report</button></div>
+    p.innerHTML = `<div class="card-head" style="margin-bottom:12px"><div class="seg" id="sp-view"><button type="button" data-v="programme" aria-pressed="${st.view === 'programme'}">Programme Spotlight</button><button type="button" data-v="matrix" aria-pressed="${st.view === 'matrix'}">Short-form &amp; Sponsorship Matrix</button><button type="button" data-v="tenure" aria-pressed="${st.view === 'tenure'}">Sponsorship over time</button><button type="button" data-v="report" aria-pressed="${st.view === 'report'}">PDF report</button></div>
       <div class="muted small">Sponsorship items: -BB, Intro, Extro, Com Break, Next Card (billboards) and LLogo, Tag, Time Check, DJ, -Tr (logo items).</div></div><div id="sp-body"></div>`;
     p.querySelectorAll('#sp-view button').forEach((b) => { b.onclick = () => { st.view = b.dataset.v; save(); p.querySelectorAll('#sp-view button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); show(p, ctx); }; });
     show(p, ctx);
   }
-  const show = (p, ctx) => { const b = p.querySelector('#sp-body'); return st.view === 'matrix' ? matrix(b, ctx) : st.view === 'report' ? report(b, ctx) : programme(b, ctx); };
+  const show = (p, ctx) => { const b = p.querySelector('#sp-body'); return st.view === 'matrix' ? matrix(b, ctx) : st.view === 'report' ? report(b, ctx) : st.view === 'tenure' ? tenure(b, ctx) : programme(b, ctx); };
   const goView = (p, ctx, v) => { st.view = v; save(); p.querySelectorAll('#sp-view button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === v))); show(p, ctx); };
+
+
+  /* ================= Sponsorship over time: who sponsored which programme, year by year ================= */
+  const STATUS_CLS = { all: 'good', started: 'info', stopped: 'warn', some: 'warn', single: 'info', occasional: '', none: '' };
+  const statusBadge = (r) => `<span class="badge ${STATUS_CLS[r.status_code] || ''}">${esc(r.status)}</span>`;
+  let tnLast = null;
+
+  async function tenure(el, ctx) {
+    el.innerHTML = `<div class="card"><div class="card-head"><div><h3>Sponsorship over time</h3><div class="sub">Pick a channel, programme and advertiser to see how long they sponsored it across the whole upload, the ads in every year, and which ads ran. Leave them on All to see every sponsorship.</div></div>
+        <button class="btn primary" type="button" id="tn-pdf">Download Sponsorship over Time PDF</button></div>
+      <div class="tn-grid"><div class="field"><label for="tn-ch">Channel</label><select id="tn-ch"></select></div>
+        <div class="field"><label for="tn-pg">Programme</label><select id="tn-pg"></select></div>
+        <div class="field"><label for="tn-adv">Advertiser</label><select id="tn-adv"></select></div>
+        <div class="field"><label>Years</label><div class="seg" id="tn-mode"><button type="button" data-m="data" aria-pressed="${st.tn.mode === 'data'}">Data years</button><button type="button" data-m="calendar" aria-pressed="${st.tn.mode === 'calendar'}">Calendar years</button></div></div>
+        <div class="field"><label>Show</label><div class="seg" id="tn-show"><button type="button" data-s="sponsor" aria-pressed="${st.tn.show !== 'all'}">Sponsorships</button><button type="button" data-s="all" aria-pressed="${st.tn.show === 'all'}">All advertisers</button></div></div></div>
+      <div class="muted small" id="tn-note" style="margin-top:6px"></div></div><div id="tn-out" style="margin-top:16px">${App.skeleton(2)}</div>`;
+    const go = () => { save(); run(); };
+    const pgVal = () => (st.tn.program ? `${st.tn.channel || ''}\u0001${st.tn.program}` : '');
+    el.querySelector('#tn-ch').onchange = (e) => { st.tn.channel = e.target.value; st.tn.program = ''; st.tn.advertiser = ''; go(); };
+    el.querySelector('#tn-pg').onchange = (e) => { const [c, pg] = e.target.value.split('\u0001'); st.tn.program = pg || ''; if (c) st.tn.channel = c; st.tn.advertiser = ''; go(); };
+    el.querySelector('#tn-adv').onchange = (e) => { st.tn.advertiser = e.target.value; go(); };
+    el.querySelectorAll('#tn-mode button').forEach((b) => { b.onclick = () => { st.tn.mode = b.dataset.m; el.querySelectorAll('#tn-mode button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); go(); }; });
+    el.querySelectorAll('#tn-show button').forEach((b) => { b.onclick = () => { st.tn.show = b.dataset.s; el.querySelectorAll('#tn-show button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); go(); }; });
+    el.querySelector('#tn-pdf').onclick = async () => {
+      const b = el.querySelector('#tn-pdf');
+      if (!tnLast || tnLast.empty) { App.toast('Nothing to export: no sponsorships match these choices.', 'error'); return; }
+      b.disabled = true; const txt = b.textContent; b.textContent = 'Building PDF...';
+      try {
+        const chips = ((ctx.meta && ctx.meta.chips) || []).map((c) => `${c.label}: ${c.value}`), ds = (ctx.body && ctx.body().dataset) || '';
+        const res = await App.api.blob('/api/spotlight/tenure/pdf', { report: tnLast, meta: { dataset: ds, filters: chips } });
+        App.download(res.blob, res.name); App.toast('Sponsorship over time report downloaded. A copy is kept under Reports.', 'ok');
+      } catch (e) { App.toast('The PDF could not be built: ' + e.message, 'error'); } finally { b.disabled = false; b.textContent = txt; }
+    };
+    let seq = 0;
+    async function run() {
+      const my = ++seq, out = el.querySelector('#tn-out'); if (!out) return;
+      out.innerHTML = App.skeleton(2);
+      let d;
+      try { d = await App.data.sponsorshipTenure({ filters: ctx.filters(), options: { channel: st.tn.channel || null, program: st.tn.program || null, advertiser: st.tn.advertiser || null, mode: st.tn.mode, show: st.tn.show } }); } catch (e) { out.innerHTML = App.emptyState('The sponsorship view could not be built', e.message); return; }
+      if (my !== seq || !out.isConnected) return;
+      tnLast = d;
+      const o = d.options, chs = el.querySelector('#tn-ch'), pgs = el.querySelector('#tn-pg'), ads = el.querySelector('#tn-adv');
+      // drop choices the narrowed lists no longer contain
+      if (st.tn.program && !o.programmes.some((x) => x.program === st.tn.program && (!st.tn.channel || x.channel === st.tn.channel))) st.tn.program = '';
+      if (st.tn.advertiser && !o.advertisers.some((x) => x.advertiser === st.tn.advertiser)) st.tn.advertiser = '';
+      chs.innerHTML = `<option value="">All channels (${fmt.num(o.channels.length)})</option>${o.channels.map((c) => `<option value="${esc(c)}" ${c === st.tn.channel ? 'selected' : ''}>${esc(tt(c))}</option>`).join('')}`;
+      pgs.innerHTML = `<option value="">All programmes</option>${o.programmes.slice(0, 600).map((x) => `<option value="${esc(x.channel)}\u0001${esc(x.program)}" ${x.program === st.tn.program && (!st.tn.channel || x.channel === st.tn.channel) ? 'selected' : ''}>${esc(tt(x.program))}${st.tn.channel ? '' : ' · ' + esc(tt(x.channel))}${x.sponsored ? ' (sponsored)' : ''}</option>`).join('')}`;
+      ads.innerHTML = `<option value="">All advertisers</option>${o.advertisers.map((x) => `<option value="${esc(x.advertiser)}" ${x.advertiser === st.tn.advertiser ? 'selected' : ''}>${esc(x.advertiser)}${x.sponsored ? ' (sponsor)' : ''}</option>`).join('')}`;
+      el.querySelector('#tn-note').textContent = d.periods.length ? `Uploaded data: ${d.bounds[0]} to ${d.bounds[1]} (${d.data_months} months). ${d.periods.map((p) => `${p.label}: ${p.range}`).join(' · ')}` : '';
+      if (d.empty) { out.innerHTML = App.emptyState(st.tn.show === 'all' ? 'No ads for this choice' : 'No sponsorships for this choice', 'Pick another channel, programme or advertiser, or switch Show to All advertisers.'); return; }
+      if (d.rows.length === 1) detail(out, d, d.rows[0], pgVal, go); else overview(out, d, go);
+    }
+    run();
+  }
+
+  const sumP = (r, k, i) => (r.periods[i] ? r.periods[i][k] : 0);
+  function overview(out, d, go) {
+    const t = d.totals, P = d.periods;
+    const totYear = P.map((p, i) => d.rows.reduce((s, r) => s + sumP(r, 'total_ads', i), 0));
+    out.innerHTML = `<div class="kpis">${kpi('Advertiser and programme pairs', fmt.num(t.rows), `${fmt.num(t.advertisers)} advertisers · ${fmt.num(t.programmes)} programmes`)}${kpi('Sponsored in every year', fmt.num(t.all_years), P.length > 1 ? `all ${P.length} years` : 'data covers 1 year')}
+        ${kpi('Sponsorship ads', fmt.num(t.sponsorship_ads))}${kpi('All ads in these programmes', fmt.num(t.total_ads))}</div>
+      <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Who sponsored what, year by year</h3><div class="sub">One row per advertiser and programme. The year columns are the ads they ran in that programme in each year. Click a row to see exactly which ads ran.</div></div></div>
+        <div class="tbl-scroll" style="max-height:640px"><table class="tbl ex-tbl tn-tbl"><thead><tr><th>Advertiser</th><th>Channel</th><th>Programme</th><th>Status</th><th>Sponsored</th><th class="num">Months</th>${P.map((p) => `<th class="num" title="${esc(p.range)}">${esc(p.label)} ads</th>`).join('')}<th class="num">Total ads</th><th class="num">Sponsorship ads</th><th class="num">Spend (LKR)</th></tr></thead><tbody>
+          ${d.rows.map((r, k) => `<tr class="ex-row ${k % 2 ? 'ex-z' : ''}" tabindex="0" data-i="${k}"><td><b>${esc(r.advertiser)}</b><div class="muted small">${esc((r.products || []).join(', '))}</div></td><td>${esc(tt(r.channel))}</td><td><b>${esc(tt(r.program))}</b></td><td>${statusBadge(r)}</td>
+            <td class="small">${esc(r.sponsored_from || 'n/a')}<br>to ${esc(r.sponsored_to || 'n/a')}</td><td class="num">${fmt.num(r.months_span)}</td>${P.map((p, i) => `<td class="num ${r.periods[i] && r.periods[i].consistent ? 'tn-yes' : ''}">${fmt.num(sumP(r, 'total_ads', i))}</td>`).join('')}
+            <td class="num"><b>${fmt.num(r.total_ads)}</b></td><td class="num">${fmt.num(r.sponsorship_ads)}</td><td class="num">${fmt.num(r.spend)}</td></tr>`).join('')}</tbody>
+          <tfoot><tr class="ex-tot"><td colspan="6">Total${d.n_rows > d.rows.length ? ` (the ${d.rows.length} rows shown)` : ''}</td>${totYear.map((v) => `<td class="num">${fmt.num(v)}</td>`).join('')}<td class="num">${fmt.num(d.rows.reduce((s, r) => s + r.total_ads, 0))}</td><td class="num">${fmt.num(d.rows.reduce((s, r) => s + r.sponsorship_ads, 0))}</td><td class="num">${fmt.num(d.rows.reduce((s, r) => s + r.spend, 0))}</td></tr></tfoot></table></div>
+        <div class="muted small" style="margin-top:6px">Green year columns = sponsored that year, meaning sponsorship items on at least half of the programme's airing days. Status: "Sponsored all N years" = sponsored that way in every year the programme aired. "Occasional" = only a few stray sponsorship items.</div></div>`;
+    out.querySelector('tbody').onclick = (e) => { const tr = e.target.closest('tr.ex-row'); if (!tr) return; const r = d.rows[+tr.dataset.i];
+      st.tn.channel = r.channel; st.tn.program = r.program; st.tn.advertiser = r.advertiser; go(); };
+    out.querySelector('tbody').onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr.ex-row')) { e.preventDefault(); e.target.click(); } };
+  }
+
+  let tnN = 0;
+  function detail(out, d, r, pgVal, go) {
+    const P = d.periods, id = 'tn-m' + (++tnN);
+    out.innerHTML = `<div class="card tn-hero"><div class="card-head"><div><div class="sp-eyebrow">Sponsorship over time</div><h3>${esc(r.advertiser)} <span class="muted">· ${esc(tt(r.program))} on ${esc(tt(r.channel))}</span></h3>
+        <div class="sub">${esc((r.products || []).join(', '))}</div></div><div class="row">${statusBadge(r)}<button class="btn sm ghost" type="button" id="tn-back">Back to all sponsorships</button></div></div>
+      <p class="tn-headline">${esc(r.headline)}</p>
+      <div class="kpis">${kpi('Sponsored for', `${fmt.num(r.months_span)} month${r.months_span === 1 ? '' : 's'}`, r.sponsored_from ? `${esc(r.sponsored_from)} to ${esc(r.sponsored_to)}` : 'no sponsorship items')}${kpi('Years sponsored', `${fmt.num(r.years_sponsored)} of ${fmt.num(r.years_aired)}`, 'sponsored on half or more of the airing days')}
+        ${kpi('Total ads', fmt.num(r.total_ads), `${fmt.num(r.sponsorship_ads)} sponsorship · ${fmt.num(r.other_ads)} other`)}${kpi('Present on', pct(r.presence_pct), `${fmt.num(r.days_sponsored)} of ${fmt.num(r.airing_days)} airing days`)}${kpi('Spend', `<span title="${fmt.lkr(r.spend)}">${fmt.lkrc(r.spend)}</span>`, `${fmt.lkrc(r.sponsorship_spend)} on sponsorship items`)}</div></div>
+      <div class="card" style="margin-top:16px"><h3>Year by year</h3><div class="tbl-scroll"><table class="tbl ex-tbl"><thead><tr><th>Year</th><th>Dates</th><th class="num">Programme airing days</th><th class="num">Days sponsored</th><th class="num">Sponsorship ads</th><th class="num">Other ads</th><th class="num">Total ads</th><th class="num">Ads per airing</th><th class="num">Spend (LKR)</th><th>Sponsored?</th></tr></thead><tbody>
+        ${r.periods.map((x, k) => `<tr class="${k % 2 ? 'ex-z' : ''}"><td><b>${esc(x.label)}</b></td><td class="small">${esc(x.range)}</td><td class="num">${fmt.num(x.airing_days)}</td><td class="num">${fmt.num(x.days_sponsored)}</td><td class="num"><b>${fmt.num(x.sponsorship_ads)}</b></td><td class="num">${fmt.num(x.other_ads)}</td><td class="num"><b>${fmt.num(x.total_ads)}</b></td><td class="num">${x.ads_per_airing == null ? 'n/a' : fmt.num(x.ads_per_airing, 1)}</td><td class="num">${fmt.num(x.spend)}</td>
+          <td>${x.consistent ? '<span class="badge good">Sponsored</span>' : x.sponsored ? '<span class="badge warn">Occasional</span>' : !x.aired ? '<span class="badge">Not on air</span>' : '<span class="badge bad">Not sponsored</span>'}</td></tr>`).join('')}</tbody>
+        <tfoot><tr class="ex-tot"><td colspan="2">Whole period</td><td class="num">${fmt.num(r.airing_days)}</td><td class="num">${fmt.num(r.days_sponsored)}</td><td class="num">${fmt.num(r.sponsorship_ads)}</td><td class="num">${fmt.num(r.other_ads)}</td><td class="num">${fmt.num(r.total_ads)}</td><td></td><td class="num">${fmt.num(r.spend)}</td><td></td></tr></tfoot></table></div></div>
+      ${r.gaps.length ? `<div class="banner"><span>Sponsorship paused in the middle: ${r.gaps.map((g) => `${esc(g.from)} to ${esc(g.to)} (${g.months} month${g.months === 1 ? '' : 's'})`).join('; ')}.</span></div>` : ''}
+      <div style="margin-top:16px">${C.box(id, 'Ads per month', 'Blue = sponsorship ads, grey = other ads. A red dashed line starts each new year. Click a bar.', { tall: true, help: ['Every month from the first to the last month this advertiser ran an ad in the programme. Months with no bars had no ads.', 'See at a glance whether the sponsorship ran without a break across the years.'] })}</div>
+      <div class="card" style="margin-top:16px"><h3>What ads ran</h3><div class="sub muted small">Each theme is one ad. Sponsorship items first. The year columns count the times each ad ran.</div><div class="tbl-scroll"><table class="tbl ex-tbl"><thead><tr><th>Ad (theme)</th><th>Type</th>${P.map((p) => `<th class="num">${esc(p.label)} ads</th>`).join('')}<th class="num">Total ads</th><th>First seen</th><th>Last seen</th></tr></thead><tbody>
+        ${r.themes.map((t, k) => `<tr class="${k % 2 ? 'ex-z' : ''}"><td><b>${esc(t.theme)}</b></td><td>${t.sponsorship ? `<span class="badge role-title">Sponsorship</span> <span class="muted small">${esc(t.item)}</span>` : '<span class="badge role-reg">Spot</span>'}</td>${t.per_period.map((v) => `<td class="num">${fmt.num(v)}</td>`).join('')}<td class="num"><b>${fmt.num(t.spots)}</b></td><td class="small">${esc(t.first_seen)}</td><td class="small">${esc(t.last_seen)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr class="ex-tot"><td colspan="2">Total</td>${P.map((p, i) => `<td class="num">${fmt.num(r.themes.reduce((s, t) => s + (t.per_period[i] || 0), 0))}</td>`).join('')}<td class="num">${fmt.num(r.themes.reduce((s, t) => s + t.spots, 0))}</td><td colspan="2"></td></tr></tfoot></table></div></div>`;
+    out.querySelector('#tn-back').onclick = () => { st.tn.advertiser = ''; st.tn.program = ''; go(); };
+    const mo = r.months, sp = C.PALETTE[0], other = C.css('--muted') || '#8a93b8', bad = C.css('--bad') || '#ff5d7a';
+    const bounds = { id: 'tnYears', afterDatasetsDraw(ch) { const { ctx: c, chartArea: a, scales: { x } } = ch; c.save(); c.strokeStyle = bad; c.setLineDash([5, 4]); c.lineWidth = 1;
+      for (let i = 1; i < mo.length; i++) if (mo[i].period !== mo[i - 1].period) { const px = (x.getPixelForValue(i) + x.getPixelForValue(i - 1)) / 2; c.beginPath(); c.moveTo(px, a.top); c.lineTo(px, a.bottom); c.stroke(); }
+      c.setLineDash([]); c.fillStyle = bad; c.font = '700 11px sans-serif'; P.forEach((p) => { const ix = mo.map((m, i) => (m.period === p.index ? i : -1)).filter((i) => i >= 0); if (ix.length) c.fillText(p.label, x.getPixelForValue(ix[0]) + 4, a.top + 12); }); c.restore(); } };
+    C.make(id, { type: 'bar', plugins: [bounds], detailOnly: true, data: { labels: mo.map((m) => m.label), datasets: [{ label: 'Sponsorship ads', data: mo.map((m) => m.sponsorship_ads), backgroundColor: sp, stack: 's' }, { label: 'Other ads', data: mo.map((m) => m.other_ads), backgroundColor: other + '99', stack: 's' }] },
+      options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true, grid: { display: false }, ticks: { maxTicksLimit: 12, maxRotation: 0 } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'Ads' } } } },
+      detail: (i) => { const m = mo[i]; return `<div class="dt-kpis"><div class="dt-k"><span>Month</span><b>${esc(m.label)}</b></div><div class="dt-k"><span>Year</span><b>${esc(P[m.period] ? P[m.period].label : '')}</b></div><div class="dt-k"><span>Sponsorship ads</span><b>${fmt.num(m.sponsorship_ads)}</b></div><div class="dt-k"><span>Other ads</span><b>${fmt.num(m.other_ads)}</b></div></div>`; } });
+  }
 
   /* ================= Programme Spotlight ================= */
   /** Programme Spotlight: pick a channel and an advertiser, see every sponsorship and frequency buy, then open any programme. */

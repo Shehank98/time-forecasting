@@ -4,7 +4,7 @@
  */
 /* global MR */
 importScripts('/js/vendor/xlsx.full.min.js', '/js/engine/core.js', '/js/engine/ingest.js', '/js/engine/filters.js', '/js/engine/analytics_tv.js',
-  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js', '/js/engine/negotiation.js', '/js/engine/spotlight.js', '/js/engine/executive.js');
+  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js', '/js/engine/negotiation.js', '/js/engine/spotlight.js', '/js/engine/executive.js', '/js/engine/tenure.js');
 
 const DB_NAME = 'media-radar', DB_VER = 1, MAX_CSV_ROWS = 1000000;
 let scope = null;                       // "u<user>:c<client>"
@@ -279,6 +279,7 @@ const OPS = {
     if (vaultCache.sig !== k) vaultCache.rows = kind === 'tv' ? MR.vaultRowsTv(T) : MR.vaultRowsLmrb(T), vaultCache.sig = k;
     return { total: vaultCache.rows.length, rows: vaultCache.rows.slice(offset || 0, (offset || 0) + (limit || 20000)) };
   },
+  sponsorshipTenure({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipTenure(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   executiveSummary({ filters, options }) { table('lmrb'); const L = lmrbBase(options); return MR.executiveSummary(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   executiveDetail({ filters, options }) { table('lmrb'); const L = lmrbBase(options); return MR.executiveDetail(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },
   sponsorshipList({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipList(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },

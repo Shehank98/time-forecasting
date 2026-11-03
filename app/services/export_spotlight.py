@@ -208,3 +208,142 @@ def build_spotlight_pdf(rep: dict, meta: dict, client: dict, branding: dict, log
         canvas.setFillColor(accent); canvas.rect(0, PAGE[1] - 0.22 * cm, PAGE[0], 0.22 * cm, stroke=0, fill=1); canvas.restoreState()
     doc.build(el, onFirstPage=footer, onLaterPages=footer)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------- Sponsorship over time (multi-year) PDF
+STATUS_COLOR = {"all": "#12a06a", "started": "#0b8fb8", "stopped": "#c27a06", "some": "#c27a06", "single": "#4F46E5", "occasional": "#646A8A", "none": "#646A8A"}
+
+
+def _month_chart(months: list[dict], periods: list[dict]) -> Image | None:
+    if not months:
+        return None
+    labels = [f"{m['label'][:3]} {m['label'][-2:]}" for m in months]       # Nov 24
+    sp = [m["sponsorship_ads"] for m in months]
+    ot = [m["other_ads"] for m in months]
+    fig, ax = plt.subplots(figsize=(11, 2.4))
+    x = list(range(len(months)))
+    ax.bar(x, sp, color="#5b5ce6", label="Sponsorship ads")
+    ax.bar(x, ot, bottom=sp, color="#b8bdd8", label="Other ads")
+    # year boundaries
+    for i in range(1, len(months)):
+        if months[i]["period"] != months[i - 1]["period"]:
+            ax.axvline(i - 0.5, color="#d6457f", linestyle="--", linewidth=1)
+    for p in periods:
+        idxs = [i for i, m in enumerate(months) if m["period"] == p["index"]]
+        if idxs:
+            ax.text((idxs[0] + idxs[-1]) / 2, ax.get_ylim()[1] * 0.98, p["label"], ha="center", va="top", fontsize=8, color="#d6457f", fontweight="bold")
+    step = max(1, -(-len(labels) // 12))
+    ax.set_xticks(x[::step]); ax.set_xticklabels(labels[::step], fontsize=7, rotation=0)
+    ax.set_ylabel("Ads per month", fontsize=8); ax.tick_params(axis="y", labelsize=7); ax.legend(frameon=False, fontsize=7, loc="upper right", bbox_to_anchor=(1, 0.88))
+    for s_ in ("top", "right"):
+        ax.spines[s_].set_visible(False)
+    ax.grid(axis="y", alpha=0.25)
+    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="white"); plt.close(fig); buf.seek(0)
+    img = Image(buf); r = img.imageHeight / img.imageWidth
+    img.drawWidth, img.drawHeight = WIDTH, WIDTH * r
+    return img
+
+
+def build_tenure_pdf(rep: dict, meta: dict, client: dict, branding: dict, logos: dict) -> bytes:
+    brand = colors.HexColor(branding.get("primary_color") or "#4F46E5")
+    accent = colors.HexColor(client.get("brand_color") or "#5B5CE6")
+    agency = branding.get("agency_name") or "Media Radar"
+    cname = client.get("name") or "Client"
+    s = _Styles(brand)
+    periods = rep.get("periods") or []
+    rows = rep.get("rows") or []
+    sel = rep.get("selection") or {}
+    tot = rep.get("totals") or {}
+    bounds = rep.get("bounds") or [None, None]
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=PAGE, leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.4 * cm, bottomMargin=1.3 * cm, title="Sponsorship over time", author=safe(agency))
+    el: list = []
+    log.info("[tenure pdf] %s rows, %s periods", len(rows), len(periods))
+
+    la, lc = _logo(logos.get("agency"), 1.4), _logo(logos.get("client"), 1.4)
+    lt = RlTable([[la or Paragraph(f"<b>{safe(agency)}</b>", s.lead), lc or Paragraph(f"<b>{safe(cname)}</b>", s.lead)]], colWidths=[WIDTH / 2] * 2)
+    lt.setStyle(TableStyle([("ALIGN", (1, 0), (1, 0), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+    band = RlTable([[""]], colWidths=[WIDTH], rowHeights=[0.2 * cm]); band.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), accent)]))
+    info = [["Uploaded data", f"{bounds[0] or 'n/a'} to {bounds[1] or 'n/a'} ({rep.get('data_months', 0)} months)"],
+            ["Year periods", ("Calendar years: " if rep.get("mode") == "calendar" else "12-month years from the first month of the data: ") + "; ".join(f"{p['label']} ({p['range']})" for p in periods)],
+            ["Channel", _title(sel.get("channel")) if sel.get("channel") else "All"], ["Programme", _title(sel.get("program")) if sel.get("program") else "All"], ["Advertiser", sel.get("advertiser") or "All"],
+            ["Shows", "Sponsorships only" if sel.get("show") != "all" else "All advertisers in the programme"], ["Generated", dt.datetime.now().strftime("%d %b %Y %H:%M")]]
+    it = RlTable([[Paragraph(f"<b>{a}</b>", s.body), Paragraph(safe(b), s.body)] for a, b in info], colWidths=[3.6 * cm, WIDTH - 3.6 * cm])
+    it.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 0.25, LINE), ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+    el += [lt, Spacer(1, 0.4 * cm), band, Spacer(1, 0.3 * cm), Paragraph("Sponsorship over time", s.h1),
+           Paragraph(f"Who sponsored which programme, and for how long, in the data uploaded for <b>{safe(cname)}</b> by {safe(agency)}", s.lead), Spacer(1, 0.25 * cm), it, Spacer(1, 0.3 * cm)]
+    tiles = [("Advertiser and programme pairs", _n(tot.get("rows"))), ("Sponsored in every year", _n(tot.get("all_years"))), ("Advertisers", _n(tot.get("advertisers"))),
+             ("Programmes", _n(tot.get("programmes"))), ("Sponsorship ads", _n(tot.get("sponsorship_ads"))), ("All ads in these programmes", _n(tot.get("total_ads")))]
+    kt = RlTable([[Paragraph(f"<font size=6.5 color='#646A8A'>{safe(a.upper())}</font><br/><font size=11><b>{safe(b)}</b></font>", s.body) for a, b in tiles]], colWidths=[WIDTH / len(tiles)] * len(tiles))
+    kt.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.25, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.25, LINE), ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8f9fe")),
+                            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    el.append(kt)
+
+    # ---------------- overview: who sponsored what, year by year
+    el += [PageBreak(), Paragraph("Who sponsored what, year by year", s.h2),
+           Paragraph("One row per advertiser and programme. The year columns show the ads the advertiser ran in that programme in each year period (all ads, sponsorship and others).", s.small), Spacer(1, 3)]
+    head = ["Advertiser", "Channel", "Programme", "Status", "Sponsored", "Months"] + [f"{p['label']} ads" for p in periods] + ["Total ads", "Sponsorship ads", "Spend LKR"]
+    data = [head]
+    style = []
+    for r in rows[:60]:
+        rc = STATUS_COLOR.get(r.get("status_code"), "#646A8A")
+        data.append([r["advertiser"], _title(r["channel"]), _title(r["program"]), Paragraph(f"<font color='{rc}'><b>{safe(r.get('status', ''))}</b></font>", s.cell),
+                     f"{r.get('sponsored_from') or 'n/a'} to {r.get('sponsored_to') or 'n/a'}", _n(r.get("months_span"))] + [_n(x["total_ads"]) for x in r.get("periods") or []]
+                    + [_n(r.get("total_ads")), _n(r.get("sponsorship_ads")), _n(r.get("spend"))])
+    if len(data) > 1:
+        n = len(data) - 1
+        sm = lambda f: sum(f(r) for r in rows[:60])  # noqa: E731
+        data.append(["Total", "", "", "", "", ""] + [_n(sum((r["periods"][i]["total_ads"] if i < len(r.get("periods") or []) else 0) for r in rows[:60])) for i in range(len(periods))]
+                    + [_n(sm(lambda r: r.get("total_ads") or 0)), _n(sm(lambda r: r.get("sponsorship_ads") or 0)), _n(sm(lambda r: r.get("spend") or 0))])
+        style += [("FONTNAME", (0, n + 1), (-1, n + 1), "Helvetica-Bold"), ("LINEABOVE", (0, n + 1), (-1, n + 1), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, n + 1), (-1, n + 1), colors.HexColor("#e1e3fb"))]
+    first_num = 5
+    style += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(first_num, len(head))]
+    el.append(_table(data, [3.2, 1.9, 3.0, 3.6, 3.0, 1.2] + [1.5] * len(periods) + [1.5, 1.8, 2.4], s, brand, style))
+    if len(rows) > 60:
+        el.append(Paragraph(f"Showing 60 of {len(rows)} rows. Pick a channel, programme or advertiser for the rest.", s.small))
+
+    # ---------------- one page per row (the first 8)
+    for r in rows[:8]:
+        if not (r.get("periods")):
+            continue
+        rc = STATUS_COLOR.get(r.get("status_code"), "#646A8A")
+        el += [PageBreak(), Paragraph(f"{safe(r['advertiser'])} &rsaquo; {safe(_title(r['program']))} on {safe(_title(r['channel']))}", s.h2),
+               Paragraph(f"<font color='{rc}'><b>{safe(r.get('status', ''))}</b></font>", s.lead), Spacer(1, 2), Paragraph(safe(r.get("headline", "")), s.body), Spacer(1, 4)]
+        if r.get("gaps"):
+            el.append(Paragraph("Pauses in sponsorship: " + "; ".join(f"{g['from']} to {g['to']} ({g['months']} month{'s' if g['months'] != 1 else ''})" for g in r["gaps"]), s.small))
+        rows_y = [["Year period", "Dates", "Programme airing days", "Days sponsored", "Sponsorship ads", "Other ads", "Total ads", "Ads per airing", "Spend LKR", "Sponsorship spend LKR", "Sponsored?"]]
+        sty = []
+        for x in r["periods"]:
+            rows_y.append([x["label"], x["range"], _n(x.get("airing_days")), _n(x.get("days_sponsored")), _n(x.get("sponsorship_ads")), _n(x.get("other_ads")), _n(x.get("total_ads")),
+                           _n(x.get("ads_per_airing"), "dec"), _n(x.get("spend")), _n(x.get("sponsorship_spend")), "Yes" if x.get("consistent") else ("Occasional" if x.get("sponsored") else ("Not on air" if not x.get("aired") else "No"))])
+            if x.get("consistent"):
+                sty.append(("TEXTCOLOR", (10, len(rows_y) - 1), (10, len(rows_y) - 1), GOOD))
+        n = len(rows_y) - 1
+        rows_y.append(["Whole period", "", _n(r.get("airing_days")), _n(r.get("days_sponsored")), _n(r.get("sponsorship_ads")), _n(r.get("other_ads")), _n(r.get("total_ads")), "", _n(r.get("spend")), _n(r.get("sponsorship_spend")), ""])
+        sty += [("FONTNAME", (0, n + 1), (-1, n + 1), "Helvetica-Bold"), ("LINEABOVE", (0, n + 1), (-1, n + 1), 1, colors.HexColor("#1b1d36")), ("BACKGROUND", (0, n + 1), (-1, n + 1), colors.HexColor("#e1e3fb"))]
+        sty += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(2, 10)]
+        el += [_table(rows_y, [2.0, 3.4, 2.0, 1.8, 1.9, 1.5, 1.5, 1.6, 2.4, 2.6, 1.8], s, brand, sty), Spacer(1, 6)]
+        img = _month_chart(r.get("months") or [], periods)
+        if img:
+            el += [Paragraph("<b>Ads per month</b>", s.body), img]
+        th = r.get("themes") or []
+        if th:
+            head_t = ["What ads ran (theme)", "Type"] + [f"{p['label']} ads" for p in periods] + ["Total ads", "First seen", "Last seen"]
+            data_t = [head_t]
+            sty_t = []
+            for t in th[:12]:
+                data_t.append([t["theme"], ("Sponsorship: " if t.get("sponsorship") else "") + t.get("item", "")] + [_n(v) for v in t.get("per_period") or []] + [_n(t.get("spots")), t.get("first_seen", ""), t.get("last_seen", "")])
+                if t.get("sponsorship"):
+                    sty_t.append(("TEXTCOLOR", (1, len(data_t) - 1), (1, len(data_t) - 1), brand))
+            sty_t += [("ALIGN", (c, 1), (c, -1), "RIGHT") for c in range(2, 3 + len(periods))]
+            el += [Spacer(1, 4), Paragraph("<b>What ads ran</b>", ParagraphStyle("wa", parent=s.body, keepWithNext=1)), Spacer(1, 2), _table(data_t, [6.0, 3.0] + [1.6] * len(periods) + [1.6, 2.2, 2.2], s, brand, sty_t)]
+    el += [Spacer(1, 8), Paragraph("A year counts as sponsored when the advertiser had sponsorship items (billboard, logo, intro, outro, tag, time check) on at least half of the programme's airing days that year; fewer is shown as occasional. "
+                                   "Airing days are days the programme aired with any advertiser. Spend is monitored rate-card spend, not invoiced cost.", s.small)]
+    footer_txt = safe(f"{agency} | {cname} | Sponsorship over time | {branding.get('report_footer', '')}")
+
+    def footer(canvas, doc_):
+        canvas.saveState(); canvas.setFont("Helvetica", 7); canvas.setFillColor(MUTED)
+        canvas.drawString(1.5 * cm, 0.7 * cm, footer_txt[:170]); canvas.drawRightString(PAGE[0] - 1.5 * cm, 0.7 * cm, f"Page {doc_.page}")
+        canvas.setFillColor(accent); canvas.rect(0, PAGE[1] - 0.22 * cm, PAGE[0], 0.22 * cm, stroke=0, fill=1); canvas.restoreState()
+    doc.build(el, onFirstPage=footer, onLaterPages=footer)
+    return buf.getvalue()

@@ -768,3 +768,9 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .ex-rules { display: grid; gap: 6px; margin: 0 0 10px; color: var(--muted); }
 .ex-cls { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 14px; } .ex-cls h4 { margin: 0 0 8px; }
 .ex-cls-sum { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-bottom: 10px; font-size: 13px; }
+
+/* Sponsorship over time */
+.tn-grid { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(210px, 1.4fr) minmax(190px, 1.2fr) auto auto; gap: 12px; align-items: end; margin-top: 12px; }
+.tn-headline { font-size: 1.05em; line-height: 1.55; margin: 8px 0 12px; font-weight: 600; }
+.tn-tbl td.tn-yes { color: var(--good); font-weight: 700; }
+@media (max-width: 1000px) { .tn-grid { grid-template-columns: 1fr; } }
