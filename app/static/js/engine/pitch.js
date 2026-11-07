@@ -235,10 +235,12 @@
     // current buy for the chosen month: one pass, aggregated per TVR programme
     const sel = (i) => month === 'all' || monthOf(LC.date[i]) === month;
     const chWanted = new Set(o.channels || []);
-    const prog = new Map(), spon = new Map(), unmatched = new Map();
+    const prog = new Map(), spon = new Map(), unmatched = new Map(), aud = { view_spend: 0, view_spots: 0, no_duration_rows: 0, zero_cost_rows: 0, negative_cost_rows: 0 };
     for (const i of tvRows) {
       if (!sel(i)) continue;
       const ch = L.dicts.channel[LC.channel[i]]; if (chWanted.size && !chWanted.has(ch)) continue;
+      aud.view_spend += LC.cost[i]; aud.view_spots++;      // read straight from the sheet, to prove nothing is lost or counted twice
+      if (!(Number.isFinite(LC.dur[i]) && LC.dur[i] > 0)) aud.no_duration_rows++; if (LC.cost[i] < 0) aud.negative_cost_rows++; else if (!(LC.cost[i] > 0)) aud.zero_cost_rows++;
       const g = gmap.get(`${ch}|${L.dicts.program[LC.program[i]]}`), e = g && g.tvr_key ? cat.byKey.get(g.tvr_key) : null;
       const isVa = LC.theme[i] >= 0 && sponsor[LC.theme[i]], dur = Number.isFinite(LC.dur[i]) && LC.dur[i] > 0 ? LC.dur[i] : 30, eq = dur / 30, cost = LC.cost[i];
       if (isVa) {      // sponsorship items are grouped by channel + item; prime or not comes from the programme start (else the ad time), so they do not need a programme match
@@ -374,7 +376,7 @@
       missing_rate_programmes: missing.length, missing_rate_spend: missing.reduce((a, r) => a + r.cost, 0), missing_rate_list: missing.slice(0, 25).map((r) => ({ channel: r.channel, program: r.program, cost: r.cost })),
       zero_tvr_programmes: rows.filter((r) => r.zero_tvr).length, zero_tvr_rows: [...cat.byKey.values()].reduce((a, e) => a + e.zero, 0), low_confidence_matches: groups.filter((g) => g.level === 'Low' || g.level === 'Medium').length,
       skipped_channels: [...skipped.values()].sort((a, b) => b.spend - a.spend), no_medium: noMedium, candidates_without_rate: [...cat.byKey.values()].filter((e) => e.channel in budgets && e.tvr >= o.min_tvr && !(rr.neg(e) > 0)).length };
-    return { empty: !rows.length && !sponsorship.length, advertiser: advWanted, advertisers: [...advSpend.entries()].sort((a, b) => b[1] - a[1]).map(([name, spend]) => ({ name, spend })), month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective, current_basis: o.current_basis },
+    return { empty: !rows.length && !sponsorship.length, audit: aud, advertiser: advWanted, advertisers: [...advSpend.entries()].sort((a, b) => b[1] - a[1]).map(([name, spend]) => ({ name, spend })), month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective, current_basis: o.current_basis },
       overview: { months: allMonths, rows: [...ov.entries()].map(([channel, m]) => ({ channel, months: allMonths.map((k) => m.get(k) || { com: 0, va: 0 }) })).sort((a, b) => b.months.reduce((s, x) => s + x.com + x.va, 0) - a.months.reduce((s, x) => s + x.com + x.va, 0)) },
       matches: groups, slots: slotRows, catalogue: [...cat.byCh.entries()].reduce((m, [ch, list]) => { m[ch] = list.sort((a, b) => b.n - a.n).map((e) => ({ key: e.key, program: e.program, label: `${e.program} (${e.start_hm || 'no time'}, ${e.day_label})`, start: e.start_hm, end: e.end_hm, days: e.day_label, tvr: e.tvr, pt: e.pt, card30: rr.card(e), neg30: rr.neg(e) })); return m; }, {}),
       current: { ...current, rows, sponsorship, channels, daypart }, candidates: cands, budgets, plan: { rows: plan.rows, channels: plan.channels, totals: planTotals }, rates: ratesRows, warnings, evidence, prime_share: primeShare, plan_inputs: planInputs,

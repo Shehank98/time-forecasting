@@ -53,6 +53,7 @@
     root.innerHTML = `<div class="card" id="pt-src"></div>
       <div class="card" id="pt-filters" style="margin-top:16px"></div>
       <div id="pt-warn" style="margin-top:12px"></div>
+      <div id="pt-ready" style="margin-top:12px"></div>
       <div id="pt-tabs">${GROUPS.map(([t, sub, list]) => `<div class="sec-title">${esc(t)} <span class="muted small" style="font-weight:400;text-transform:none;letter-spacing:0">${esc(sub)}</span></div><div class="section-cards ${list.length === 4 ? '' : 'wide'}">${list.map(card).join('')}</div>`).join('')}</div>
       <div class="sheet-back" id="pt-sheet" role="dialog" aria-modal="true" aria-labelledby="pt-sheet-title" hidden><div class="sheet pt-sheet">
         <div class="sheet-bar"><div class="grow"><h2 id="pt-sheet-title"></h2><div class="muted small" id="pt-sheet-ctx"></div></div><div class="row"><label class="small muted" for="pt-sheet-sel">Go to</label><select id="pt-sheet-sel" aria-label="Go to another section">${TABS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select><button class="btn sm primary" id="pt-sheet-close" type="button">Close</button></div></div>
@@ -79,6 +80,21 @@
   function paintContext() {
     const el = $('#pt-sheet-ctx'); if (!el) return; const ch = st.channels && st.channels.length ? st.channels.map(tt).join(', ') : 'all channels';
     el.textContent = `Month ${D ? (D.month === 'all' ? 'all months' : D.month) : 'n/a'}  ·  ${ch}  ·  ${{ all: 'prime and non prime', PT: 'prime time only', NPT: 'non prime only' }[st.daypart] || 'prime and non prime'}  ·  change these on the page behind`;
+  }
+  /** "Ready to pitch": one chip per thing that must be right, each opens the section where it is fixed. */
+  function paintReady() {
+    const el = $('#pt-ready'); if (!el) return; if (!status || !status.lmrb || !status.tv || !D || D.empty) { el.innerHTML = ''; return; }
+    const sl = D.slots || [], todo = sl.filter((x) => !x.approved && !x.ignored).length, ev = D.evidence || [], deals = Object.keys(st.deals || {}).length, cur = D.current, nb = (k) => Object.values(st.evals[k] || {}).filter((x) => x.rows && x.rows.length).length;
+    const chips = [
+      [!!st.advertiser, 'Advertiser', st.advertiser || 'all advertisers: pick one', 'filters'],
+      [todo === 0, 'Matches', todo === 0 ? `all ${sl.length} checked` : `${todo} of ${sl.length} to check`, 'matches'],
+      [RC.entries.length > 0, 'Rate card', RC.entries.length ? `${fmt.num(RC.entries.length)} rows` : 'not imported', 'rates'],
+      [cur.rated_pct >= 95, 'Rates cover', cur.rated_pct == null ? 'n/a' : `${n1(cur.rated_pct)}% of the spend`, 'rates'],
+      [deals > 0, 'Investment or discount', deals ? `${deals} channel${deals === 1 ? '' : 's'}` : 'none entered', 'invest'],
+      [nb('current') > 0 && nb('plan') > 0, 'Evaluations built', `current ${nb('current')} · plan ${nb('plan')}`, 'build'],
+    ];
+    el.innerHTML = `<div class="pt-ready" role="list" aria-label="Ready to pitch checklist">${chips.map(([ok, l, v, t]) => `<button type="button" class="rd ${ok ? 'ok' : 'warn'}" role="listitem" data-go="${t}"><span class="rd-i" aria-hidden="true">${ok ? '&#10003;' : '!'}</span><span class="rd-l">${esc(l)}</span><span class="rd-v">${esc(v)}</span></button>`).join('')}</div>`;
+    $$('#pt-ready .rd', el).forEach((b) => { b.onclick = () => { if (b.dataset.go === 'filters') { const a = $('#pf-a'); if (a) a.focus(); } else openSheet(b.dataset.go); }; });
   }
   /** The headline number on every card. */
   function paintCards() {
@@ -278,9 +294,16 @@
     if (sheetOpen()) out.innerHTML = App.skeleton(3);
     let d; try { d = await App.data.pitchBuild({ options: opts() }); } catch (e) { out.innerHTML = App.emptyState('The evaluation could not be built', e.message); return; }
     if (my !== seq) return;
-    D = d;
-    if (st.advertiser === undefined) { const cn = String(((App.shell.client() || {}).name) || '').toLowerCase(), hit = cn && (d.advertisers || []).find((a) => a.name.toLowerCase().includes(cn) || cn.includes(a.name.toLowerCase())); st.advertiser = hit ? hit.name : ''; save(); if (hit) { run(); return; } }
+    D = d; guardEvals();
+    if (st.advertiser === undefined) { const cn = String(((App.shell.client() || {}).name) || '').toLowerCase(), hit = (cn && (d.advertisers || []).find((a) => a.name.toLowerCase().includes(cn) || cn.includes(a.name.toLowerCase()))) || ((d.advertisers || []).length === 1 ? d.advertisers[0] : null); st.advertiser = hit ? hit.name : ''; save(); if (hit) { run(); return; } }
     if (!st.month || st.month === 'null') st.month = d.month; filters(); warnings(); render();
+  }
+  const hash = (str) => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return String(h); };
+  /** A built current estimate was made from the LMRB rows of one advertiser, month, daypart, channel set and set of matches: when one of those changes it is rebuilt, not left stale. */
+  function guardEvals() {
+    const sig = [st.advertiser || '', D.month, st.daypart, (st.channels || []).join(','), hash(JSON.stringify([st.mappings, st.learned, st.excluded]))].join('|'), cur = st.evals.current || {};
+    if (st.evals_sig && st.evals_sig !== sig && Object.keys(cur).length) { st.evals.current = {}; App.toast('The current agency estimate was cleared because the advertiser, month, filters or matches changed. Build it again.', 'info', 8000); }
+    st.evals_sig = sig; save();
   }
   function warnings() {
     const w = D.warnings, b = [];
@@ -288,13 +311,17 @@
     if (w.no_medium) b.push('This LMRB sheet was loaded before TV and radio were separated, so radio rows may be counted. Upload it again for a clean TV-only view.');
     if (w.unmatched_programmes) b.push(`${w.unmatched_programmes} LMRB programme${w.unmatched_programmes === 1 ? '' : 's'} (LKR ${fmt.num(w.unmatched_spend)}) could not be matched to a TVR programme and ${w.unmatched_programmes === 1 ? 'is' : 'are'} left out of the TVR numbers. Fix them in <b>Review matches</b>.`);
     if (w.missing_rate_programmes) b.push(`${w.missing_rate_programmes} programme${w.missing_rate_programmes === 1 ? '' : 's'} you bought (LKR ${fmt.num(w.missing_rate_spend)}) have no rate card rate, so ROI leaves them out. Add rates in <b>Rates and negotiation</b>.`);
+    const au = D.audit || {};
+    if (au.no_duration_rows) b.push(`${fmt.num(au.no_duration_rows)} LMRB row${au.no_duration_rows === 1 ? ' has' : 's have'} no duration. They are counted as 30 seconds.`);
+    if (au.zero_cost_rows) b.push(`${fmt.num(au.zero_cost_rows)} LMRB row${au.zero_cost_rows === 1 ? ' has' : 's have'} a cost of zero (free or bonus spots). They count as spots and GRPs but add no cost.`);
+    if (au.negative_cost_rows) b.push(`${fmt.num(au.negative_cost_rows)} LMRB row${au.negative_cost_rows === 1 ? ' has' : 's have'} a negative cost (credits). They reduce the cost of their programme.`);
     if (w.zero_tvr_rows) b.push(`${fmt.num(w.zero_tvr_rows)} TVR row${w.zero_tvr_rows === 1 ? ' has' : 's have'} a TVR of zero. They count as zero in the average TVR.`);
     if (w.skipped_channels.length) b.push(`Channels not in the TVR sheet, skipped: ${w.skipped_channels.slice(0, 6).map((c) => `${esc(tt(c.channel))} (LKR ${fmt.num(c.spend)})`).join(', ')}.`);
     if (D.comparison.current.left_out && D.comparison.current.left_out.length) b.push(`No plan can be built yet for ${D.comparison.current.left_out.map((c) => esc(tt(c))).join(', ')}: add a rate for at least one of their programmes. The comparison covers the other channels only.`);
     $('#pt-warn').innerHTML = b.length ? `<details class="pt-checks"><summary>Data checks (${b.length})</summary>${b.map((x) => `<div class="banner"><span>${x}</span></div>`).join('')}</details>` : '';
   }
   function render() {
-    const out = $('#pt-out'); paintCards(); if (!out || !sheetOpen()) return; tabTables = {}; paintContext();
+    const out = $('#pt-out'); paintCards(); paintReady(); if (!out || !sheetOpen()) return; tabTables = {}; paintContext();
     if (!D) { out.innerHTML = App.emptyState('Upload the LMRB and TVR sheets first', 'This section needs both: the LMRB sheet for what was bought, the TVR sheet for the audience each programme delivered.'); return; }
     if (D.empty) { out.innerHTML = App.emptyState('No TV spots for this choice', 'Pick another month or clear the channel and prime / non prime filters.'); return; }
     ({ overview, basket, invest, daypart, plan, build, compare, export: exportTab, matches, rates })[st.tab](out);
@@ -428,6 +455,7 @@
   }
 
   /* ---------------------------------------------------------------- 5 comparison */
+  const cur0Channels = () => D.current.channels.map((c) => c.channel);
   function compare(out) {
     const { totals: P, cmp } = planNumbers(), cur = D.comparison.current;
     const row = (label, a, b, f, g, better) => { const ch = a > 0 && b != null && a != null ? (b / a - 1) * 100 : null; return `<tr><td>${label}</td><td class="num">${f(a)}</td><td class="num"><b>${f(b)}</b></td><td class="num">${ch == null ? 'n/a' : `<span class="${better === 'lower' ? (ch < 0 ? 'good-t' : 'bad-t') : ch > 0 ? 'good-t' : 'bad-t'}">${ch > 0 ? '+' : ''}${fmt.num(ch, 1)}%</span>`}</td></tr>`; };
@@ -436,7 +464,14 @@
         ${row('Total spend (LKR)', cur.spend, P.spend, n0, 0, 'same')}${row('Total spots (30 sec equivalent)', cur.eq30, P.eq30, n1, 0, 'higher')}${row('Total GRPs (30 sec) ' + tip('NGRP'), cur.ngrp, P.ngrp, n1, 0, 'higher')}${row('Average 30 sec rate (LKR)', cur.avg30, P.avg30, n0, 0, 'lower')}${row('Average CPRP (LKR) ' + tip('CPRP'), cur.cprp, P.cprp, n0, 0, 'lower')}
         ${row('Average prime time TVR', cur.pt_tvr, P.pt_tvr, n2, 0, 'higher')}${row('Average non prime TVR', cur.npt_tvr, P.npt_tvr, n2, 0, 'higher')}${row('Prime time share of spend', cur.pt_spend_share, P.pt_spend_share, pc, 0, 'higher')}${row('Prime time share of spots', cur.pt_spot_share, P.pt_spot_share, pc, 0, 'higher')}${row('ROI at rate card ' + tip('ROI'), cur.roi, P.roi, xr, 0, 'higher')}
         </tbody></table></div><p class="small muted">${cur.spend > 0 ? `Plan spends ${pc((P.spend / cur.spend) * 100)} of the current spend. ` : ''}Tax is not included. GRPs and rates are on a 30 second basis. ${D.comparison.basis === 'all' ? 'The current side includes sponsorship items.' : 'Sponsorship items are not part of this comparison.'}</p></div>
-        <div class="card"><h3>GRPs for the same money</h3><div class="chart-wrap" style="height:260px"><canvas id="cm-chart" role="img" aria-label="GRPs: current agency against our plan"></canvas></div></div></div>`;
+        <div class="card"><h3>GRPs for the same money</h3><div class="chart-wrap" style="height:260px"><canvas id="cm-chart" role="img" aria-label="GRPs: current agency against our plan"></canvas></div></div></div><div id="cm-ch" style="margin-top:16px"></div><div id="cm-how" style="margin-top:16px"></div>`;
+    const { a: pa } = planNumbers(), chs = [...new Set([...cur0Channels(), ...pa.rows.map((r) => r.channel)])];
+    const sum = (rows, f) => rows.reduce((x, r) => x + f(r), 0), pct = (x, y) => (x > 0 && y != null ? ((y / x - 1) * 100) : null), chg = (v, better) => (v == null ? '<span class="muted">n/a</span>' : `<span class="${(better === 'lower' ? v < 0 : v > 0) ? 'good-t' : 'bad-t'}">${v > 0 ? '+' : ''}${fmt.num(v, 1)}%</span>`);
+    const line = (label, cr, pr) => { const c = { spend: sum(cr, (r) => r.cost), spots: sum(cr, (r) => r.eq30), ngrp: sum(cr, (r) => r.ngrp), value: sum(cr.filter((r) => r.rated), (r) => r.value), vcost: sum(cr.filter((r) => r.rated), (r) => r.cost) }, q = { spend: sum(pr, (r) => r.spend), spots: sum(pr, (r) => r.spots), ngrp: sum(pr, (r) => r.grp || r.tvr * r.spots), value: sum(pr, (r) => (r.card30 || 0) * r.spots), vcost: sum(pr.filter((r) => r.card30 > 0), (r) => r.spend) };
+      const cp = c.ngrp > 0 ? c.spend / c.ngrp : null, pp = q.ngrp > 0 ? q.spend / q.ngrp : null, cr2 = c.vcost > 0 ? c.value / c.vcost : null, pr2 = q.vcost > 0 ? q.value / q.vcost : null;
+      return `<tr><td><b>${esc(label)}</b></td><td class="num">${n0(c.spend)}</td><td class="num">${n0(q.spend)}</td><td class="num">${n1(c.ngrp)}</td><td class="num"><b>${n1(q.ngrp)}</b></td><td class="num">${chg(pct(c.ngrp, q.ngrp), 'higher')}</td><td class="num">${n0(cp)}</td><td class="num"><b>${n0(pp)}</b></td><td class="num">${chg(cp > 0 && pp != null ? (pp / cp - 1) * 100 : null, 'lower')}</td><td class="num">${xr(cr2)}</td><td class="num"><b>${xr(pr2)}</b></td></tr>`; };
+    $('#cm-ch').innerHTML = card('By channel', 'Programmes only (sponsorship items and bonus are not in this table), 30 sec basis. Plan channels you built are shown as built; the others as the optimiser suggests.', `<div class="tbl-scroll"><table class="tbl"><thead><tr><th rowspan="2">Channel</th><th colspan="2" class="num">Spend (LKR)</th><th colspan="3" class="num">GRPs (30 sec)</th><th colspan="3" class="num">CPRP (LKR)</th><th colspan="2" class="num">ROI at rate card</th></tr><tr><th class="num">Current</th><th class="num">Plan</th><th class="num">Current</th><th class="num">Plan</th><th class="num">Change</th><th class="num">Current</th><th class="num">Plan</th><th class="num">Change</th><th class="num">Current</th><th class="num">Plan</th></tr></thead><tbody>${chs.map((ch) => line(tt(ch), D.current.rows.filter((r) => r.channel === ch), pa.rows.filter((r) => r.channel === ch))).join('')}</tbody></table></div>`);
+    $('#cm-how').innerHTML = HOW;
     C().bar({ id: 'cm-chart', labels: ['Current agency', 'Our plan'], valueFmt: (v) => fmt.num(v, 0), legend: false, datasets: [{ label: 'GRPs (30 sec)', data: [cur.ngrp, P.ngrp], backgroundColor: [C().PALETTE[1], C().PALETTE[0]] }] });
   }
 
@@ -445,10 +480,33 @@
     out.innerHTML = card('Export the pitch', 'Excel has every table (comparison, current basket, sponsorship, channel ROI, our plan, rates, matches). The PDF and Word summaries hold the comparison, the key tables and the plain-language line.',
       `<h4 style="margin:0 0 6px">Evaluation sheets in your agency format (with live formulas)</h4><div class="muted small" style="margin-bottom:8px">A Summary sheet, one sheet per channel (programme rows, sponsorship rows, totals, SSCL, VAT, ROI) and a Formulas sheet with the settings and the formula of every column. Change a TVR, rate or number of spots and the sheet recalculates.</div>
       <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:16px"><button class="btn primary" id="ev-c" type="button">Current agency estimate: evaluation</button><button class="btn primary" id="ev-p" type="button">Our plan: evaluation</button><button class="btn" id="ev-c30" type="button">Current agency estimate: 30 sec version</button><button class="btn" id="ev-p30" type="button">Our plan: 30 sec version</button></div><div class="muted small" style="margin:-8px 0 16px">Channels you built in <b>Build evaluation</b> are exported as you built them; the other channels come from the current buy and the recommended basket.</div>
-      <h4 style="margin:0 0 6px">Other files</h4><div class="row" style="gap:10px;flex-wrap:wrap"><button class="btn" id="ex-x" type="button">Download all tables (Excel)</button><button class="btn" id="ex-p" type="button">Download PDF summary</button><button class="btn" id="ex-w" type="button">Download Word summary</button></div>`);
+      <h4 style="margin:0 0 6px">Number checks</h4><div id="ex-chk" style="margin-bottom:16px"></div>${HOW}
+      <h4 style="margin:16px 0 6px">Other files</h4><div class="row" style="gap:10px;flex-wrap:wrap"><button class="btn" id="ex-x" type="button">Download all tables (Excel)</button><button class="btn" id="ex-p" type="button">Download PDF summary</button><button class="btn" id="ex-w" type="button">Download Word summary</button></div>`);
+    $('#ex-chk').innerHTML = `<div class="pt-checks2">${numberChecks().map(([ok, l, v]) => `<div class="${ok ? 'ok' : 'bad'}"><span aria-hidden="true">${ok ? '&#10003;' : '&#10007;'}</span><span>${esc(l)}${v ? ` <span class="muted">(${esc(v)})</span>` : ''}</span></div>`).join('')}</div>`;
     $('#ev-c').onclick = () => downloadEval('current'); $('#ev-p').onclick = () => downloadEval('plan'); $('#ev-c30').onclick = () => downloadEval('current', true); $('#ev-p30').onclick = () => downloadEval('plan', true);
     $('#ex-x').onclick = exportExcel; $('#ex-p').onclick = () => exportDoc('pdf'); $('#ex-w').onclick = () => exportDoc('docx');
   }
+  /** Every total is proved against the sheet itself. All of these must be ticked. */
+  function numberChecks() {
+    const au = D.audit || {}, cur = D.current, { a, totals } = planNumbers(), near = (x, y, tol = 0.5) => Math.abs(x - y) <= Math.max(tol, 1e-9 * Math.abs(y)), un = D.warnings.unmatched_spend || 0, checks = [];
+    if (st.daypart === 'all') checks.push([near(cur.rows.reduce((x, r) => x + r.cost, 0) + cur.sponsorship.reduce((x, r) => x + r.spend, 0) + un, au.view_spend), 'Spend: programmes + sponsorship + unmatched = every TV row of the sheet in view', `${fmt.num(au.view_spend)} in the sheet`]);
+    checks.push([cur.rows.reduce((x, r) => x + r.spots, 0) === cur.channels.reduce((x, c) => x + c.com_spots, 0), 'Spots: programme rows add up to the channel totals', `${fmt.num(cur.spots - cur.channels.reduce((x, c) => x + c.va_spots, 0))} spots`]);
+    checks.push([cur.rows.every((r) => Math.abs(r.eq30 - (r.spots * r.dur) / 30) < 1e-9), '30 sec equivalents = spots x duration / 30 on every row', `${cur.rows.length} rows`]);
+    checks.push([cur.rows.every((r) => Math.abs(r.ngrp - r.tvr * r.eq30) < 1e-6 && Math.abs(r.grp - r.tvr * r.spots) < 1e-6), 'GRP = TVR x spots and NGRP = TVR x 30 sec equivalents on every row', `${cur.rows.length} rows`]);
+    checks.push([cur.rows.every((r) => !(r.cprp > 0) || Math.abs(r.cprp - r.cost / r.ngrp) < 1e-6 * r.cprp), 'CPRP = cost / NGRP on every row', '']);
+    checks.push([cur.rows.every((r) => !r.rated || Math.abs(r.value - r.card30 * r.eq30) < 1e-6 * r.value), 'Rate card value = rate card 30 sec x 30 sec equivalents on every row', '']);
+    checks.push([Object.entries(D.budgets).every(([ch, b]) => (a.channels[ch] ? a.channels[ch].spend : 0) <= b * 1.0000001 || (EVS('plan')[ch] && EVS('plan')[ch].rows.length)), 'Plan: no suggested channel spends more than its budget', '']);
+    checks.push([near(totals.spend, a.rows.reduce((x, r) => x + r.spend, 0)), 'Plan: total spend = sum of the programme rows', fmt.lkrc(totals.spend)]);
+    const ours = Object.entries(EVS('plan')).filter(([, e]) => e.rows.length);
+    checks.push([ours.every(([, e]) => e.rows.every((r) => !r.card || !r.rate || r.kind === 'bonus' || r.rate <= r.card * 1.5 + 1e-9)), 'Built plan: no rate above 150% of the rate card', `${ours.length} channels built`]);
+    return checks;
+  }
+  const HOW = `<details class="pt-how"><summary>How every number is calculated</summary><div class="small">
+    <p><b>Spots</b>: one LMRB row is one spot. <b>30 sec equivalent</b> = spots x duration / 30. <b>Rate card value</b> = rate card 30 sec rate x 30 sec equivalents. <b>Negotiated rate</b> at a duration = 30 sec negotiated rate x duration / 30.</p>
+    <p><b>GRP</b> = TVR x spots. <b>NGRP</b> = TVR x 30 sec equivalents. <b>CPRP</b> = cost / GRP; <b>NCPRP</b> = cost / NGRP. TVR is the average over the programme's airings in the TVR sheet.</p>
+    <p><b>ROI</b> = rate card value / cost. Commercial ROI uses the programmes only; all exposure adds sponsorship items and bonus programmes (bonus costs nothing but counts at rate card value).</p>
+    <p><b>Discount</b> = 1 - cost / rate card value. With an investment: commercial cost = investment x commercial %, and the discount follows. With a discount: cost = rate card value x (1 - discount), and the investment is the cost of the programmes plus sponsorship.</p>
+    <p><b>Plan</b>: programmes are bought cheapest CPRP first (or best ROI) up to their capacity (episodes per month x most spots per episode) until the channel budget is used. Tax is not included.</p></div></details>`;
   function payload() {
     const { a, totals, cmp } = planNumbers(), cur = D.current;
     return { comparison: { ...cmp, plan: totals, basis: D.comparison.basis }, current: { totals: D.comparison.current, channels: cur.channels, rows: cur.rows.slice(0, 80), sponsorship: cur.sponsorship.slice(0, 40), daypart: cur.daypart },

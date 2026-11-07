@@ -182,3 +182,34 @@ def test_durations_are_the_real_ones_from_the_lmrb(data):
         assert s["durs"] and {q["dur"] for q in s["durs"]} <= real
         assert sum(q["spots"] for q in s["durs"]) == s["spots"]
         assert sum(q["spend"] for q in s["durs"]) == pytest.approx(s["spend"])
+
+
+@pytest.mark.parametrize("opts", [{"month": "all"}, {"month": "2026-09"}, {"month": "2026-08"}, {"month": "all", "advertiser": "Sampath Bank"}, {"month": "all", "channels": ["DERANA"]}])
+def test_no_spend_or_spot_is_lost_or_counted_twice(data, opts):
+    """Programmes + sponsorship + unmatched equals every TV row of the sheet in view, for any month, advertiser or channel filter."""
+    p, lm, _ = data
+    r = run(p, opts)
+    au = r["audit"]
+    total = sum(x["cost"] for x in r["current"]["rows"]) + sum(x["spend"] for x in r["current"]["sponsorship"]) + r["warnings"]["unmatched_spend"]
+    assert total == pytest.approx(au["view_spend"])
+    tv = lm[lm["Channel"].isin(CHAN)].copy()
+    tv["month"] = tv["Yr"].astype(str) + "-" + tv["Mn"].astype(str).str.zfill(2)
+    if opts.get("month") != "all":
+        tv = tv[tv["month"] == opts["month"]]
+    if opts.get("channels"):
+        tv = tv[tv["Channel"].map(CHAN).isin(opts["channels"])]
+    assert au["view_spend"] == pytest.approx(tv["Cost"].sum()) and au["view_spots"] == len(tv)
+
+
+def test_odd_lmrb_rows_are_counted_and_reported(data, tmp_path):
+    """Rows with no duration, zero cost or a negative cost are counted in the audit block, never crash the build."""
+    p, lm, _ = data
+    bad = lm.copy()
+    bad.loc[bad.index[:5], "Dur"] = None
+    bad.loc[bad.index[5:8], "Cost"] = 0
+    bad.loc[bad.index[8], "Cost"] = -1000
+    bad.to_csv(tmp_path / "bad.csv", index=False)
+    out = subprocess.run(["node", str(ROOT / "tests/js/pitch.js"), str(tmp_path / "bad.csv"), str(p / "tv.csv"), json.dumps({**BASE, "month": "all"})], capture_output=True, text=True, timeout=240)
+    assert out.returncode == 0, out.stderr
+    au = json.loads(out.stdout)["audit"]
+    assert au["no_duration_rows"] >= 5 and au["zero_cost_rows"] >= 3 and au["negative_cost_rows"] == 1
