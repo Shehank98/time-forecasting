@@ -838,3 +838,12 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .bd-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
 .pt-meter { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; } .pt-meter .pt-m-h { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; } .pt-meter .pt-m-b { height: 8px; border-radius: 999px; background: var(--surface-2); margin: 6px 0; overflow: hidden; } .pt-meter .pt-m-b i { display: block; height: 100%; background: var(--accent); border-radius: 999px; } .pt-meter.over .pt-m-b i { background: var(--bad, #dc2626); } .pt-meter.over b { color: var(--bad, #dc2626); }
 #pt-ch-sheet .bd-tbl td { white-space: normal; }
+
+.cv-top { display: grid; grid-template-columns: minmax(200px, 260px) 1fr; gap: 20px; align-items: start; margin-bottom: 18px; }
+.cv-top .field input { width: 100%; font-size: 22px; font-weight: 700; padding: 10px 12px; }
+.cv-k { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.cv-k > div { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.cv-k span { font-size: 11.5px; color: var(--muted); } .cv-k b { font-size: 18px; font-family: var(--display); }
+.cv-h { margin: 22px 0 8px; font-family: var(--display); font-size: 15px; }
+.cv-tbl td, .cv-tbl th { padding: 8px 10px; }
+@media (max-width: 800px) { .cv-top { grid-template-columns: 1fr; } }
