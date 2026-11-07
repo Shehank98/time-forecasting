@@ -97,3 +97,46 @@ def test_plan_budget_from_the_deal_and_a_prime_split(data):
     # the sentence only says "same budget" when it is
     assert "same budget" not in r["comparison"]["sentence"] and abs(r["plan"]["totals"]["budget"] / r["comparison"]["current"]["spend"] - 1) > 0.02
     assert "same budget" in run(d, {})["comparison"]["sentence"]
+
+
+def test_current_agency_from_an_estimated_discount_or_an_investment(data):
+    d, _, _ = data
+    base = {e["channel"]: e for e in run(d, {})["evidence"]}
+    rack = base["DERANA"]["rack_value"]
+    # only a discount typed: the cost is the rack value less that discount
+    r = run(d, {"deals": {"DERANA": {"discount_pct": 60}}, "current_basis": "actual"})
+    e = {x["channel"]: x for x in r["evidence"]}["DERANA"]
+    assert e["investment_source"] == "from the discount" and e["commercial_investment"] == pytest.approx(rack * 0.4) and e["implied_discount_pct"] == pytest.approx(60) and e["discount_gap_pts"] is None
+    ch = {c["channel"]: c for c in r["current"]["channels"]}["DERANA"]
+    assert ch["com_spend"] == pytest.approx(rack * 0.4) and ch["com_roi"] == pytest.approx(1 / 0.4)                   # ROI = rack value / cost
+    # an investment and a discount: the investment wins, the discount is only checked
+    both = run(d, {"deals": {"DERANA": {"investment": 30_000_000, "discount_pct": 70}}, "current_basis": "actual"})
+    e2 = {x["channel"]: x for x in both["evidence"]}["DERANA"]
+    assert e2["investment_source"] == "entered" and e2["commercial_investment"] == 30_000_000 and e2["typed_discount_pct"] == 70
+    assert e2["implied_discount_pct"] == pytest.approx((1 - 30_000_000 / rack) * 100) and e2["discount_gap_pts"] == pytest.approx(70 - e2["implied_discount_pct"])
+    assert {c["channel"]: c for c in both["current"]["channels"]}["DERANA"]["com_spend"] == pytest.approx(30_000_000)
+    # a deal with neither stays out
+    assert {x["channel"]: x for x in run(d, {"deals": {"DERANA": {"commercial_pct": 80}}})["evidence"]}["DERANA"]["deal"] is None
+
+
+def test_our_plan_has_its_own_investment_discount_prime_and_bonus(data):
+    d, _, _ = data
+    cur = {c["channel"]: c for c in run(d, {})["current"]["channels"]}
+    pd = {"DERANA": {"investment": 15_000_000, "commercial_pct": 90, "prime_pct": 40, "discount_pct": 55, "bonus_pct": 10}}
+    r = run(d, {"plan_deals": pd, "nego": {"default": {"mode": "discount", "value": 50}}})
+    assert r["budgets"]["DERANA"] == pytest.approx(13_500_000) and r["budgets"]["SIRASA"] == pytest.approx(cur["SIRASA"]["com_spend"])      # the other channels keep the current commercial spend
+    assert r["prime_share"]["DERANA"] == 0.4
+    for c in r["candidates"]:
+        if c["channel"] == "DERANA":
+            assert c["neg30"] == pytest.approx(c["card30"] * 0.45)                                                  # our discount beats the default rule
+        elif c["channel"] == "SIRASA":
+            assert c["neg30"] == pytest.approx(c["card30"] * 0.5)
+    pi = r["plan_inputs"]["DERANA"]
+    card_value = sum(x["card30"] * x["spots"] for x in r["plan"]["rows"] if x["channel"] == "DERANA")
+    assert pi["investment"] == 15_000_000 and pi["source"] == "entered" and pi["card_value"] == pytest.approx(card_value) and pi["bonus_allowed"] == pytest.approx(0.10 * card_value)
+    assert r["plan"]["channels"]["DERANA"]["spend"] <= 13_500_000 + 1e-6
+    # a channel rule you set yourself still beats the discount typed with the investment
+    ch = run(d, {"plan_deals": pd, "nego": {"channels": {"DERANA": {"mode": "discount", "value": 30}}}})
+    assert all(c["neg30"] == pytest.approx(c["card30"] * 0.7) for c in ch["candidates"] if c["channel"] == "DERANA")
+    # without our inputs the plan is as before
+    assert run(d, {})["budgets"]["DERANA"] == pytest.approx(cur["DERANA"]["com_spend"]) and run(d, {})["plan_inputs"]["DERANA"]["source"] == "current buy"

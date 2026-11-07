@@ -383,3 +383,39 @@ def test_evaluation_endpoint_refuses_empty_and_unknown(data):
     assert c.post("/api/pitch/evaluation", json={"kind": "other", "spec": {"channels": [{"name": "X"}]}}).status_code == 422
     ok = c.post("/api/pitch/evaluation", json={"kind": "built", "spec": {"client": "X", "channels": [{"name": "Derana", "basket": [{"desc": "A", "from": "20:00", "to": "20:30", "dur": 30, "tvr": 5, "spots": 2, "card": 100000, "rate": 30000}]}]}})
     assert ok.status_code == 200 and ok.content[:2] == b"PK"
+
+
+@pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice is not installed")
+def test_bonus_commercials_are_free_but_count_at_rate_card_value(data, tmp_path):
+    """Bonus programmes cost nothing, count at rate card value in ALL EXPOSURE, and the deal block checks the typed discount."""
+    import copy
+    import openpyxl
+    from helpers import api
+    p, *_ = data
+    o = {"rates": {"channels": OPTS["rates"]["channels"]}, "deals": {"DERANA": {"investment": 20_000_000, "commercial_pct": 80}}}
+    proc = subprocess.run(["node", str(ROOT / "tests/js/pitch_xlsx.js"), str(p / "lm.csv"), str(p / "tv.csv"), json.dumps(o)], capture_output=True, text=True, timeout=240)
+    assert proc.returncode == 0, proc.stderr
+    spec = json.loads(proc.stdout)["spec"]
+    ch = [c for c in spec["channels"] if c["name"] == "DERANA"][0]
+    b = copy.deepcopy(ch["basket"][0])
+    b["spots"], b["neg30"] = 4, 0
+    for k in ("negotiated", "neg_rate", "rate", "cost"):
+        if k in b:
+            b[k] = 0
+    ch["bonus"] = [b]
+    ch["deal"] = {**(ch.get("deal") or {}), "bonus_pct": 10, "est_discount_pct": 60}
+    r = api().post("/api/pitch/evaluation", json={"kind": "built", "spec": spec})
+    assert r.status_code == 200, r.text[:300]
+    path = tmp_path / "bn.xlsx"
+    path.write_bytes(r.content)
+    subprocess.run(["soffice", "--headless", "--convert-to", "xlsx:Calc MS Excel 2007 XML", "--outdir", str(tmp_path / "calc"), str(path)], capture_output=True, timeout=180)
+    d = openpyxl.load_workbook(tmp_path / "calc" / "bn.xlsx", data_only=True)["DERANA"]
+    rows = {str(r[2].value): r for r in d.iter_rows() if r[2].value}
+    assert "BONUS COMMERCIALS" in rows and rows["BONUS VALUE"][15].value > 0
+    assert (rows["BONUS VALUE"][16].value or 0) == 0                                                    # nothing paid for it
+    assert rows["ALL EXPOSURE VALUE"][15].value == pytest.approx(rows["COMMERCIAL VALUE"][15].value + rows["SPONSORSHIP VALUE"][15].value + rows["BONUS VALUE"][15].value)
+    side = {str(r[19].value): r for r in d.iter_rows() if r[19].value}
+    assert side["Estimated discount (typed)"][22].value == pytest.approx(0.6)
+    assert side["Difference: estimate minus real (points)"][22].value == pytest.approx(0.6 - side["Discount vs rate card (commercial)"][22].value)
+    errs = [c.coordinate for ws in openpyxl.load_workbook(tmp_path / "calc" / "bn.xlsx", data_only=True) for row in ws.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("#")]
+    assert not errs, errs

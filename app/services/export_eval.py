@@ -4,7 +4,7 @@ One Summary sheet, one sheet per channel and a Formulas sheet that holds the set
 Channel sheet columns (C to R): DESCRIPTION | DAY | TIME BELT (E-F) | DUR | NUMBER OF SPOTS | TVR | GRP | NGRP | CPRP | NCPRP | RATE CARD RATE | NEGOTIATED RATE | TOTAL VALUE | TOTAL COST | BAND.
 Rates are per spot at the row's duration: the 30 second rate / 30 x DUR, written as a formula.
 
-spec: {client, title, note, month, prime: [startFraction, endFraction], channels: [{name, deal: {investment, commercial_pct, prime_pct}, basket: [row], sponsorship: [row]}]}
+spec: {client, title, note, month, prime: [startFraction, endFraction], channels: [{name, deal: {investment, commercial_pct, prime_pct, bonus_pct, est_discount_pct}, basket: [row], sponsorship: [row], bonus: [row]}]}
 row:  {desc, day, from, to, dur, tvr, spots, card, rate, band}   card and rate are per 30 seconds; from and to are 'HH:MM'
 """
 from __future__ import annotations
@@ -116,7 +116,7 @@ def _channel_sheet(wb: Workbook, spec: dict, ch: dict, used: set[str]) -> dict:
         _put(ws, 8, 3 + i, h or None, bold=True, white=True, fill=BLACK, h="center", wrap=True)
     ws.merge_cells("E8:F8")
     r = 9
-    blocks: dict[str, list[dict]] = {"com": [], "va": []}
+    blocks: dict[str, list[dict]] = {"com": [], "va": [], "bonus": []}
 
     def row_out(x: dict, key: str, band: str = "") -> None:
         nonlocal r
@@ -176,6 +176,12 @@ def _channel_sheet(wb: Workbook, spec: dict, ch: dict, used: set[str]) -> dict:
             for x in group:
                 row_out(x, "com", band_of(x) or b)
     r += 1
+    if ch.get("bonus"):
+        _bar(ws, r, 3, 18, GREY, "BONUS COMMERCIALS")
+        r += 1
+        for x in sorted(ch["bonus"], key=key):
+            row_out(x, "bonus", band_of(x))
+        r += 1
 
     def rng(rows_: list[dict], col: str) -> str:
         return f"SUM({col}{rows_[0]['r']}:{col}{rows_[-1]['r']})" if rows_ else "0"
@@ -197,8 +203,8 @@ def _channel_sheet(wb: Workbook, spec: dict, ch: dict, used: set[str]) -> dict:
         _put(ws, row, 17, f("Q"), fmt=ACC0, fill=LIGHT, bold=True, top="thin")
         return {"r": row}
 
-    com, va = total("COMMERCIAL VALUE", blocks["com"]), total("SPONSORSHIP VALUE", blocks["va"])
-    al = total("ALL EXPOSURE VALUE", None, lambda c: f"{c}{com['r']}+{c}{va['r']}")
+    com, va, bo = total("COMMERCIAL VALUE", blocks["com"]), total("SPONSORSHIP VALUE", blocks["va"]), total("BONUS VALUE", blocks["bonus"])
+    al = total("ALL EXPOSURE VALUE", None, lambda c: f"{c}{com['r']}+{c}{va['r']}+{c}{bo['r']}")
     inv = r
     r += 1
     for lab, fm, fmt in (("ACTUAL INVESTMENT - 100% (WITHOUT TAXES)", f"=Q{al['r']}", ACC0), ("SSCL", f"=P{inv}/(1-{SSCL})*{SSCL}", ACC0), ("VAT", f"=P{inv}/(1-{SSCL})*{VAT}", ACC0)):
@@ -243,6 +249,8 @@ def _channel_sheet(wb: Workbook, spec: dict, ch: dict, used: set[str]) -> dict:
         _put(ws, r0 + 3, 22, f"=1-V{r0 + 2}", fmt=PCT, h="center")
         _put(ws, r0 + 3, 23, f"=W{r0 + 1}-W{r0 + 2}", fmt=ACC0)
         k = r0 + 4
+        bp = _num(d.get("bonus_pct")) / 100 if _num(d.get("bonus_pct")) > 0 else None
+        bonus_row = None
         if pp is not None:
             _put(ws, k, 20, "Prime time (of the commercial benefits)")
             _put(ws, k, 22, pp, fmt=PCT, fill=INPUT, h="center")
@@ -251,6 +259,12 @@ def _channel_sheet(wb: Workbook, spec: dict, ch: dict, used: set[str]) -> dict:
             _put(ws, k + 1, 22, f"=1-V{k}", fmt=PCT, h="center")
             _put(ws, k + 1, 23, f"=W{r0 + 2}-W{k}", fmt=ACC0)
             k += 2
+        if bp is not None:
+            bonus_row = k
+            _put(ws, k, 20, "Bonus commercials (share of the commercial rate card value)")
+            _put(ws, k, 22, bp, fmt=PCT, fill=INPUT, h="center")
+            _put(ws, k, 23, f"=V{k}*P{com['r']}", fmt=ACC0)
+            k += 1
         k += 1
         for c, t in ((20, "PLANNED AGAINST BUDGET"), (22, "Budget"), (23, "Planned"), (24, "Balance")):
             _put(ws, k, c, t, bold=True, white=True, fill=BLACK, h="left" if c == 20 else "center")
@@ -268,10 +282,20 @@ def _channel_sheet(wb: Workbook, spec: dict, ch: dict, used: set[str]) -> dict:
             line("Prime time", f"=W{r0 + 4}", f'=SUMIF($R$9:$R${last0},"PT",$Q$9:$Q${last0})')
             line("Non prime time", f"=W{r0 + 5}", f'=SUMIF($R$9:$R${last0},"NPT",$Q$9:$Q${last0})')
         line("Sponsorship / frequency items", f"=W{r0 + 3}", f"=Q{va['r']}")
+        if bonus_row is not None:
+            line("Bonus commercials (value at rate card)", f"=W{bonus_row}", f"=P{bo['r']}")
         _put(ws, k, 20, "Discount vs rate card (commercial)", bold=True)
         _put(ws, k, 22, None)
         _put(ws, k, 23, f"=IFERROR(1-W{r0 + 2}/P{com['r']},0)", fmt=PCT, bold=True)
         deal = {"inv_row": r0 + 1, "com_pct": r0 + 2, "disc": k}
+        if _num(d.get("est_discount_pct")) > 0:                       # the discount typed as an estimate is a check on the one the investment gives
+            _put(ws, k + 1, 20, "Estimated discount (typed)")
+            _put(ws, k + 1, 22, None)
+            _put(ws, k + 1, 23, _num(d["est_discount_pct"]) / 100, fmt=PCT, fill=INPUT)
+            _put(ws, k + 2, 20, "Difference: estimate minus real (points)")
+            _put(ws, k + 2, 22, None)
+            _put(ws, k + 2, 23, f"=W{k + 1}-W{k}", fmt=PCT)
+            k += 2
         r = max(r, k + 1)
     r += 1
     for t in ("*Rate card rate = the 30 second rate card rate / 30 x DUR, for one spot. Negotiated rate = our (or the agency's paid) 30 second rate / 30 x DUR.",
@@ -285,7 +309,7 @@ def _channel_sheet(wb: Workbook, spec: dict, ch: dict, used: set[str]) -> dict:
     ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
     ws.print_title_rows = "8:8"
     ws.print_area = f"A1:R{last0 + 4}"
-    return {"name": name, "com": com["r"], "va": va["r"], "all": al["r"], "inv": inv, "deal": deal, "label": str(ch.get("name") or "").upper()}
+    return {"name": name, "com": com["r"], "va": va["r"], "bonus": bo["r"], "all": al["r"], "inv": inv, "deal": deal, "label": str(ch.get("name") or "").upper()}
 
 
 def _summary(ws: Worksheet, spec: dict, sheets: list[dict]) -> None:
@@ -296,7 +320,7 @@ def _summary(ws: Worksheet, spec: dict, sheets: list[dict]) -> None:
     ws.column_dimensions["A"].width = 26
     for i in range(2, 18):
         ws.column_dimensions[L(i)].width = max(18, len(heads[i - 1]) + 3)
-    for col, w in (("R", 3), ("S", 12), ("T", 12), ("U", 3), ("V", 18), ("W", 18), ("X", 3), ("Y", 18), ("Z", 18), ("AA", 20)):
+    for col, w in (("R", 3), ("S", 12), ("T", 12), ("U", 3), ("V", 18), ("W", 18), ("X", 3), ("Y", 18), ("Z", 18), ("AA", 20), ("AB", 3), ("AC", 14), ("AD", 20)):
         ws.column_dimensions[col].width = w
     ws.merge_cells("A1:Q1")
     ws.row_dimensions[1].height = 28
@@ -304,7 +328,7 @@ def _summary(ws: Worksheet, spec: dict, sheets: list[dict]) -> None:
     ws.row_dimensions[2].height = 44
     for i, h in enumerate(heads):
         _put(ws, 2, 1 + i, h, bold=True, white=True, fill=BLACK, h="center", wrap=True)
-    for c, h in ((19, "Discount %"), (20, "Bonus %"), (22, "Commercial Cost"), (23, "Sponsorship Cost"), (25, "Actual Investment"), (26, "Commercial % of Investment"), (27, "Discount vs Rate Card (Com)")):
+    for c, h in ((19, "Discount %"), (20, "Bonus %"), (22, "Commercial Cost"), (23, "Sponsorship Cost"), (25, "Actual Investment"), (26, "Commercial % of Investment"), (27, "Discount vs Rate Card (Com)"), (29, "Bonus Spots"), (30, "Bonus Rate Card Value")):
         _put(ws, 2, c, h, bold=True, white=True, fill=BLACK, h="center", wrap=True)
     row = 3
     first = row
@@ -314,7 +338,7 @@ def _summary(ws: Worksheet, spec: dict, sheets: list[dict]) -> None:
         cells = [(1, f"={R}D5", None, "left"), (2, f"={R}P{s['inv']}", ACC0, None), (3, f"={R}P{s['all']}", ACC0, None), (4, f"={R}P{s['com']}", ACC0, None), (5, f"=IFERROR(D{row}/V{row},0)", PCT, "center"),
                  (6, f"=IFERROR(C{row}/B{row},0)", PCT, "center"), (7, f"={R}J{s['com']}", NUM2, None), (8, f"={R}K{s['com']}", NUM2, None), (9, f"={R}L{s['com']}", ACC2, None), (10, f"={R}M{s['com']}", ACC2, None),
                  (11, f"={R}J{s['all']}", NUM2, None), (12, f"={R}K{s['all']}", NUM2, None), (13, f"={R}L{s['all']}", ACC2, None), (14, f"={R}M{s['all']}", ACC2, None), (15, f"={R}H{s['com']}", INT, "center"),
-                 (16, f"={R}H{s['va']}", INT, "center"), (17, f"=SUM(O{row}:P{row})", INT, "center"), (19, f"=IFERROR(1-V{row}/D{row},0)", PCT, "center"), (20, f"=IFERROR({R}P{s['va']}/D{row},0)", PCT, "center"),
+                 (16, f"={R}H{s['va']}", INT, "center"), (17, f"=SUM(O{row}:P{row})+AC{row}", INT, "center"), (19, f"=IFERROR(1-V{row}/D{row},0)", PCT, "center"), (20, f"=IFERROR(({R}P{s['va']}+{R}P{s['bonus']})/D{row},0)", PCT, "center"), (29, f"={R}H{s['bonus']}", INT, "center"), (30, f"={R}P{s['bonus']}", ACC0, None),
                  (22, f"={R}Q{s['com']}", ACC0, None), (23, f"={R}Q{s['va']}", ACC0, None)]
         for c, v, fmt, h in cells:
             _put(ws, row, c, v, fmt=fmt, fill=band, h=h, bold=(c == 1))
@@ -330,9 +354,9 @@ def _summary(ws: Worksheet, spec: dict, sheets: list[dict]) -> None:
         sm = lambda col: f"=SUM({col}{first}:{col}{last})"          # noqa: E731
         tot = [(1, "TV ", None), (2, sm("B"), ACC0), (3, sm("C"), ACC0), (4, sm("D"), ACC0), (5, f"=IFERROR(D{tv}/V{tv},0)", PCT), (6, f"=IFERROR(C{tv}/B{tv},0)", PCT), (7, sm("G"), NUM2), (8, sm("H"), NUM2),
                (9, f"=IFERROR(V{tv}/G{tv},0)", ACC2), (10, f"=IFERROR(V{tv}/H{tv},0)", ACC2), (11, sm("K"), NUM2), (12, sm("L"), NUM2), (13, f"=IFERROR(B{tv}/K{tv},0)", ACC2), (14, f"=IFERROR(B{tv}/L{tv},0)", ACC2),
-               (15, sm("O"), INT), (16, sm("P"), INT), (17, sm("Q"), INT), (19, f"=IFERROR(1-V{tv}/D{tv},0)", PCT), (20, f"=IFERROR(SUMPRODUCT(T{first}:T{last},D{first}:D{last})/D{tv},0)", PCT), (22, sm("V"), ACC0), (23, sm("W"), ACC0)]
+               (15, sm("O"), INT), (16, sm("P"), INT), (17, sm("Q"), INT), (19, f"=IFERROR(1-V{tv}/D{tv},0)", PCT), (20, f"=IFERROR(SUMPRODUCT(T{first}:T{last},D{first}:D{last})/D{tv},0)", PCT), (22, sm("V"), ACC0), (23, sm("W"), ACC0), (29, sm("AC"), INT), (30, sm("AD"), ACC0)]
         for c, v, fmt in tot:
-            _put(ws, tv, c, v, fmt=fmt, bold=True, fill=LIGHT, top="medium", h="center" if c in (5, 6, 15, 16, 17, 19, 20) else None)
+            _put(ws, tv, c, v, fmt=fmt, bold=True, fill=LIGHT, top="medium", h="center" if c in (5, 6, 15, 16, 17, 19, 20, 29) else None)
         row = tv + 2
         _put(ws, row, 1, "Total Budget", bold=True, fill=LIGHT)
         for c, col, fmt in ((2, "B", ACC0), (3, "C", ACC0), (4, "D", ACC0), (5, "E", PCT), (6, "F", PCT)):
@@ -389,7 +413,7 @@ def _formulas(wb: Workbook, S: dict) -> None:
              ("DEAL / COMMERCIAL BUDGET (columns T to X)", "Investment x commercial share; prime share of that", "The contract: an investment, the share of it that buys commercial spots (100%, 90%, 80%), the rest for sponsorship / frequency items; each budget is compared with what the spots add up to"),
              ("Discount vs rate card (deal)", "1 - commercial budget / commercial rate card value", "What the contract really gave: the commercial part of the investment against the same spots at the rack rate"),
              ("Discount % (Summary)", "1 - commercial cost / commercial rate card value", "How far below the rate card the commercial spots were bought"),
-             ("Bonus % (Summary)", "sponsorship rate card value / commercial rate card value", "Extra exposure from the sponsorship items on top of the commercial spots"), ("TVR", "typed", "Average of the programme in the TVR sheet (all uploaded months)")]
+             ("BONUS COMMERCIALS / BONUS VALUE", "rows at the rate card rate, negotiated rate 0", "Free extra programmes the channel gives. They count at rate card value in ALL EXPOSURE VALUE and ROI and cost nothing"), ("Bonus % (deal block)", "bonus % x commercial rate card value", "How much bonus value the channel gives; the planned bonus is compared with it"), ("Bonus % (Summary)", "(sponsorship + bonus rate card value) / commercial rate card value", "Extra exposure from sponsorship items and bonus programmes on top of the commercial spots"), ("TVR", "typed", "Average of the programme in the TVR sheet (all uploaded months)")]
     for i, (a, b, c) in enumerate(items):
         _put(ws, r + 1 + i, 1, a, bold=True, wrap=True)
         _put(ws, r + 1 + i, 2, b, wrap=True)
