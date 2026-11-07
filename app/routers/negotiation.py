@@ -187,6 +187,7 @@ def pitch_docx(req: PitchReq, ws: Workspace = Depends(workspace)) -> Response:
 
 class EvalReq(BaseModel):
     kind: str = "current"
+    basis: str = ""
     spec: dict[str, Any]
 
 
@@ -205,7 +206,7 @@ def pitch_evaluation(req: EvalReq, ws: Workspace = Depends(workspace)) -> Respon
         log.exception("Evaluation workbook failed")
         raise HTTPException(500, "The evaluation workbook could not be built. Check the rows for blank or odd values.") from None
     name = re.sub(r"[^A-Za-z0-9]+", "_", client.get("name") or "client").strip("_")[:40] or "client"
-    fname = f"{name}_evaluation_{req.kind}_{dt.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    fname = f"{name}_evaluation_{req.kind}{'_30sec' if req.basis == '30sec' else ''}_{dt.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
     rid = repo.save_report(ws.client_id, "lmrb", "xlsx", fname, content, {"kind": "pitch-evaluation", "format": "xlsx", "title": f"Evaluation ({req.kind})"}, ws.user_id)
     log.info("[pitch evaluation] built %s (%d bytes) for client %s", fname, len(content), ws.client_id)
     return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})

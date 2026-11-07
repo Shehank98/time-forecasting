@@ -419,3 +419,11 @@ def test_bonus_commercials_are_free_but_count_at_rate_card_value(data, tmp_path)
     assert side["Difference: estimate minus real (points)"][22].value == pytest.approx(0.6 - side["Discount vs rate card (commercial)"][22].value)
     errs = [c.coordinate for ws in openpyxl.load_workbook(tmp_path / "calc" / "bn.xlsx", data_only=True) for row in ws.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("#")]
     assert not errs, errs
+
+
+def test_evaluation_file_name_marks_the_30_second_version(data):
+    from helpers import api
+    spec = {"client": "X", "title": "T", "month": "2026-09", "prime": [0.79, 0.94], "channels": [{"name": "DERANA", "deal": {}, "bonus": [], "sponsorship": [],
+            "basket": [{"band": "PT", "desc": "Husmak Lagin (15s x 6)", "day": "Mon-Fri", "from": "20:30", "to": "21:00", "dur": 30, "tvr": 7.8, "spots": 3, "card": 1092000, "rate": 327600}]}]}
+    r = api().post("/api/pitch/evaluation", json={"kind": "current", "basis": "30sec", "spec": spec})
+    assert r.status_code == 200 and "_30sec_" in r.headers["content-disposition"]

@@ -847,3 +847,5 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .cv-h { margin: 22px 0 8px; font-family: var(--display); font-size: 15px; }
 .cv-tbl td, .cv-tbl th { padding: 8px 10px; }
 @media (max-width: 800px) { .cv-top { grid-template-columns: 1fr; } }
+
+.cv-res { margin-top: 12px; background: var(--accent-soft); border: 1px solid var(--border-strong); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; } .cv-res span { font-size: 12px; color: var(--muted); } .cv-res b { font-size: 24px; font-family: var(--display); color: var(--accent); }
