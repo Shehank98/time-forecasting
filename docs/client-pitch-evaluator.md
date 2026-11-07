@@ -111,7 +111,7 @@ The LMRB shows what each spot was *monitored* at, which is not always what was p
 - **Prime share**: if a prime % is given, that share of the budget is spent on prime programmes first and the rest on non prime, then **anything one side could not spend goes to the other side**. This means the prime share is a target, not a hard cap; the page shows the real split.
 - **Our discount %** per channel changes our negotiated rate (see section 8).
 - **Bonus %**: the free extra a channel gives, as a share of the commercial rate card value (see section 11).
-- Programmes can be switched off one by one; the totals update at once. The tab also shows CPRP per programme, a Time column (Prime / Non prime), and a **Prime time and non prime time table** (spots, spend, TVR and CPRP per channel).
+- The tab is **one card per channel** (commercial budget, planned spend, spots, GRPs, CPRP, ROI, bonus). A card opens the channel window (same as *Our plan* in Build evaluation) where the deal numbers are typed and the programmes are filled or picked. Channels not opened show the optimiser's suggestion; built channels keep your rows, and the totals, the **Prime time and non prime time table** and the Comparison use them as built.
 - All plan spots are 30 sec.
 
 **Where to check:** `engine/pitchalloc.js`; `test_plan_stays_inside_the_budget_and_buys_cheapest_first`, `test_optimiser_goals`, `test_our_plan_has_its_own_investment_discount_prime_and_bonus`.
