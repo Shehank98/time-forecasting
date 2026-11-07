@@ -245,9 +245,10 @@
         const ps = LC.prog_sec[i] >= 0 ? LC.prog_sec[i] : LC.advt_sec[i], pt = ps >= 0 ? isPT(ps, o) : !!(e && e.pt);
         if (o.daypart !== 'all' && (o.daypart === 'PT') !== pt) continue;
         const th = L.dicts.theme[LC.theme[i]], k2 = `${ch}|${th}`; let s = spon.get(k2);
-        if (!s) spon.set(k2, (s = { channel: ch, theme: th, spots: 0, eq30: 0, spend: 0, pt_spots: 0, npt_spots: 0, value: 0, rated_spend: 0 }));
+        if (!s) spon.set(k2, (s = { channel: ch, theme: th, spots: 0, eq30: 0, spend: 0, pt_spots: 0, npt_spots: 0, value: 0, rated_spend: 0, durs: new Map() }));
         s.spots++; s.eq30 += eq; s.spend += cost; if (pt) s.pt_spots++; else s.npt_spots++;
         const c30 = e ? rr.card(e) : null; if (c30 > 0) { s.value += c30 * eq; s.rated_spend += cost; }
+        const dd = s.durs.get(dur) || { dur, spots: 0, eq30: 0, spend: 0, value: 0 }; dd.spots++; dd.eq30 += eq; dd.spend += cost; if (c30 > 0) dd.value += c30 * eq; s.durs.set(dur, dd);      // every real duration of the item (10, 5 ...), not an average
         continue;
       }
       if (!e) { const u = unmatched.get(g ? g.key : ch) || { channel: ch, lmrb_program: g ? g.lmrb_program : '', spots: 0, spend: 0, ignored: g && g.method === 'ignored' }; u.spots++; u.spend += cost; unmatched.set(g ? g.key : ch, u); continue; }
@@ -265,7 +266,7 @@
     }).sort((a, b) => b.cost - a.cost);
     const monthsInView = month === 'all' ? Math.max(1, allMonths.length) : 1;
     const sponsorship = [...spon.values()].map((x) => { const a = chAvg[x.channel] || { pt_tvr: 0, npt_tvr: 0 }, tvr = (x.pt_spots * a.pt_tvr + x.npt_spots * a.npt_tvr) / x.spots;
-      return { ...x, spots_per_month: x.spots / monthsInView, avg_cost: x.spend / x.spots, spend_lmrb: x.spend, avg_pt_tvr: a.pt_tvr, avg_npt_tvr: a.npt_tvr, tvr, grp: tvr * x.spots, ngrp: tvr * x.eq30, cprp: div(x.spend, tvr * x.eq30) }; }).sort((a, b) => b.spend - a.spend);
+      return { ...x, durs: [...x.durs.values()].sort((p, q) => q.spots - p.spots), spots_per_month: x.spots / monthsInView, avg_cost: x.spend / x.spots, spend_lmrb: x.spend, avg_pt_tvr: a.pt_tvr, avg_npt_tvr: a.npt_tvr, tvr, grp: tvr * x.spots, ngrp: tvr * x.eq30, cprp: div(x.spend, tvr * x.eq30) }; }).sort((a, b) => b.spend - a.spend);
 
     // ---- Deal and investment evidence. The agency's contract gives one investment per channel; a share of it (100%, 90%, 80%) buys the commercial spots, the rest
     //      pays for the sponsorship / frequency items. Without the real investment the previous agency's spend is estimated from what the programmes cost at the channel's rate card:

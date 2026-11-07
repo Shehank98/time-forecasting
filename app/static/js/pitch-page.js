@@ -496,7 +496,7 @@
     const built = builtChannels('current'), cur = D.current, order = cur.channels.map((c) => c.channel), by = (list, ch) => list.filter((x) => x.channel === ch);
     const eng = { client: clientName(), title: TITLE.current, month: monthLabel(), prime: primeWindow(), channels: order.filter((ch) => !built.includes(ch)).map((ch) => ({ name: tt(ch), deal: dealSpec({ investment: (st.deals[ch] || {}).investment, commercial_pct: (st.deals[ch] || {}).commercial_pct, prime_pct: (st.deals[ch] || {}).prime_pct, est_discount_pct: (st.deals[ch] || {}).discount_pct }, 'current'),
       basket: by(cur.rows, ch).map((r) => ({ band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: r.avg_dur, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.avg30 || 0 })), bonus: [],
-      sponsorship: by(cur.sponsorship, ch).map((x) => ({ desc: x.theme, day: '', from: '', to: '', dur: (x.eq30 * 30) / x.spots, tvr: x.tvr, spots: x.spots, card: x.value > 0 ? x.value / x.eq30 : 0, rate: x.spend / x.eq30 })) })) };
+      sponsorship: by(cur.sponsorship, ch).flatMap((x) => x.durs.map((q) => ({ desc: x.theme, day: '', from: '', to: '', dur: q.dur, tvr: x.tvr, spots: q.spots, card: q.value > 0 ? q.value / q.eq30 : 0, rate: q.spend / q.eq30 }))) })) };
     return { ...eng, channels: [...specEval('current', built).channels, ...eng.channels] };
   }
   function specPlan() {
@@ -529,7 +529,7 @@
   const isCom = (r) => r.kind === 'com';
   const catRow = (kind, c, rate) => ({ id: uid(), kind, band: c.pt ? 'PT' : 'NPT', desc: tt(c.program), day: c.days, from: c.start, to: c.end, dur: 30, tvr: c.tvr, spots: 1, card: c.card30 || 0, rate, key: c.key });
   const curRows = (ch) => D.current.rows.filter((r) => r.channel === ch).map((r) => ({ id: uid(), kind: 'com', band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: r.dur || r.avg_dur || 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.avg30 || 0, lm: r.avg30 || 0, key: r.key }))
-    .concat(D.current.sponsorship.filter((x) => x.channel === ch).map((x) => ({ id: uid(), kind: 'va', band: '', desc: x.theme, day: '', from: '', to: '', dur: x.spots > 0 ? (x.eq30 * 30) / x.spots : 30, tvr: x.tvr, spots: x.spots, card: x.value > 0 && x.eq30 > 0 ? x.value / x.eq30 : 0, rate: x.eq30 > 0 ? x.spend / x.eq30 : 0, lm: x.eq30 > 0 ? x.spend / x.eq30 : 0 })));
+    .concat(D.current.sponsorship.filter((x) => x.channel === ch).flatMap((x) => x.durs.map((q) => ({ id: uid(), kind: 'va', band: '', desc: x.theme, day: '', from: '', to: '', dur: q.dur, tvr: x.tvr, spots: q.spots, card: q.value > 0 && q.eq30 > 0 ? q.value / q.eq30 : 0, rate: q.eq30 > 0 ? q.spend / q.eq30 : 0, lm: q.eq30 > 0 ? q.spend / q.eq30 : 0 }))));
   const planRows = (ch) => planNumbers().a.rows.filter((r) => r.channel === ch).map((r) => ({ id: uid(), kind: 'com', band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.neg30 || 0, key: r.key }));
   /** The commercial budget of the deal: the investment x the commercial share. */
   const comBudget = (d) => (numOf(d.investment) > 0 ? (d.investment * (numOf(d.commercial_pct) || 100)) / 100 : null);
@@ -649,7 +649,7 @@
         <div class="cv-k"><div><span>Spots</span><b>${n0(T.spots)}</b></div><div><span>Cost at this discount</span><b>${fmt.lkrc(T.cost)}</b></div><div><span>Cost in the LMRB sheet</span><b>${fmt.lkrc(lmCost)}</b></div><div><span>Rate card value</span><b>${fmt.lkrc(T.value)}</b></div><div><span>Discount (programmes)</span><b>${real == null ? 'n/a' : pc(real * 100)}</b></div><div><span>GRPs (30 sec)</span><b>${n1(T.ngrp)}</b></div><div><span>CPRP</span><b>${fmt.lkrc(T.ngrp > 0 ? T.cost / T.ngrp : null)}</b></div><div><span>ROI commercial</span><b>${xr(T.cc > 0 ? T.cv / T.cc : null)}</b></div><div><span>ROI all exposure</span><b>${xr(T.cost > 0 ? T.value / T.cost : null)}</b></div></div></div>
         ${disc == null && !(numOf(d.investment) > 0) ? '<div class="banner info"><span>No discount entered yet, so the rates are what the LMRB sheet shows. Type a discount to cost the programmes at the rate card.</span></div>' : ''}
         ${block('Prime time programmes', srt(com.filter((r) => r.band === 'PT')))}${block('Non prime time programmes', srt(com.filter((r) => r.band !== 'PT')))}
-        ${va.length ? `<h4 class="cv-h">Sponsorship items</h4><div class="tbl-scroll"><table class="tbl cv-tbl"><thead><tr><th>Item</th><th class="num">Spots</th><th class="num">Cost</th></tr></thead><tbody>${va.map((r) => `<tr><td><b>${esc(r.desc)}</b></td><td class="num">${n0(r.spots)}</td><td class="num">${n0(calc(r).cost)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+        ${va.length ? `<h4 class="cv-h">Sponsorship items</h4><div class="tbl-scroll"><table class="tbl cv-tbl"><thead><tr><th>Item</th><th class="num">Dur</th><th class="num">Spots</th><th class="num">Cost</th></tr></thead><tbody>${va.map((r) => `<tr><td><b>${esc(r.desc)}</b></td><td class="num">${n0(r.dur)}s</td><td class="num">${n0(r.spots)}</td><td class="num">${n0(calc(r).cost)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
     }
     function paint() {
       if (isCur) { curView(); return; }

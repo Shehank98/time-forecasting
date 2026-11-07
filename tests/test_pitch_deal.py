@@ -170,3 +170,15 @@ def test_current_basket_rows_follow_the_lmrb_programme_and_duration(data):
             assert x["card_rate"] == pytest.approx(x["card30"] * x["dur"] / 30)
         if x["neg_rate"]:
             assert x["neg_rate"] == pytest.approx(x["neg30"] * x["dur"] / 30)
+
+
+def test_durations_are_the_real_ones_from_the_lmrb(data):
+    """No averaged durations: programme rows and sponsorship items carry real LMRB durations only."""
+    p, lm, _ = data
+    real = {float(x) for x in lm["Dur"].dropna().unique()}
+    r = run(p, {"month": "all"})
+    assert {x["dur"] for x in r["current"]["rows"]} <= real
+    for s in r["current"]["sponsorship"]:
+        assert s["durs"] and {q["dur"] for q in s["durs"]} <= real
+        assert sum(q["spots"] for q in s["durs"]) == s["spots"]
+        assert sum(q["spend"] for q in s["durs"]) == pytest.approx(s["spend"])
