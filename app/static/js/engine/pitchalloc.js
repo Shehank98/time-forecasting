@@ -11,12 +11,15 @@
    * cands: [{key, channel, tvr, neg30, cap, ...}], budgets: {channel: LKR}, excluded: Set|array of keys the user switched off.
    * Returns {rows: [{...cand, spots, spend, grp}], channels: {channel: {budget, spend, left, spots, grp}}}
    */
-  function pitchAllocate(cands, budgets, excluded) {
+  function pitchAllocate(cands, budgets, excluded, objective) {
     const off = new Set(excluded || []), byCh = new Map();
     for (const c of cands) { if (!byCh.has(c.channel)) byCh.set(c.channel, []); byCh.get(c.channel).push(c); }
     const rows = [], channels = {};
     for (const [ch, budget] of Object.entries(budgets || {})) {
-      const list = (byCh.get(ch) || []).filter((c) => !off.has(c.key) && c.neg30 > 0 && c.tvr > 0).sort((a, b) => a.cprp - b.cprp || b.tvr - a.tvr || (a.key < b.key ? -1 : 1));
+      const list = (byCh.get(ch) || []).filter((c) => !off.has(c.key) && c.neg30 > 0 && c.tvr > 0);
+      const mxE = Math.max(1e-12, ...list.map((c) => 1 / c.cprp)), mxR = Math.max(1e-12, ...list.map((c) => c.roi_ratio || 0));
+      const score = (c) => (objective === 'roi' ? c.roi_ratio || 0 : objective === 'balanced' ? (1 / c.cprp) / mxE + (c.roi_ratio || 0) / mxR : 1 / c.cprp);
+      list.sort((a, b) => score(b) - score(a) || a.cprp - b.cprp || b.tvr - a.tvr || (a.key < b.key ? -1 : 1));
       let left = budget, spots = 0, grp = 0, spend = 0;
       for (const c of list) {
         const n = Math.max(0, Math.min(c.cap, Math.floor((left + 1e-9) / c.neg30)));

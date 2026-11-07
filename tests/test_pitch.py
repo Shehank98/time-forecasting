@@ -213,3 +213,78 @@ def test_sponsorship_is_grouped_by_channel_and_item(data):
     allm = run(p / "lm.csv", p / "tv.csv", {**OPTS, "month": "all"})
     y = [q for q in allm["current"]["sponsorship"] if q["channel"] == "DERANA" and q["theme"] == "Time Check"][0]
     assert y["spots_per_month"] == pytest.approx(y["spots"] / 2)                                # two months uploaded
+
+
+def test_same_slot_programmes_are_one_row_matched_once(data, tmp_path):
+    p, lm, tv, _ = data
+    mv = lm.copy()
+    m = mv["Program"] == "Sunday Movie Special"
+    names = ["Movie Alpha", "Movie Beta", "Movie Gamma"]
+    mv.loc[m, "Program"] = [names[i % 3] for i in range(int(m.sum()))]            # three different titles in the same weekend movie belt
+    mv.to_csv(tmp_path / "mv.csv", index=False)
+    r = run(tmp_path / "mv.csv", p / "tv.csv", OPTS)
+    slot = [s for s in r["slots"] if s["channel"] == "DERANA" and s["n_names"] == 3]
+    assert len(slot) == 1 and sorted(n["name"] for n in slot[0]["names"]) == sorted(n.upper() for n in names)
+    s = slot[0]
+    assert s["tvr_program"] == "WEEKEND MOVIE" and s["level"] == "High" and not s["approved"] and s["start"] == "12:30" and s["days"] == "Sat-Sun"
+    assert {x["tvr_program"] for x in r["matches"] if x["slot"] == s["key"]} == {"WEEKEND MOVIE"}            # every title follows the slot
+    assert sum(x["spots"] for x in r["matches"] if x["slot"] == s["key"]) == s["spots"]
+    assert len(r["slots"]) < len(r["matches"])                                                           # fewer rows to check than programmes
+    # approving keeps it; correcting the slot moves every title in it
+    ok = run(tmp_path / "mv.csv", p / "tv.csv", {**OPTS, "mappings": {"SLOT|" + s["key"]: s["tvr_key"]}})
+    assert [x for x in ok["slots"] if x["key"] == s["key"]][0]["approved"]
+    husmak = [c for c in r["catalogue"]["DERANA"] if "HUSMAK" in c["label"]][0]["key"]
+    moved = run(tmp_path / "mv.csv", p / "tv.csv", {**OPTS, "mappings": {"SLOT|" + s["key"]: husmak}})
+    assert {x["tvr_program"] for x in moved["matches"] if x["slot"] == s["key"]} == {"HUSMAK LAGIN"}
+    ign = run(tmp_path / "mv.csv", p / "tv.csv", {**OPTS, "mappings": {"SLOT|" + s["key"]: "-"}})
+    assert [x for x in ign["slots"] if x["key"] == s["key"]][0]["ignored"] and "WEEKEND MOVIE" not in {x["program"] for x in ign["current"]["rows"]}
+
+
+def test_optimiser_goals(data):
+    p, *_ = data
+    base = {**OPTS, "max_spots": 3}
+    g = run(p / "lm.csv", p / "tv.csv", {**base, "objective": "grp"})["plan"]
+    r = run(p / "lm.csv", p / "tv.csv", {**base, "objective": "roi"})["plan"]
+    b = run(p / "lm.csv", p / "tv.csv", {**base, "objective": "balanced"})["plan"]
+    for x in (g, r, b):
+        assert all(c["spend"] <= c["budget"] + 1e-6 for c in x["channels"].values())
+    assert r["totals"]["roi"] >= g["totals"]["roi"] - 1e-9                       # asking for ROI never gives a lower ROI ...
+    assert g["totals"]["ngrp"] >= r["totals"]["ngrp"] - 1e-9                     # ... and asking for GRPs never gives fewer GRPs
+    assert min(g["totals"]["ngrp"], r["totals"]["ngrp"]) - 1e-9 <= b["totals"]["ngrp"] <= max(g["totals"]["ngrp"], r["totals"]["ngrp"]) + 1e-9
+    assert r["totals"]["roi"] > g["totals"]["roi"] or r["rows"] == g["rows"]    # the special-rate programme has the best value per rupee
+
+
+@pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice is not installed")
+def test_evaluation_workbook_formulas_calculate(data, tmp_path):
+    """The workbook is written with formulas. A spreadsheet program recalculates every one and must land on the same numbers as the cached values and the engine."""
+    import openpyxl
+    p, *_ = data
+    o = {"rates": {"channels": OPTS["rates"]["channels"]}}                                                   # every programme has a rate, so ROI uses all spend
+    proc = subprocess.run(["node", str(ROOT / "tests/js/pitch_xlsx.js"), str(p / "lm.csv"), str(p / "tv.csv"), json.dumps(o), str(tmp_path / "ev")], capture_output=True, text=True, timeout=240)
+    assert proc.returncode == 0, proc.stderr
+    meta = json.loads(proc.stdout)
+    assert meta["sheets"] == ["Summary", "DERANA", "SIRASA", "HIRU", "Formulas"]
+    subprocess.run(["soffice", "--headless", "--convert-to", "xlsx:Calc MS Excel 2007 XML", "--outdir", str(tmp_path / "calc"), str(tmp_path / "ev_nocache.xlsx")], capture_output=True, timeout=180)
+    cached, calc, formulas = (openpyxl.load_workbook(tmp_path / "ev_cached.xlsx", data_only=True), openpyxl.load_workbook(tmp_path / "calc/ev_nocache.xlsx", data_only=True), openpyxl.load_workbook(tmp_path / "ev_cached.xlsx"))
+    n = 0
+    for ws in cached:
+        for row in ws.iter_rows():
+            for c in row:
+                if isinstance(c.value, (int, float)):
+                    n += 1
+                    v = calc[ws.title][c.coordinate].value
+                    assert isinstance(v, (int, float)) and abs(v - c.value) <= 1e-6 * max(1, abs(c.value)), (ws.title, c.coordinate, c.value, v)
+    assert n > 200
+    assert sum(1 for ws in formulas for row in ws.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("=")) > 150          # real formulas, not pasted numbers
+    summ = {r[0].value: [x.value for x in r] for r in calc["Summary"].iter_rows(min_row=4) if r[0].value}
+    for c in meta["channels"]:
+        row = summ[c["channel"]]
+        assert row[1] == pytest.approx(c["spend"]) and row[4] == pytest.approx(c["com_roi"]) and row[5] == pytest.approx(c["all_roi"])
+        assert row[16] == pytest.approx(c["com_spend"]) and row[7] == pytest.approx(c["ngrp"])
+    assert summ["TV"][1] == pytest.approx(sum(c["spend"] for c in meta["channels"]))
+    f = {r[0].value: r[1].value for r in calc["Formulas"].iter_rows(min_row=3, max_row=5)}
+    assert f == {"Base seconds": 30, "SSCL rate": 0.025, "VAT rate": 0.18}
+    d = calc["DERANA"]
+    inv = [r for r in d.iter_rows() if r[0].value and str(r[0].value).startswith("ACTUAL INVESTMENT")][0][14].value
+    gt = [r for r in d.iter_rows() if r[0].value == "GRAND TOTAL"][0][14].value
+    assert gt == pytest.approx(inv / 0.975 + inv / 0.975 * 0.18)                                           # the agency's tax method

@@ -807,3 +807,5 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .tbl tr.worst td { background: color-mix(in srgb, var(--bad) 14%, transparent); } .tbl tr.off td { opacity: .5; }
 .good-t { color: var(--good); font-weight: 700; } .bad-t { color: var(--bad); font-weight: 700; }
 .rt-in { width: 110px; max-width: 100%; text-align: right; }
+
+.bd-in { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px; color: var(--text); font: inherit; max-width: 100%; } .bd-tbl td { white-space: nowrap; } .bd-tbl tr.bd-va td { background: color-mix(in srgb, var(--accent-2) 8%, transparent); }

@@ -51,15 +51,17 @@
   }
   const isPT = (start, o) => start >= 0 && start >= o.pt_start && start < o.pt_end;
 
-  /** Programme matching. Per LMRB programme (channel + name): votes from channel + weekday + start time, then name similarity. */
+  /** Programme matching. Per LMRB programme (channel + name): votes from channel + weekday + start time. LMRB programmes that sit in the same
+   *  time slot (same channel, same start time, same days: for example many different movie titles) are grouped into one slot, matched once. */
   function matchGroups(L, rows, cat, o) {
     const C = L.cols, groups = new Map();
     for (const i of rows) {
       const ch = L.dicts.channel[C.channel[i]], name = L.dicts.program[C.program[i]], gk = `${ch}|${name}`;
-      let g = groups.get(gk); if (!g) groups.set(gk, (g = { key: gk, channel: ch, lmrb_program: name, spots: 0, spend: 0, votes: new Map(), slotted: 0 }));
+      let g = groups.get(gk); if (!g) groups.set(gk, (g = { key: gk, channel: ch, lmrb_program: name, spots: 0, spend: 0, votes: new Map(), slotted: 0, starts: new Map(), days: Array(7).fill(0) }));
       g.spots++; g.spend += C.cost[i];
+      const dow = dowMon(C.date[i]), ps = C.prog_sec[i], at = C.advt_sec[i]; g.days[dow]++;
+      if (ps >= 0) { const b = Math.round(ps / 900) * 900; g.starts.set(b, (g.starts.get(b) || 0) + 1); }
       const list = cat.byCh.get(ch); if (!list) continue;
-      const dow = dowMon(C.date[i]), ps = C.prog_sec[i], at = C.advt_sec[i];
       let best = null;
       if (ps >= 0) { let bd = 901; for (const e of list) { if (e.start < 0 || e.days[dow] === 0) continue; const d = Math.abs(e.start - ps); if (d < bd || (d === bd && best && e.n > best.n)) { bd = d; best = e; } } }
       if (!best && at >= 0) {
@@ -71,21 +73,50 @@
       }
       if (best) { g.votes.set(best.key, (g.votes.get(best.key) || 0) + 1); g.slotted++; }
     }
-    const out = [];
+    // slots
+    const slots = new Map();
     for (const g of groups.values()) {
-      const list = cat.byCh.get(g.channel) || [], manual = o.mappings && o.mappings[g.key];
-      let entry = null, conf = 0, method = 'none';
-      if (manual === '-') { method = 'ignored'; }
+      let st = -1, bn = 0; g.starts.forEach((n, b) => { if (n > bn) { bn = n; st = b; } });
+      const sk = st >= 0 ? `${g.channel}|${hm(st)}|${dayLabel(g.days)}` : `${g.channel}|name|${g.lmrb_program}`;
+      g.slot = sk;
+      let sl = slots.get(sk); if (!sl) slots.set(sk, (sl = { key: sk, channel: g.channel, start: st >= 0 ? hm(st) : '', days: st >= 0 ? dayLabel(g.days) : '', members: [], votes: new Map(), spots: 0, spend: 0 }));
+      sl.members.push(g); sl.spots += g.spots; sl.spend += g.spend; g.votes.forEach((v, k) => sl.votes.set(k, (sl.votes.get(k) || 0) + v));
+    }
+    const mp = o.mappings || {}, slotOut = new Map();
+    for (const sl of slots.values()) {
+      const manual = mp['SLOT|' + sl.key]; let entry = null, conf = 0, method = 'none', level = 'None';
+      if (manual === '-') method = 'ignored';
       else if (manual && cat.byKey.has(manual)) { entry = cat.byKey.get(manual); conf = 100; method = 'manual'; }
       else {
-        let top = null, tv = 0; g.votes.forEach((v, k) => { if (v > tv) { tv = v; top = k; } });
-        if (top) { entry = cat.byKey.get(top); const s = tv / g.spots, ns = sim(g.lmrb_program, entry.program); conf = Math.round(100 * (0.6 * s + 0.4 * ns)); method = ns >= 0.5 ? 'time slot + name' : 'time slot'; }
-        else { let b = null, bs = 0; for (const e of list) { const s = sim(g.lmrb_program, e.program); if (s > bs) { bs = s; b = e; } } if (b && bs >= 0.6) { entry = b; conf = Math.round(bs * 80); method = 'name'; } }
+        let top = null, tv = 0; sl.votes.forEach((v, k) => { if (v > tv) { tv = v; top = k; } });
+        if (top) {
+          entry = cat.byKey.get(top); const share = tv / sl.spots, ns = Math.max(...sl.members.map((g) => sim(g.lmrb_program, entry.program)));
+          conf = sl.members.length > 1 ? Math.round(100 * (0.8 * share + 0.2 * ns)) : Math.round(100 * (0.6 * share + 0.4 * ns));
+          method = sl.members.length > 1 ? 'same time slot' : ns >= 0.5 ? 'time slot + name' : 'time slot';
+        }
       }
-      out.push({ key: g.key, channel: g.channel, lmrb_program: g.lmrb_program, spots: g.spots, spend: g.spend, tvr_key: entry ? entry.key : null, tvr_program: entry ? entry.program : null,
+      level = !entry ? 'None' : conf >= 75 ? 'High' : conf >= 50 ? 'Medium' : 'Low';
+      slotOut.set(sl.key, { entry, conf, method, level, manual: !!manual && manual !== '-' ? true : manual === '-' });
+    }
+    const out = [];
+    for (const g of groups.values()) {
+      const list = cat.byCh.get(g.channel) || [], manual = mp[g.key], sl = slotOut.get(g.slot);
+      let entry = null, conf = 0, method = 'none';
+      if (manual === '-') method = 'ignored';
+      else if (manual && cat.byKey.has(manual)) { entry = cat.byKey.get(manual); conf = 100; method = 'manual'; }
+      else if (sl.method === 'ignored') method = 'ignored';
+      else if (sl.entry) { entry = sl.entry; conf = sl.conf; method = sl.method; }
+      else { let b = null, bs = 0; for (const e of list) { const sc = sim(g.lmrb_program, e.program); if (sc > bs) { bs = sc; b = e; } } if (b && bs >= 0.6) { entry = b; conf = Math.round(bs * 80); method = 'name'; } }
+      out.push({ key: g.key, slot: g.slot, channel: g.channel, lmrb_program: g.lmrb_program, spots: g.spots, spend: g.spend, tvr_key: entry ? entry.key : null, tvr_program: entry ? entry.program : null,
         tvr_start: entry ? entry.start_hm : null, tvr_days: entry ? entry.day_label : null, confidence: conf, method, level: !entry ? 'None' : conf >= 75 ? 'High' : conf >= 50 ? 'Medium' : 'Low' });
     }
-    return out.sort((a, b) => b.spend - a.spend);
+    const slotRows = [...slots.values()].map((sl) => { const r = slotOut.get(sl.key), e = r.entry;
+      return { key: sl.key, channel: sl.channel, start: sl.start, days: sl.days, n_names: sl.members.length, spots: sl.spots, spend: sl.spend,
+        names: sl.members.slice().sort((a, b) => b.spend - a.spend).slice(0, 60).map((g) => ({ name: g.lmrb_program, spots: g.spots, spend: g.spend })),
+        tvr_key: e ? e.key : null, tvr_program: e ? e.program : null, tvr_start: e ? e.start_hm : null, tvr_days: e ? e.day_label : null, confidence: r.conf, level: r.level, method: r.method, approved: r.manual === true, ignored: r.method === 'ignored' }; })
+      .sort((a, b) => b.spend - a.spend);
+    out.sort((a, b) => b.spend - a.spend); out.slots = slotRows;
+    return out;
   }
 
   /** Card and negotiated 30 sec rate for a TVR programme. A rate typed for the programme beats the channel's prime / non prime rate. */
@@ -103,7 +134,7 @@
 
   /** opts: see the README. L/lidx: LMRB table and rows, V: TVR table. */
   function pitchBuild(L, lidx, V, opts) {
-    const o = { pt_start: 19 * 3600, pt_end: 22.5 * 3600, min_tvr: 1, max_spots: 2, budget_basis: 'com', month: null, channels: [], daypart: 'all', excluded: [], ...opts };
+    const o = { pt_start: 19 * 3600, pt_end: 22.5 * 3600, min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', month: null, channels: [], daypart: 'all', excluded: [], ...opts };
     const cat = catalogue(V);
     cat.byKey.forEach((e) => { e.pt = isPT(e.start, o); });
     const tvrChannels = [...cat.byCh.keys()].sort(), inTvr = new Set(tvrChannels);
@@ -120,7 +151,7 @@
     }
     const allMonths = [...new Set(tvRows.map((i) => monthOf(LC.date[i])))].sort();
     const month = o.month && o.month !== 'all' && allMonths.includes(o.month) ? o.month : o.month === 'all' ? 'all' : allMonths[allMonths.length - 1] || null;
-    const groups = matchGroups(L, tvRows, cat, o), gmap = new Map(groups.map((g) => [g.key, g]));
+    const groups = matchGroups(L, tvRows, cat, o), slotRows = groups.slots, gmap = new Map(groups.map((g) => [g.key, g]));
     const rr = rateResolver(o);
 
     // overview: spend by channel and month, commercial and sponsorship
@@ -156,7 +187,7 @@
     }
     const rows = [...prog.values()].map((p) => {
       const e = p.e, card30 = rr.card(e), neg30 = rr.neg(e), avg30 = div(p.cost, p.eq30), grp = e.tvr * p.spots, ngrp = e.tvr * p.eq30;
-      return { key: e.key, channel: e.channel, program: e.program, start: e.start_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, spots: p.spots, eq30: p.eq30, avg_dur: p.dur_sum / p.spots, cost: p.cost,
+      return { key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, spots: p.spots, eq30: p.eq30, avg_dur: p.dur_sum / p.spots, cost: p.cost,
         avg30, tvr: e.tvr, airings: e.n, grp, ngrp, cprp: div(p.cost, ngrp), card30, neg30, value: card30 > 0 ? card30 * p.eq30 : null, rated: card30 > 0, zero_tvr: !(e.tvr > 0) };
     }).sort((a, b) => b.cost - a.cost);
     const monthsInView = month === 'all' ? Math.max(1, allMonths.length) : 1;
@@ -205,10 +236,10 @@
       if (!(e.channel in budgets) || !(e.tvr >= o.min_tvr) || !(e.tvr > 0)) return;
       if (o.daypart !== 'all' && (o.daypart === 'PT') !== e.pt) return;
       const neg30 = rr.neg(e); if (!(neg30 > 0)) return;
-      cands.push({ key: e.key, channel: e.channel, program: e.program, start: e.start_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, tvr: e.tvr, card30: rr.card(e), neg30, cprp: neg30 / e.tvr,
+      cands.push({ key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, tvr: e.tvr, card30: rr.card(e), neg30, cprp: neg30 / e.tvr, roi_ratio: rr.card(e) > 0 ? rr.card(e) / neg30 : null,
         per_month: e.per_month, cap: Math.max(1, Math.ceil(e.per_month * o.max_spots)) });
     });
-    const plan = MR.pitchAllocate(cands, budgets, o.excluded);
+    const plan = MR.pitchAllocate(cands, budgets, o.excluded, o.objective);
     const planTotals = MR.pitchPlanSummary(plan.rows, budgets);
 
     // rates table (every TVR programme on the evaluated channels, with what the current agency paid)
@@ -228,9 +259,9 @@
       missing_rate_programmes: missing.length, missing_rate_spend: missing.reduce((a, r) => a + r.cost, 0), missing_rate_list: missing.slice(0, 25).map((r) => ({ channel: r.channel, program: r.program, cost: r.cost })),
       zero_tvr_programmes: rows.filter((r) => r.zero_tvr).length, zero_tvr_rows: [...cat.byKey.values()].reduce((a, e) => a + e.zero, 0), low_confidence_matches: groups.filter((g) => g.level === 'Low' || g.level === 'Medium').length,
       skipped_channels: [...skipped.values()].sort((a, b) => b.spend - a.spend), no_medium: noMedium, candidates_without_rate: [...cat.byKey.values()].filter((e) => e.channel in budgets && e.tvr >= o.min_tvr && !(rr.neg(e) > 0)).length };
-    return { empty: !rows.length && !sponsorship.length, month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis },
+    return { empty: !rows.length && !sponsorship.length, month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective },
       overview: { months: allMonths, rows: [...ov.entries()].map(([channel, m]) => ({ channel, months: allMonths.map((k) => m.get(k) || { com: 0, va: 0 }) })).sort((a, b) => b.months.reduce((s, x) => s + x.com + x.va, 0) - a.months.reduce((s, x) => s + x.com + x.va, 0)) },
-      matches: groups, catalogue: [...cat.byCh.entries()].reduce((m, [ch, list]) => { m[ch] = list.sort((a, b) => b.n - a.n).map((e) => ({ key: e.key, label: `${e.program} (${e.start_hm || 'no time'}, ${e.day_label})` })); return m; }, {}),
+      matches: groups, slots: slotRows, catalogue: [...cat.byCh.entries()].reduce((m, [ch, list]) => { m[ch] = list.sort((a, b) => b.n - a.n).map((e) => ({ key: e.key, program: e.program, label: `${e.program} (${e.start_hm || 'no time'}, ${e.day_label})`, start: e.start_hm, end: e.end_hm, days: e.day_label, tvr: e.tvr, pt: e.pt, card30: rr.card(e), neg30: rr.neg(e) })); return m; }, {}),
       current: { ...current, rows, sponsorship, channels, daypart }, candidates: cands, budgets, plan: { rows: plan.rows, channels: plan.channels, totals: planTotals }, rates: ratesRows, warnings,
       comparison: { ...MR.pitchCompare(cmp, planTotals), current: cmp, basis: allBasis ? 'all' : 'com' } };
   }
