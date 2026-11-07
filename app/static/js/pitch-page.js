@@ -20,14 +20,14 @@
   const tip = (k) => (GLOSS[k] ? App.help(GLOSS[k][0], GLOSS[k][1], { howLabel: 'What it is' }) : '');
   const kpi = (l, v, s, g) => `<div class="kpi"><div class="k-lbl">${esc(l)} ${g ? tip(g) : ''}</div><div class="k-val">${v}</div>${s ? `<div class="k-sub">${s}</div>` : ''}</div>`;
   const KEY = () => 'pitch:' + App.clientId();
-  const DEF = () => ({ month: null, channels: [], daypart: 'all', tab: 'overview', settings: { pt_start: '19:00', pt_end: '22:30', min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, match_min: 45, current_basis: 'lmrb' },
-    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', builder: { rows: [] }, learned: {}, deals: {} });
+  const DEF = () => ({ month: null, channels: [], daypart: 'all', tab: 'overview', settings: { pt_start: '19:00', pt_end: '22:30', min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, match_min: 45, current_basis: 'actual' },
+    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', evals: { current: {}, plan: {} }, ours: {}, build_kind: 'current', learned: {}, deals: {} });
   let st = DEF(), D = null, root = null, status = null, seq = 0, tabTables = {}, RC = { entries: [], channels: [] };
   const load = () => { try { const v = App.store.get(KEY(), null); st = { ...DEF(), ...(v || {}), settings: { ...DEF().settings, ...((v || {}).settings || {}) } }; } catch (e) { st = DEF(); } };
   const save = () => { try { App.store.set(KEY(), st); } catch (e) { /* storage blocked */ } };
   const sec = (hm) => { const [h, m] = String(hm).split(':').map(Number); return (h || 0) * 3600 + (m || 0) * 60; };
   const opts = () => ({ month: st.month, channels: st.channels, daypart: st.daypart, pt_start: sec(st.settings.pt_start), pt_end: sec(st.settings.pt_end), min_tvr: +st.settings.min_tvr, max_spots: +st.settings.max_spots,
-    budget_basis: st.settings.budget_basis, objective: st.settings.objective, ratecard: RC.entries, use_card_nego: st.settings.use_card_nego !== false, match_min: +st.settings.match_min || 45, learned: st.learned, deals: st.deals, current_basis: st.settings.current_basis, mappings: st.mappings, rates: st.rates, nego: st.nego, excluded: st.excluded });
+    budget_basis: st.settings.budget_basis, objective: st.settings.objective, ratecard: RC.entries, use_card_nego: st.settings.use_card_nego !== false, match_min: +st.settings.match_min || 45, learned: st.learned, deals: st.deals, plan_deals: st.ours, current_basis: st.settings.current_basis, mappings: st.mappings, rates: st.rates, nego: st.nego, excluded: st.excluded });
   const loadXlsx = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((ok, no) => { const s = document.createElement('script'); s.src = '/js/vendor/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => no(new Error('The Excel library could not load.')); document.head.appendChild(s); }));
   const SHEET = { lmrb: 'LMRB sheet', tv: 'TVR sheet' };
   const IC = {
@@ -61,7 +61,7 @@
     $('#pt-sheet-close').onclick = closeSheet;
     $('#pt-sheet-sel').onchange = (e) => openSheet(e.target.value);
     $('#pt-sheet').addEventListener('mousedown', (e) => { if (e.target.id === 'pt-sheet') closeSheet(); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sheetOpen() && !document.querySelector('.modal-back') && !document.querySelector('.ms-pop')) closeSheet(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sheetOpen() && !document.querySelector('.modal-back') && !document.querySelector('.ms-pop') && !document.querySelector('#pt-ch-sheet')) closeSheet(); });
   }
   const sheetOpen = () => { const el = $('#pt-sheet'); return !!el && !el.hidden; };
   function openSheet(id) {
@@ -72,7 +72,7 @@
     paintContext(); render(); $('#pt-sheet-close').focus();
   }
   function closeSheet() {
-    const el = $('#pt-sheet'); if (!el || el.hidden) return; el.hidden = true; document.body.classList.remove('sheet-open'); if (App.charts && App.charts.destroyAll) App.charts.destroyAll();
+    const cs = $('#pt-ch-sheet'); if (cs) cs.remove(); const el = $('#pt-sheet'); if (!el || el.hidden) return; el.hidden = true; document.body.classList.remove('sheet-open'); if (App.charts && App.charts.destroyAll) App.charts.destroyAll();
     const b = $('#tab-' + st.tab); if (b) b.focus();
   }
   /** What the window is showing: the month, channels and daypart chosen on the page. */
@@ -91,7 +91,8 @@
     put('invest', ent.length ? `Real discount <b>${pc(ent.reduce((a, e) => a + (e.implied_discount_pct || 0), 0) / ent.length)}</b>` : `Rack estimate <b>${fmt.lkrc(ev.reduce((a, e) => a + e.rack_value, 0))}</b>`);
     put('daypart', `Prime time <b>${pc(cur.pt_spend_share)}</b> of spend`);
     put('plan', `<b>${fmt.num((D.plan.rows || []).length)}</b> programmes · ${fmt.lkrc(D.plan.totals.spend)}`);
-    put('build', `<b>${fmt.num(st.builder.rows.length)}</b> rows`);
+    const nb = (k) => Object.values(st.evals[k] || {}).filter((x) => x.rows && x.rows.length).length;
+    put('build', nb('current') + nb('plan') ? `<b>${nb('current')}</b> current · <b>${nb('plan')}</b> plan channels built` : 'Two evaluations per channel');
     put('compare', g == null ? 'Add rates to compare' : `<b>${g > 0 ? '+' : ''}${n1(g)}%</b> GRPs`);
     put('matches', need ? `<b>${need}</b> of ${(D.slots || []).length} to check` : `All ${(D.slots || []).length} approved`);
     put('rates', `<b>${fmt.num(RC.entries.length)}</b> rate card rows · <b>${fmt.num(Object.keys(st.rates.programmes).length)}</b> typed`);
@@ -349,17 +350,17 @@
     out.innerHTML = `<div class="kpis">${kpi('Estimated at rate card', fmt.lkrc(sum('rack_value')), 'commercial spots x the channel\'s rack rate')}${kpi('Cost in the LMRB sheet', fmt.lkrc(sum('lmrb_rated_cost')), 'same programmes, as monitored')}
         ${kpi('Investment entered', entered.length ? fmt.lkrc(entered.reduce((a, e) => a + e.deal.investment, 0)) : 'none yet', entered.length ? `${entered.length} channel${entered.length === 1 ? '' : 's'}` : 'type it below')}${kpi('Real discount (entered channels)', entered.length && rackEntered > 0 ? pc((1 - comInv / rackEntered) * 100) : 'n/a', 'commercial investment vs rack value')}</div>
       <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Investment and discount</h3><div class="sub">The LMRB sheet shows what each spot was <b>monitored</b> at, which is not always what was paid. So the previous agency's spend on a channel is first <b>estimated at the channel's rate card</b>: for every programme they bought, spots x duration / 30 x the rack rate, commercial spots only. If you know the real investment (from the contract), type it: a share of it buys the commercial spots (100%, 90% or 80%) and the rest pays for the frequency and sponsorship items; the discount they really got follows. The tables under it show the programmes behind every number.</div></div></div>
-        <div class="tbl-scroll"><table class="tbl ex-tbl" id="dl-t"><thead><tr><th>Channel</th><th class="num">Spots</th><th class="num">Estimated at rate card</th><th class="num">Cost in the LMRB sheet</th><th class="num">Actual investment (LKR)</th><th class="num">Commercial share %</th><th class="num">Prime share %</th><th class="num">Commercial investment</th><th class="num">Real discount vs rack</th></tr></thead><tbody>
+        <div class="tbl-scroll"><table class="tbl ex-tbl" id="dl-t"><thead><tr><th>Channel</th><th class="num">Spots</th><th class="num">Estimated at rate card</th><th class="num">Cost in the LMRB sheet</th><th class="num">Actual investment (LKR)</th><th class="num">Estimated discount %</th><th class="num">Commercial share %</th><th class="num">Prime share %</th><th class="num">Commercial investment</th><th class="num">Real discount vs rack</th></tr></thead><tbody>
         ${ev.map((e) => { const d = deals[e.channel] || {}; return `<tr><td><b>${esc(tt(e.channel))}</b></td><td class="num">${n0(e.spots)}</td>
           <td class="num"><b>${n0(e.rack_value)}</b>${e.unrated_programmes ? `<span class="sub" title="These programmes have no rate card rate, so they are not in the estimate">${e.unrated_programmes} without a rate (${pc(100 - (e.coverage_pct == null ? 100 : e.coverage_pct))} of the cost) left out</span>` : ''}</td>
-          <td class="num">${n0(e.lmrb_cost)}<span class="sub">${pc(e.lmrb_pct_of_rack)} of rack</span></td><td class="num">${inp(e.channel, 'investment', d.investment, 120, 'type it')}</td><td class="num">${inp(e.channel, 'commercial_pct', d.commercial_pct, 62, '100')}</td><td class="num">${inp(e.channel, 'prime_pct', d.prime_pct, 62, 'any')}</td>
-          <td class="num">${e.deal ? n0(e.commercial_investment) : '<span class="muted">n/a</span>'}</td><td class="num">${e.implied_discount_pct == null ? '<span class="muted">enter the investment</span>' : `<b>${pc(e.implied_discount_pct)}</b><span class="sub">pays ${pc(e.implied_pays_pct)} of rack</span>`}</td></tr>`; }).join('') || '<tr><td colspan="9" class="muted">No programmes with a rate in this view.</td></tr>'}</tbody></table></div>
+          <td class="num">${n0(e.lmrb_cost)}<span class="sub">${pc(e.lmrb_pct_of_rack)} of rack</span></td><td class="num">${inp(e.channel, 'investment', d.investment, 120, 'type it')}</td><td class="num">${inp(e.channel, 'discount_pct', d.discount_pct, 62, 'e.g. 70')}</td><td class="num">${inp(e.channel, 'commercial_pct', d.commercial_pct, 62, '100')}</td><td class="num">${inp(e.channel, 'prime_pct', d.prime_pct, 62, 'any')}</td>
+          <td class="num">${e.deal ? n0(e.commercial_investment) : '<span class="muted">n/a</span>'}</td><td class="num">${e.implied_discount_pct == null ? (e.deal && e.deal.discount_pct != null ? `<b>${pc(e.deal.discount_pct)}</b><span class="sub">your estimate</span>` : '<span class="muted">enter the investment or a discount</span>') : `<b>${pc(e.implied_discount_pct)}</b><span class="sub">pays ${pc(e.implied_pays_pct)} of rack</span>${e.discount_gap_pts != null && Math.abs(e.discount_gap_pts) >= 2 ? `<span class="sub" style="color:var(--warn,#d97706)">you typed ${pc(e.typed_discount_pct)}: ${n1(Math.abs(e.discount_gap_pts))} points ${e.discount_gap_pts > 0 ? 'higher' : 'lower'} than the investment gives</span>` : ''}`}</td></tr>`; }).join('') || '<tr><td colspan="10" class="muted">No programmes with a rate in this view.</td></tr>'}</tbody></table></div>
         <div class="muted small" style="margin-top:8px">Real discount = 1 - (actual investment x commercial share) / estimated at rate card. When some programmes have no rate, only their share of the investment is compared, and the table says so. Prime share is how much of the commercial money goes to prime time (the contract's 50% / 50%); our plan follows it when the budget is taken from this investment. ${actual ? '<b>The current buy is costed at the actual investment (Settings).</b>' : 'In Settings the current buy can be costed at the actual investment instead of the LMRB cost.'}</div></div>
       <div id="dl-ev" style="margin-top:16px"></div>`;
     $('#dl-t').onchange = (e) => {
       const t = e.target; if (!t.dataset || !t.dataset.ch) return; const ch = t.dataset.ch, d = (deals[ch] = deals[ch] || {});
       if (t.value === '') delete d[t.dataset.f]; else d[t.dataset.f] = +t.value;
-      if (!(d.investment > 0)) delete deals[ch]; save(); run();
+      if (!(d.investment > 0) && d.discount_pct === undefined) delete deals[ch]; save(); run();
     };
     $('#dl-ev').innerHTML = ev.map((e) => {
       const rows = D.current.rows.filter((r) => r.channel === e.channel).sort((a, b) => (b.value || 0) - (a.value || 0)), pt = e.pt_share_pct, dp = e.deal && e.deal.prime_pct;
@@ -391,7 +392,7 @@
       <div class="pt-bar"><div class="field"><label for="pl-t">Minimum TVR: <b id="pl-tv">${esc(s.min_tvr)}</b> ${tip('TVR')}</label><input id="pl-t" type="range" min="0" max="${Math.max(10, Math.ceil(Math.max(0, ...D.candidates.map((c) => c.tvr)) + 1))}" step="0.1" value="${esc(s.min_tvr)}"></div>
         <div class="field"><label for="pl-m">Most spots per episode: <b id="pl-mv">${esc(s.max_spots)}</b></label><input id="pl-m" type="range" min="1" max="8" step="1" value="${esc(s.max_spots)}"></div>
         <div class="field"><label for="pl-o">Optimise for ${tip('ROI')}</label><select id="pl-o">${[['grp', 'Most GRPs (cheapest rating points first)'], ['roi', 'Best ROI (most rate card value per rupee first)'], ['balanced', 'Balanced (GRPs and ROI)']].map(([v, l]) => `<option value="${v}" ${s.objective === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div></div>
-      <div id="pl-kpi"></div><div id="pl-ch" style="margin-top:16px"></div><div id="pl-tbl" style="margin-top:16px"></div>`;
+      <div id="pl-in"></div><div id="pl-kpi"></div><div id="pl-ch" style="margin-top:16px"></div><div id="pl-tbl" style="margin-top:16px"></div>`;
     const slide = App.debounce(() => { save(); run(); }, 300);
     $('#pl-o').onchange = (e) => { s.objective = e.target.value; save(); run(); };
     $('#pl-t').oninput = (e) => { s.min_tvr = +e.target.value; $('#pl-tv').textContent = s.min_tvr; slide(); };
@@ -403,6 +404,13 @@
       const chRows = Object.entries(D.budgets).map(([ch, b]) => { const x = a.channels[ch] || { spend: 0, left: b, spots: 0, grp: 0 }; return { ch: tt(ch), budget: b, spend: x.spend, left: x.left, spots: x.spots, grp: x.grp }; });
       $('#pl-ch').innerHTML = card('Budget by channel', '', `<div class="tbl-scroll"><table class="tbl"><thead><tr><th>Channel</th><th class="num">Budget (LKR)</th><th class="num">Planned spend</th><th class="num">Unspent</th><th class="num">Spots</th><th class="num">GRPs</th></tr></thead><tbody>${chRows.map((r) => `<tr><td>${esc(r.ch)}</td><td class="num">${n0(r.budget)}</td><td class="num">${n0(r.spend)}</td><td class="num">${n0(r.left)}</td><td class="num">${n0(r.spots)}</td><td class="num">${n1(r.grp)}</td></tr>`).join('')}</tbody></table></div>`);
     };
+    const OURF = [['investment', 'Investment (LKR)', 118, 'type it'], ['commercial_pct', 'Commercial %', 64, '100'], ['prime_pct', 'Prime %', 64, 'any'], ['discount_pct', 'Our discount %', 70, 'rate card'], ['bonus_pct', 'Bonus %', 64, '0']];
+    const pin = D.plan_inputs || {};
+    $('#pl-in').innerHTML = card('What we put into each channel', 'Type the investment for a channel and the plan is built for it (the commercial % of it is spent on programmes). Our discount is the rate card discount we negotiate; leave it empty to use the rate card\'s own negotiated rate. Bonus % is the free extra the channel gives, as a share of the commercial rate card value: you pick the bonus programmes in <b>Build evaluation</b>. A channel left empty keeps the current agency\'s spend as its budget.',
+      `<div class="tbl-scroll"><table class="tbl" id="pl-it"><thead><tr><th>Channel</th>${OURF.map((f) => `<th class="num">${f[1]}</th>`).join('')}<th class="num">Commercial budget</th><th class="num">Bonus allowed</th></tr></thead><tbody>
+      ${Object.keys(D.budgets).map((ch) => { const o = st.ours[ch] || {}, x = pin[ch] || {}; return `<tr><td><b>${esc(tt(ch))}</b></td>${OURF.map(([f, l, w, ph]) => `<td class="num"><input class="rt-in" type="number" min="0" step="any" data-ch="${esc(ch)}" data-f="${f}" value="${o[f] == null ? '' : esc(o[f])}" placeholder="${ph}" style="width:${w}px" aria-label="${l} for ${esc(tt(ch))}"></td>`).join('')}
+        <td class="num">${n0(x.commercial_budget)}<span class="sub">${esc(x.source || '')}</span></td><td class="num">${x.bonus_allowed > 0 ? n0(x.bonus_allowed) : '<span class="muted">none</span>'}</td></tr>`; }).join('')}</tbody></table></div>`);
+    $('#pl-it').onchange = (e) => { const t = e.target; if (!t.dataset || !t.dataset.ch) return; const o = (st.ours[t.dataset.ch] = st.ours[t.dataset.ch] || {}); if (t.value === '') delete o[t.dataset.f]; else o[t.dataset.f] = +t.value; if (!Object.keys(o).length) delete st.ours[t.dataset.ch]; save(); run(); };
     paintTotals();
     $('#pl-tbl').innerHTML = card('Programmes to buy', D.candidates.length ? 'On = in the plan. Programmes with no rate or a TVR below the minimum are not listed.' : 'No programme has a rate yet. Add rates in Rates and negotiation.', '<div id="pl-a"></div>');
     const t = table('pl-a', $('#pl-tbl #pl-a'), { rowClass: (r) => (r.on ? '' : 'off'), csv: 'pitch_plan', defaultSort: { key: 'cprp', desc: false }, empty: 'No programmes available.', rows: rowsOf(), columns: [
@@ -429,9 +437,9 @@
   function exportTab(out) {
     out.innerHTML = card('Export the pitch', 'Excel has every table (comparison, current basket, sponsorship, channel ROI, our plan, rates, matches). The PDF and Word summaries hold the comparison, the key tables and the plain-language line.',
       `<h4 style="margin:0 0 6px">Evaluation sheets in your agency format (with live formulas)</h4><div class="muted small" style="margin-bottom:8px">A Summary sheet, one sheet per channel (programme rows, sponsorship rows, totals, SSCL, VAT, ROI) and a Formulas sheet with the settings and the formula of every column. Change a TVR, rate or number of spots and the sheet recalculates.</div>
-      <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:16px"><button class="btn primary" id="ev-c" type="button">Current agency buy: evaluation</button><button class="btn primary" id="ev-p" type="button">Our plan: evaluation</button><button class="btn" id="ev-b" type="button">My built evaluation</button></div>
+      <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:16px"><button class="btn primary" id="ev-c" type="button">Current agency estimate: evaluation</button><button class="btn primary" id="ev-p" type="button">Our plan: evaluation</button></div><div class="muted small" style="margin:-8px 0 16px">Channels you built in <b>Build evaluation</b> are exported as you built them; the other channels come from the current buy and the recommended basket.</div>
       <h4 style="margin:0 0 6px">Other files</h4><div class="row" style="gap:10px;flex-wrap:wrap"><button class="btn" id="ex-x" type="button">Download all tables (Excel)</button><button class="btn" id="ex-p" type="button">Download PDF summary</button><button class="btn" id="ex-w" type="button">Download Word summary</button></div>`);
-    $('#ev-c').onclick = () => downloadEval('current'); $('#ev-p').onclick = () => downloadEval('plan'); $('#ev-b').onclick = () => downloadEval('built');
+    $('#ev-c').onclick = () => downloadEval('current'); $('#ev-p').onclick = () => downloadEval('plan');
     $('#ex-x').onclick = exportExcel; $('#ex-p').onclick = () => exportDoc('pdf'); $('#ex-w').onclick = () => exportDoc('docx');
   }
   function payload() {
@@ -466,89 +474,186 @@
   /* ---------------------------------------------------------------- evaluation workbooks (agency format, with formulas) */
   const clientName = () => (App.shell.client() || {}).name || '';
   const primeWindow = () => [sec(st.settings.pt_start) / 86400, sec(st.settings.pt_end) / 86400];
+  const numOf = (v) => (v === '' || v == null || !(+v >= 0) ? null : +v);
+  const EVS = (k) => (st.evals[k] = st.evals[k] || {});
+  const builtChannels = (k) => D.tvr_channels.filter((ch) => EVS(k)[ch] && EVS(k)[ch].rows.length);
+  const dealSpec = (d, k) => { const o = {}; [['investment', 'investment'], ['commercial_pct', 'commercial_pct'], ['prime_pct', 'prime_pct'], ['bonus_pct', 'bonus_pct'], [k === 'current' ? 'est_discount_pct' : 'discount_pct', 'est_discount_pct']].forEach(([from, to]) => { const v = numOf((d || {})[from]); if (v != null) o[to] = v; }); return o; };
+  const specRow = (r) => ({ band: r.band || '', desc: r.desc, day: r.day, from: r.from, to: r.to, dur: +r.dur || 30, tvr: +r.tvr || 0, spots: +r.spots || 0, card: +r.card || 0, rate: r.kind === 'bonus' ? 0 : +r.rate || 0 });
+  const monthLabel = () => (D.month === 'all' ? 'All months' : D.month);
+  const TITLE = { current: 'CURRENT AGENCY ESTIMATE: EVALUATION', plan: 'OUR PLAN: EVALUATION' };
+  /** The evaluation as built in Build evaluation, for the channels given. */
+  function specEval(k, chs) {
+    return { client: clientName(), title: TITLE[k], month: monthLabel(), prime: primeWindow(), channels: chs.map((ch) => { const e = EVS(k)[ch], rows = e.rows;
+      return { name: tt(ch), deal: dealSpec(e.deal, k), basket: rows.filter((r) => r.kind === 'com').map(specRow), sponsorship: rows.filter((r) => r.kind === 'va').map(specRow), bonus: rows.filter((r) => r.kind === 'bonus').map(specRow) }; }) };
+  }
   function specCurrent() {
-    const cur = D.current, order = cur.channels.map((c) => c.channel), by = (list, ch) => list.filter((x) => x.channel === ch);
-    return { client: clientName(), title: 'CURRENT AGENCY BUY: EVALUATION', month: D.month === 'all' ? 'All months' : D.month, prime: primeWindow(), channels: order.map((ch) => ({ name: tt(ch), deal: st.deals[ch],
-      basket: by(cur.rows, ch).map((r) => ({ band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: r.avg_dur, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.avg30 || 0 })),
+    const built = builtChannels('current'), cur = D.current, order = cur.channels.map((c) => c.channel), by = (list, ch) => list.filter((x) => x.channel === ch);
+    const eng = { client: clientName(), title: TITLE.current, month: monthLabel(), prime: primeWindow(), channels: order.filter((ch) => !built.includes(ch)).map((ch) => ({ name: tt(ch), deal: dealSpec({ investment: (st.deals[ch] || {}).investment, commercial_pct: (st.deals[ch] || {}).commercial_pct, prime_pct: (st.deals[ch] || {}).prime_pct, est_discount_pct: (st.deals[ch] || {}).discount_pct }, 'current'),
+      basket: by(cur.rows, ch).map((r) => ({ band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: r.avg_dur, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.avg30 || 0 })), bonus: [],
       sponsorship: by(cur.sponsorship, ch).map((x) => ({ desc: x.theme, day: '', from: '', to: '', dur: (x.eq30 * 30) / x.spots, tvr: x.tvr, spots: x.spots, card: x.value > 0 ? x.value / x.eq30 : 0, rate: x.spend / x.eq30 })) })) };
+    return { ...eng, channels: [...specEval('current', built).channels, ...eng.channels] };
   }
   function specPlan() {
-    const { a } = planNumbers(), order = [...new Set(a.rows.map((r) => r.channel))];
-    return { client: clientName(), title: 'OUR PLAN: EVALUATION', month: D.month === 'all' ? 'All months' : D.month, prime: primeWindow(), channels: order.map((ch) => ({ name: tt(ch), deal: st.deals[ch], sponsorship: [],
-      basket: a.rows.filter((r) => r.channel === ch).map((r) => ({ band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.neg30 || 0 })) })) };
+    const built = builtChannels('plan'), { a } = planNumbers(), order = [...new Set(a.rows.map((r) => r.channel))];
+    const eng = order.filter((ch) => !built.includes(ch)).map((ch) => ({ name: tt(ch), deal: dealSpec(st.ours[ch], 'plan'), sponsorship: [], bonus: [],
+      basket: a.rows.filter((r) => r.channel === ch).map((r) => ({ band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.neg30 || 0 })) }));
+    return { client: clientName(), title: TITLE.plan, month: monthLabel(), prime: primeWindow(), channels: [...specEval('plan', built).channels, ...eng] };
   }
-  function specBuilt() {
-    const rows = st.builder.rows, order = [...new Set(rows.map((r) => r.ch))];
-    return { client: clientName(), title: 'BUILT EVALUATION', month: D.month === 'all' ? 'All months' : D.month, prime: primeWindow(), channels: order.map((ch) => ({ name: tt(ch), deal: st.deals[ch],
-      basket: rows.filter((r) => r.ch === ch && r.kind !== 'va').map((r) => ({ desc: r.desc, day: r.day, from: r.from, to: r.to, dur: r.dur, tvr: r.tvr, spots: r.spots, card: r.card, rate: r.rate })),
-      sponsorship: rows.filter((r) => r.ch === ch && r.kind === 'va').map((r) => ({ desc: r.desc, day: r.day, from: r.from, to: r.to, dur: r.dur, tvr: r.tvr, spots: r.spots, card: r.card, rate: r.rate })) })) };
-  }
-  async function downloadEval(kind) {
-    const b = $({ current: '#ev-c', plan: '#ev-p', built: '#ev-b' }[kind]) || $('#bd-xl'), txt = b ? b.textContent : '';
+  async function sendSpec(kind, spec, b) {
+    const txt = b ? b.textContent : '';
     try {
-      const spec = { current: specCurrent, plan: specPlan, built: specBuilt }[kind]();
-      if (!spec.channels.length) { App.toast(kind === 'built' ? 'Add programmes in Build evaluation first.' : 'Nothing to export yet. Add rates so the plan has programmes.', 'error'); return; }
+      if (!spec.channels.length) { App.toast('Nothing to export yet. Add rates so there are programmes.', 'error'); return; }
       if (b) { b.disabled = true; b.textContent = 'Building...'; }
       const res = await App.api.blob('/api/pitch/evaluation', { kind, spec }); App.download(res.blob, res.name); App.toast('Evaluation downloaded. A copy is kept under Reports.', 'ok');
     } catch (e) { App.toast('The evaluation could not be built: ' + e.message, 'error'); } finally { if (b) { b.disabled = false; b.textContent = txt; } }
   }
+  const downloadEval = (kind) => sendSpec(kind, { current: specCurrent, plan: specPlan }[kind](), $({ current: '#ev-c', plan: '#ev-p' }[kind]));
 
-  /* ---------------------------------------------------------------- build evaluation */
+  /* ---------------------------------------------------------------- build evaluation: a card per channel, two evaluations */
   const uid = () => Math.random().toString(36).slice(2, 9);
   const calc = (r) => { const dur = +r.dur || 30, grp = (+r.tvr || 0) * (+r.spots || 0); return { grp, ngrp: (grp * dur) / 30, value: ((+r.card || 0) * (+r.spots || 0) * dur) / 30, cost: ((+r.rate || 0) * (+r.spots || 0) * dur) / 30 }; };
-  const fromSpec = (spec) => spec.channels.flatMap((c) => c.basket.map((x) => ({ ...x, id: uid(), ch: spec._raw[c.name], kind: 'com' })).concat((c.sponsorship || []).map((x) => ({ ...x, id: uid(), ch: spec._raw[c.name], kind: 'va' }))));
-  function loadRows(spec) { const raw = {}; D.tvr_channels.forEach((c) => { raw[tt(c)] = c; }); spec._raw = raw; st.builder.rows = fromSpec(spec); save(); }
+  const KIND = { current: 'Current agency estimate', plan: 'Our plan' };
+  /** Totals of one channel's rows. Commercial = programmes; sponsorship items are paid; bonus programmes are free but count at rate card value. */
+  function tally(rows) {
+    const T = { cost: 0, value: 0, cv: 0, cc: 0, ngrp: 0, spots: 0, ptCost: 0, vaCost: 0, bonusValue: 0, bonusSpots: 0 };
+    rows.forEach((r) => { const x = calc(r); T.cost += x.cost; T.value += x.value; T.ngrp += x.ngrp;
+      if (r.kind === 'va') T.vaCost += x.cost; else if (r.kind === 'bonus') { T.bonusValue += x.value; T.bonusSpots += +r.spots || 0; } else { T.cv += x.value; T.cc += x.cost; T.spots += +r.spots || 0; if (r.band === 'PT') T.ptCost += x.cost; } });
+    return T;
+  }
+  const isCom = (r) => r.kind === 'com';
+  const catRow = (kind, c, rate) => ({ id: uid(), kind, band: c.pt ? 'PT' : 'NPT', desc: tt(c.program), day: c.days, from: c.start, to: c.end, dur: 30, tvr: c.tvr, spots: 1, card: c.card30 || 0, rate, key: c.key });
+  const curRows = (ch) => D.current.rows.filter((r) => r.channel === ch).map((r) => ({ id: uid(), kind: 'com', band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: r.avg_dur || 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.avg30 || 0, key: r.key }))
+    .concat(D.current.sponsorship.filter((x) => x.channel === ch).map((x) => ({ id: uid(), kind: 'va', band: '', desc: x.theme, day: '', from: '', to: '', dur: x.spots > 0 ? (x.eq30 * 30) / x.spots : 30, tvr: x.tvr, spots: x.spots, card: x.value > 0 && x.eq30 > 0 ? x.value / x.eq30 : 0, rate: x.eq30 > 0 ? x.spend / x.eq30 : 0 })));
+  const planRows = (ch) => planNumbers().a.rows.filter((r) => r.channel === ch).map((r) => ({ id: uid(), kind: 'com', band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.neg30 || 0, key: r.key }));
+  /** The commercial budget of the deal: the investment x the commercial share. */
+  const comBudget = (d) => (numOf(d.investment) > 0 ? (d.investment * (numOf(d.commercial_pct) || 100)) / 100 : null);
+  const bonusAllowed = (e) => { const bp = numOf(e.deal.bonus_pct) || 0; return (bp / 100) * e.rows.filter(isCom).reduce((a, r) => a + calc(r).value, 0); };
+  /** Current: the rates follow the investment (it wins) or the estimated discount. Plan: our discount on the rate card. */
+  function applyRates(k, ch) {
+    const e = EVS(k)[ch]; if (!e) return; const d = e.deal || {}, com = e.rows.filter(isCom), rated = com.filter((r) => +r.card > 0), val = (list) => list.reduce((a, r) => a + calc(r).value, 0);
+    if (k === 'current') {
+      const cb = comBudget(d), unrated = com.filter((r) => !(+r.card > 0)).reduce((a, r) => a + calc(r).cost, 0), rack = val(rated); let disc = null;
+      if (cb != null && rack > 0) disc = 1 - Math.max(0, cb - unrated) / rack; else if (numOf(d.est_discount_pct) != null) disc = d.est_discount_pct / 100;
+      e.eff_discount = disc; if (disc != null) rated.forEach((r) => { r.rate = Math.round(r.card * (1 - Math.min(disc, 1)) * 100) / 100; });
+    } else { const dsc = numOf(d.discount_pct); if (dsc != null && dsc > 0) rated.filter((r) => r.key).forEach((r) => { r.rate = Math.round(r.card * (1 - Math.min(dsc, 100) / 100) * 100) / 100; }); }
+  }
+  /** Free extra programmes up to the allowance: the most TVR for the rate card value first. */
+  function suggestBonus(ch, e) {
+    const allow = bonusAllowed(e); let used = tally(e.rows).bonusValue, n = 0; const have = new Set(e.rows.filter((r) => r.kind === 'bonus').map((r) => r.key));
+    const cands = (D.catalogue[ch] || []).filter((c) => c.card30 > 0 && c.tvr > 0 && !have.has(c.key)).sort((a, b) => b.tvr / b.card30 - a.tvr / a.card30);
+    for (const c of cands) { if (used + c.card30 > allow) continue; e.rows.push(catRow('bonus', c, 0)); used += c.card30; if (++n >= 12) break; }
+    return n;
+  }
+  function ensure(k, ch) {
+    const S = EVS(k); if (S[ch]) return S[ch];
+    if (k === 'current') { const d = st.deals[ch] || {}; S[ch] = { deal: { investment: d.investment, est_discount_pct: d.discount_pct, commercial_pct: d.commercial_pct, prime_pct: d.prime_pct }, rows: curRows(ch) }; applyRates(k, ch); }
+    else { S[ch] = { deal: { ...(st.ours[ch] || {}) }, rows: planRows(ch) }; suggestBonus(ch, S[ch]); }
+    save(); return S[ch];
+  }
+
   function build(out) {
-    const B = st.builder, chs = D.tvr_channels, scale = st.build_scale || 100, goal = st.build_goal || 'roi';
-    const sel = (id, opts2, v) => `<select id="${id}">${opts2.map(([k, l]) => `<option value="${esc(k)}" ${k === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-    out.innerHTML = card('Build evaluation', `Make an evaluation in the same layout as your agency sheets: pick TVR programmes (TVR, time belt and rates come with them), set the spots, and edit anything. Totals, GRPs and ROI update as you type. Or let the optimiser fill it for the best ROI at the budget the current agency spent.`,
-      `<div class="pt-bar"><div class="field"><label>Optimise for</label>${sel('bd-goal', [['roi', 'Best ROI (rate card value per rupee)'], ['grp', 'Most GRPs'], ['balanced', 'Balanced']], goal)}</div><div class="field"><label for="bd-scale">Budget as % of the current spend</label><input id="bd-scale" type="number" min="10" max="300" step="5" value="${esc(scale)}"></div>
-        <div class="field"><label>&nbsp;</label><button class="btn primary" type="button" id="bd-opt">Optimise for a better ROI</button></div><div class="field"><label>&nbsp;</label><button class="btn" type="button" id="bd-cur">Start from the current buy</button></div>
-        <div class="field"><label>&nbsp;</label><button class="btn" type="button" id="bd-plan">Start from our plan</button></div></div>
-       <div class="pt-bar" style="margin-top:12px"><div class="field"><label>Add a programme: channel</label>${sel('bd-ch', chs.map((c) => [c, tt(c)]), chs[0])}</div><div class="field"><label>Programme</label><select id="bd-pg"></select></div>
-        <div class="field"><label>&nbsp;</label><button class="btn" type="button" id="bd-addp">Add programme</button></div><div class="field"><label>&nbsp;</label><button class="btn" type="button" id="bd-addv">Add sponsorship item</button></div>
-        <div class="field"><label>&nbsp;</label><button class="btn primary" type="button" id="bd-xl">Download Excel (formulas)</button></div><div class="field"><label>&nbsp;</label><button class="btn ghost danger" type="button" id="bd-clear">Clear</button></div></div>`) +
-      '<div id="bd-kpi"></div><div id="bd-body" style="margin-top:16px"></div>';
-    const fillPg = () => { $('#bd-pg').innerHTML = ((D.catalogue[$('#bd-ch').value]) || []).map((c) => `<option value="${esc(c.key)}">${esc(tt(c.label))}${c.card30 > 0 ? '' : ' (no rate yet)'}</option>`).join(''); };
-    $('#bd-ch').onchange = fillPg; fillPg();
-    $('#bd-goal').onchange = (e) => { st.build_goal = e.target.value; save(); }; $('#bd-scale').onchange = (e) => { st.build_scale = Math.max(10, +e.target.value || 100); save(); };
-    $('#bd-cur').onclick = () => { loadRows(specCurrent()); build(out); };
-    $('#bd-plan').onclick = () => { loadRows(specPlan()); build(out); };
-    $('#bd-opt').onclick = () => {
-      const f = (st.build_scale || 100) / 100, budgets = Object.fromEntries(Object.entries(D.budgets).map(([k, v]) => [k, v * f]));
-      const a = window.MR.pitchAllocate(D.candidates, budgets, st.excluded, st.build_goal || 'roi');
-      if (!a.rows.length) { App.toast('No programme has a rate yet, so nothing can be optimised. Add rates first.', 'error'); return; }
-      B.rows = a.rows.map((r) => ({ id: uid(), ch: r.channel, kind: 'com', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.neg30, key: r.key })); save(); build(out);
-      const t = window.MR.pitchPlanSummary(a.rows, budgets); App.toast(`Built from ${a.rows.length} programmes: ROI ${xr(t.roi)} at rate card, ${n1(t.ngrp)} GRPs.`, 'ok', 8000);
+    const kind = st.build_kind === 'plan' ? 'plan' : 'current', S = EVS(kind), chs = kind === 'plan' ? Object.keys(D.budgets) : D.current.channels.map((c) => c.channel);
+    const stats = chs.map((ch) => ({ ch, e: S[ch] && S[ch].rows.length ? S[ch] : null })).map((x) => ({ ...x, T: x.e ? tally(x.e.rows) : null }));
+    const built = stats.filter((x) => x.e), A = built.reduce((m, x) => { Object.keys(x.T).forEach((k) => { m[k] = (m[k] || 0) + x.T[k]; }); m.inv += numOf(x.e.deal.investment) || 0; return m; }, { inv: 0 });
+    const roiC = (T) => (T.cc > 0 ? T.cv / T.cc : null), roiA = (T) => (T.cost > 0 ? T.value / T.cost : null), cprp = (T) => (T.ngrp > 0 ? T.cost / T.ngrp : null);
+    out.innerHTML = card('Build evaluation', 'Two evaluations per channel, built the same way. <b>Current agency estimate</b>: the latest month\'s programmes from the LMRB, costed with the investment and the estimated discount. <b>Our plan</b>: programmes we pick at our own discount, plus bonus programmes. Press a channel card to build it.',
+      `<div class="row" style="gap:10px;flex-wrap:wrap;align-items:center"><div class="seg" role="group" aria-label="Which evaluation"><button type="button" data-k="current" aria-pressed="${kind === 'current'}">Current agency estimate</button><button type="button" data-k="plan" aria-pressed="${kind === 'plan'}">Our plan</button></div>
+        <button class="btn primary" type="button" id="bd-start">${kind === 'current' ? 'Start from the current buy' : 'Start from our plan'}</button><button class="btn" type="button" id="bd-xl" ${built.length ? '' : 'disabled'}>Download Excel (${built.length} channel${built.length === 1 ? '' : 's'})</button><button class="btn ghost danger" type="button" id="bd-clear" ${built.length ? '' : 'disabled'}>Clear this evaluation</button></div>
+        <div class="muted small" style="margin-top:8px">${kind === 'current' ? 'Asks each channel\'s investment and estimated discount, then builds every channel from the LMRB (spots, average 30 sec rate and TVR).' : 'Asks each channel\'s investment, discount, commercial %, bonus % and prime %, then fills the programmes with the optimiser and suggests the bonus programmes.'}</div>`) +
+      (built.length ? `<div class="kpis">${kpi('Investment entered', A.inv > 0 ? fmt.lkrc(A.inv) : 'none', `${built.length} channel${built.length === 1 ? '' : 's'} built`)}${kpi('Cost of the programmes', fmt.lkrc(A.cost))}${kpi('Rate card value', fmt.lkrc(A.value), A.bonusValue > 0 ? `bonus ${fmt.lkrc(A.bonusValue)} included` : '')}${kpi('GRPs (30 sec)', n1(A.ngrp), '', 'NGRP')}${kpi('CPRP', fmt.lkrc(cprp(A)), '30 sec basis', 'CPRP')}${kpi('ROI: commercial', xr(roiC(A)), '', 'ROI')}${kpi('ROI: all exposure', xr(roiA(A)), '', 'ROI')}</div>` : '') +
+      `<div class="bd-cards" style="margin-top:16px">${stats.map(({ ch, e, T }) => `<button class="bd-card ${e ? 'built' : ''}" type="button" data-ch="${esc(ch)}"><span class="bd-h"><b>${esc(tt(ch))}</b><span class="badge ${e ? 'good' : ''}">${e ? 'built' : 'not started'}</span></span>
+        ${e ? `<span class="bd-g"><span>Investment</span><b>${numOf(e.deal.investment) > 0 ? n0(e.deal.investment) : 'not set'}</b><span>Spots</span><b>${n0(T.spots)}</b><span>ROI all exposure</span><b>${xr(roiA(T))}</b><span>CPRP</span><b>${n0(cprp(T))}</b>${T.bonusSpots ? `<span>Bonus</span><b>${n0(T.bonusSpots)} spots</b>` : ''}</span>` : '<span class="muted small">Press to open the channel and build it.</span>'}<span class="sc-go">${e ? 'Edit' : 'Build'} &rarr;</span></button>`).join('')}</div>`;
+    $$('.seg button', out).forEach((b) => { b.onclick = () => { st.build_kind = b.dataset.k; save(); build(out); }; });
+    $$('.bd-card', out).forEach((b) => { b.onclick = () => chBuilder(kind, b.dataset.ch, out); });
+    $('#bd-start').onclick = () => startDialog(kind, chs, out);
+    $('#bd-xl').onclick = () => sendSpec(kind, specEval(kind, builtChannels(kind).filter((c) => chs.includes(c))), $('#bd-xl'));
+    $('#bd-clear').onclick = () => { if (!confirm(`Remove every channel of the ${KIND[kind]} evaluation?`)) return; st.evals[kind] = {}; save(); build(out); };
+  }
+
+  /** "Start from ...": the numbers of every channel in one place, then all the channels are built. */
+  function startDialog(kind, chs, out) {
+    const isCur = kind === 'current', F = isCur ? [['investment', 'Investment (LKR)', 120, 'type it'], ['discount_pct', 'Estimated discount %', 80, 'e.g. 70'], ['commercial_pct', 'Commercial %', 70, '100'], ['prime_pct', 'Prime %', 64, 'any']]
+      : [['investment', 'Investment (LKR)', 120, 'type it'], ['discount_pct', 'Our discount %', 80, 'rate card'], ['commercial_pct', 'Commercial %', 70, '100'], ['bonus_pct', 'Bonus %', 64, '0'], ['prime_pct', 'Prime %', 64, 'any']];
+    const src = (ch) => (isCur ? st.deals[ch] : st.ours[ch]) || {};
+    const m = App.modal(isCur ? 'Start from the current buy' : 'Start from our plan', `<p class="small muted">${isCur ? 'The programmes, spots, average 30 sec rate and TVR come from the LMRB for the month shown. Type what each channel was really paid (investment) and your estimated discount. The investment wins; with only a discount, the cost is the rate card value less that discount. Commercial % is the share of the investment that bought programmes; the rest is sponsorship.' : 'The investment is what we put into the channel. Commercial % of it buys programmes at our discount; bonus % is the free extra programmes the channel gives (a share of the commercial rate card value). Leave a channel empty to keep the current agency\'s spend as its budget.'}</p>
+      <div class="tbl-scroll"><table class="tbl" id="sd-t"><thead><tr><th>Channel</th>${F.map((f) => `<th class="num">${f[1]}</th>`).join('')}</tr></thead><tbody>${chs.map((ch) => `<tr><td><b>${esc(tt(ch))}</b></td>${F.map(([f, l, w, ph]) => `<td class="num"><input class="rt-in" type="number" min="0" step="any" data-ch="${esc(ch)}" data-f="${f}" value="${src(ch)[f] == null ? '' : esc(src(ch)[f])}" placeholder="${ph}" style="width:${w}px" aria-label="${l} for ${esc(tt(ch))}"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="sd-go" type="button">Build all channels</button><span class="small muted">This replaces any channel you built before in this evaluation.</span></div>`);
+    $('#sd-go', m).onclick = async () => {
+      const target = isCur ? st.deals : st.ours;
+      chs.forEach((ch) => { const o = {}; $$('input', m).filter((i) => i.dataset.ch === ch).forEach((i) => { if (i.value !== '' && +i.value >= 0) o[i.dataset.f] = +i.value; });
+        if (isCur ? (o.investment > 0 || o.discount_pct !== undefined) : Object.keys(o).length) target[ch] = o; else delete target[ch]; delete EVS(kind)[ch]; });
+      if (isCur) st.settings.current_basis = 'actual';
+      save(); m.close(); await run();
+      if (!D || D.empty) return; chs.forEach((ch) => ensure(kind, ch)); save(); const o2 = $('#pt-out'); if (o2 && st.tab === 'build') build(o2);
+      App.toast(`${KIND[kind]} built for ${builtChannels(kind).length} channels. Press a channel to adjust it.`, 'ok');
     };
-    $('#bd-addp').onclick = () => {
-      const c = ((D.catalogue[$('#bd-ch').value]) || []).find((x) => x.key === $('#bd-pg').value); if (!c) { App.toast('Pick a programme.', 'error'); return; }
-      B.rows.push({ id: uid(), ch: $('#bd-ch').value, kind: 'com', desc: tt(c.program), day: c.days, from: c.start, to: c.end, dur: 30, tvr: c.tvr, spots: 1, card: c.card30 || 0, rate: c.neg30 || c.card30 || 0, key: c.key }); save(); build(out);
+  }
+
+  /** The channel's own window: its deal numbers, budget meters, a programme picker and the rows of the evaluation. */
+  function chBuilder(kind, ch, out) {
+    const e = ensure(kind, ch), isCur = kind === 'current', d = e.deal; let q = '';
+    const old = $('#pt-ch-sheet'); if (old) old.remove();
+    const ov = document.createElement('div'); ov.className = 'sheet-back'; ov.id = 'pt-ch-sheet'; ov.style.zIndex = 70; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', `${tt(ch)}: ${KIND[kind]}`);
+    ov.innerHTML = `<div class="sheet pt-sheet"><div class="sheet-bar"><div class="grow"><h2>${esc(tt(ch))}: ${KIND[kind]}</h2><div class="muted small">${isCur ? 'Costed with the investment or estimated discount you give. The rates follow it.' : 'Our rates, our programmes, and the bonus programmes the channel gives.'}</div></div><div class="row"><button class="btn" id="cb-reset" type="button">Start this channel again</button><button class="btn primary" id="cb-xl" type="button">Download this channel (Excel)</button><button class="btn" id="cb-x" type="button">Done</button></div></div><div class="sheet-body"><div id="cb-body"></div></div></div>`;
+    document.body.appendChild(ov);
+    const close = () => { document.removeEventListener('keydown', onKey); ov.remove(); if (out && st.tab === 'build' && $('#pt-out')) build($('#pt-out')); };
+    const onKey = (ev) => { if (ev.key === 'Escape' && !document.querySelector('.modal-back')) { ev.stopPropagation(); close(); } };
+    document.addEventListener('keydown', onKey, true);
+    $('#cb-x', ov).onclick = close; ov.addEventListener('mousedown', (ev) => { if (ev.target === ov) close(); });
+    $('#cb-xl', ov).onclick = () => sendSpec(kind, specEval(kind, [ch]), $('#cb-xl', ov));
+    $('#cb-reset', ov).onclick = () => { if (!confirm('Go back to the starting point of this channel? Your changes to its rows are lost.')) return; delete EVS(kind)[ch]; save(); const n = ensure(kind, ch); Object.assign(e, n); paint(); };
+    const body = $('#cb-body', ov);
+
+    const meter = (label, used, cap, note) => { const pct = cap > 0 ? Math.min((used / cap) * 100, 100) : 0, over = cap > 0 && used > cap * 1.005; return `<div class="pt-meter ${over ? 'over' : ''}"><div class="pt-m-h"><span>${label}</span><b>${n0(used)}${cap > 0 ? ' of ' + n0(cap) : ''}</b></div><div class="pt-m-b"><i style="width:${pct}%"></i></div><div class="sub">${over ? 'Over the budget by ' + n0(used - cap) + '. ' : cap > 0 ? n0(Math.max(0, cap - used)) + ' left. ' : ''}${note || ''}</div></div>`; };
+    const top = () => {
+      const T = tally(e.rows), cb = comBudget(d), pp = numOf(d.prime_pct), inv = numOf(d.investment), bp = numOf(d.bonus_pct), disc = T.cv > 0 ? 1 - T.cc / T.cv : null;
+      return `<div class="kpis">${kpi('Cost', fmt.lkrc(T.cost), `programmes ${fmt.lkrc(T.cc)}${T.vaCost ? ` · sponsorship ${fmt.lkrc(T.vaCost)}` : ''}`)}${kpi('Rate card value', fmt.lkrc(T.value), T.bonusValue > 0 ? `bonus ${fmt.lkrc(T.bonusValue)} included` : 'commercial + sponsorship')}${kpi('Discount vs rate card', disc == null ? 'n/a' : pc(disc * 100), 'commercial programmes')}${kpi('GRPs (30 sec)', n1(T.ngrp), '', 'NGRP')}${kpi('CPRP', fmt.lkrc(T.ngrp > 0 ? T.cost / T.ngrp : null), '30 sec basis', 'CPRP')}${kpi('ROI: commercial', xr(T.cc > 0 ? T.cv / T.cc : null), '', 'ROI')}${kpi('ROI: all exposure', xr(T.cost > 0 ? T.value / T.cost : null), '', 'ROI')}</div>
+        <div class="bd-meters">${cb != null ? meter('Commercial benefits (programmes)', T.cc, cb, `${pc(numOf(d.commercial_pct) || 100)} of the investment`) : ''}${cb != null && pp ? meter('Prime time', T.ptCost, (cb * pp) / 100, `${pc(pp)} of the commercial money`) : ''}${inv != null && (numOf(d.commercial_pct) || 100) < 100 ? meter('Sponsorship items (the rest of the investment)', T.vaCost, inv - cb, 'add the items below') : ''}${!isCur && bp ? meter('Bonus (free, at rate card value)', T.bonusValue, bonusAllowed(e), `${pc(bp)} of the commercial rate card value`) : ''}${cb == null ? '<div class="muted small">Type the investment above to see the budget meters.</div>' : ''}</div>`;
     };
-    $('#bd-addv').onclick = () => { B.rows.push({ id: uid(), ch: $('#bd-ch').value, kind: 'va', desc: 'Sponsorship item', day: 'Daily', from: '', to: '', dur: 10, tvr: 0, spots: 0, card: 0, rate: 0 }); save(); build(out); };
-    $('#bd-clear').onclick = () => { if (!confirm('Remove every row of this evaluation?')) return; B.rows = []; save(); build(out); };
-    $('#bd-xl').onclick = () => downloadEval('built');
-    const body = $('#bd-body');
-    const order = [...new Set(B.rows.map((r) => r.ch))];
-    const inp = (r, f, w = 70, ty = 'number') => `<input class="bd-in" type="${ty}" ${ty === 'number' ? 'min="0" step="any"' : ''} data-id="${r.id}" data-f="${f}" value="${esc(r[f] == null ? '' : r[f])}" style="width:${w}px" aria-label="${f}">`;
-    body.innerHTML = order.length ? order.map((ch) => `<div class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>${esc(tt(ch))}</h3><div class="sub" data-sum="${esc(ch)}"></div></div></div><div class="tbl-scroll"><table class="tbl bd-tbl"><thead><tr><th>Description</th><th>Day</th><th>Time belt</th><th class="num">Dur</th><th class="num">TVR</th><th class="num">Spots</th><th class="num">Rate card (30 sec)</th><th class="num">Negotiated (30 sec)</th><th class="num">GRP</th><th class="num">Total value</th><th class="num">Total cost</th><th></th></tr></thead><tbody>
-      ${B.rows.filter((r) => r.ch === ch).map((r) => `<tr data-row="${r.id}" class="${r.kind === 'va' ? 'bd-va' : ''}"><td>${r.kind === 'va' ? '<span class="badge">Sponsorship</span> ' : ''}${inp(r, 'desc', 150, 'text')}</td><td>${inp(r, 'day', 76, 'text')}</td><td><span class="row" style="gap:3px;flex-wrap:nowrap">${inp(r, 'from', 52, 'text')}<span class="muted">-</span>${inp(r, 'to', 52, 'text')}</span></td><td class="num">${inp(r, 'dur', 48)}</td><td class="num">${inp(r, 'tvr', 56)}</td><td class="num">${inp(r, 'spots', 54)}</td><td class="num">${inp(r, 'card', 86)}</td><td class="num">${inp(r, 'rate', 86)}</td>
-        <td class="num" data-c="grp"></td><td class="num" data-c="value"></td><td class="num" data-c="cost"></td><td><button class="btn sm ghost danger" type="button" data-rm="${r.id}" aria-label="Remove row">x</button></td></tr>`).join('')}</tbody></table></div></div>`).join('')
-      : App.emptyState('No rows yet', 'Press "Optimise for a better ROI", start from the current buy or our plan, or add programmes one by one.');
-    const recalc = () => {
-      let T = { grp: 0, ngrp: 0, value: 0, cost: 0, cv: 0, cc: 0 };
-      order.forEach((ch) => {
-        let c = { grp: 0, ngrp: 0, value: 0, cost: 0, cv: 0, cc: 0 };
-        B.rows.filter((r) => r.ch === ch).forEach((r) => { const x = calc(r), tr = body.querySelector(`tr[data-row="${r.id}"]`); if (tr) { tr.querySelector('[data-c=grp]').textContent = n1(x.grp); tr.querySelector('[data-c=value]').textContent = n0(x.value); tr.querySelector('[data-c=cost]').textContent = n0(x.cost); }
-          ['grp', 'ngrp', 'value', 'cost'].forEach((k) => { c[k] += x[k]; }); if (r.kind !== 'va') { c.cv += x.value; c.cc += x.cost; } });
-        const el = body.querySelector(`[data-sum="${CSS.escape(ch)}"]`); if (el) el.textContent = `Cost ${n0(c.cost)} | GRPs (30 sec) ${n1(c.ngrp)} | CPRP ${n0(c.ngrp > 0 ? c.cost / c.ngrp : null)} | ROI commercial ${xr(c.cc > 0 ? c.cv / c.cc : null)} | ROI all exposure ${xr(c.cost > 0 ? c.value / c.cost : null)}`;
-        Object.keys(T).forEach((k) => { T[k] += c[k]; });
-      });
-      $('#bd-kpi').innerHTML = B.rows.length ? `<div class="kpis" style="margin-top:16px">${kpi('Total cost', fmt.lkrc(T.cost))}${kpi('Rate card value', fmt.lkrc(T.value))}${kpi('GRPs (30 sec)', n1(T.ngrp), '', 'NGRP')}${kpi('CPRP', fmt.lkrc(T.ngrp > 0 ? T.cost / T.ngrp : null), '30 sec basis', 'CPRP')}${kpi('ROI: commercial', xr(T.cc > 0 ? T.cv / T.cc : null), '', 'ROI')}${kpi('ROI: all exposure', xr(T.cost > 0 ? T.value / T.cost : null), '', 'ROI')}</div>` : '';
+    const dealBar = () => { const f = (k, l, ph, w) => `<div class="field"><label>${l}</label><input class="cb-d rt-in" type="number" min="0" step="any" data-f="${k}" value="${d[k] == null ? '' : esc(d[k])}" placeholder="${ph}" style="width:${w}px"></div>`;
+      return `<div class="pt-bar">${f('investment', 'Investment (LKR)', 'type it', 130)}${isCur ? f('est_discount_pct', 'Estimated discount %', 'e.g. 70', 96) : f('discount_pct', 'Our discount %', 'rate card', 96)}${f('commercial_pct', 'Commercial %', '100', 84)}${f('prime_pct', 'Prime share %', 'any', 84)}${isCur ? '' : f('bonus_pct', 'Bonus %', '0', 76)}</div>
+        <div class="muted small">${isCur ? 'The investment wins: rates are set so the programmes add up to the investment x commercial %. With only a discount, the rate is the rate card less the discount.' : 'Our rates are the rate card less our discount. Bonus programmes cost nothing and count at rate card value, up to the bonus % of the commercial rate card value.'}</div>`; };
+    const picker = () => {
+      const have = new Map(); e.rows.forEach((r) => { if (r.key) have.set(r.key + '|' + r.kind, (have.get(r.key + '|' + r.kind) || 0) + 1); });
+      const list = (D.catalogue[ch] || []).filter((c) => !q || tt(c.label).toLowerCase().includes(q.toLowerCase())).slice(0, 40);
+      return `<div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Add programmes</h3><div class="sub">Every TVR programme of this channel. TVR, time belt and rates come with it.</div></div><input id="cb-q" type="search" placeholder="Search a programme" value="${esc(q)}" style="max-width:260px" aria-label="Search programmes"></div>
+        <div class="tbl-scroll"><table class="tbl"><thead><tr><th>Programme (TVR name)</th><th class="num">TVR</th><th class="num">Rate card 30 sec</th><th class="num">${isCur ? 'Rate 30 sec' : 'Our rate 30 sec'}</th><th></th></tr></thead><tbody>${list.map((c) => `<tr><td><span class="pn"><b>${esc(tt(c.program))}</b><span class="sub">${esc(c.days)} ${esc(c.start || '')} · ${c.pt ? 'prime' : 'non prime'}${have.get(c.key + '|com') ? ` · in basket x${have.get(c.key + '|com')}` : ''}${have.get(c.key + '|bonus') ? ' · bonus' : ''}</span></span></td><td class="num">${n2(c.tvr)}</td><td class="num">${c.card30 > 0 ? n0(c.card30) : '<span class="muted">no rate</span>'}</td><td class="num">${c.neg30 > 0 ? n0(c.neg30) : ''}</td>
+          <td class="num"><button class="btn sm" type="button" data-add="${esc(c.key)}">Add</button>${isCur ? '' : ` <button class="btn sm" type="button" data-bonus="${esc(c.key)}" ${c.card30 > 0 ? '' : 'disabled'}>Add as bonus</button>`}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No programme matches.</td></tr>'}</tbody></table></div></div>`;
     };
-    body.oninput = (e) => { const t = e.target; if (!t.dataset || !t.dataset.id) return; const r = B.rows.find((x) => x.id === t.dataset.id); if (!r) return; r[t.dataset.f] = t.type === 'number' ? (t.value === '' ? 0 : +t.value) : t.value; save(); recalc(); };
-    body.onclick = (e) => { const b = e.target.closest('[data-rm]'); if (!b) return; B.rows = B.rows.filter((x) => x.id !== b.dataset.rm); save(); build(out); };
-    recalc();
+    const rowTbl = (title, rows, note) => `<div class="card" style="margin-top:16px"><div class="card-head"><div><h3>${title}</h3>${note ? `<div class="sub">${note}</div>` : ''}</div></div><div class="tbl-scroll"><table class="tbl bd-tbl"><thead><tr><th>Programme</th><th class="num">Dur</th><th class="num">TVR</th><th class="num">Spots</th><th class="num">Rate card 30 sec</th><th class="num">${isCur ? 'Rate 30 sec' : 'Our rate 30 sec'}</th><th class="num">Value</th><th class="num">Cost</th><th class="num">GRP</th><th></th></tr></thead><tbody>
+      ${rows.map((r) => { const inp = (f, w) => `<input class="bd-in" type="number" min="0" step="any" data-id="${r.id}" data-f="${f}" value="${esc(r[f] == null ? '' : r[f])}" style="width:${w}px" aria-label="${f}">`; const derived = isCur && isCom(r) && e.eff_discount != null && r.card > 0;
+        return `<tr data-row="${r.id}"><td>${r.kind === 'va' ? `<input class="bd-in" type="text" data-id="${r.id}" data-f="desc" value="${esc(r.desc)}" style="width:170px" aria-label="Sponsorship item">` : `<span class="pn"><b>${esc(r.desc)}</b><span class="sub">${esc(r.day || '')} ${esc(r.from || '')}${r.to ? '-' + esc(r.to) : ''}</span></span>`}</td><td class="num">${inp('dur', 44)}</td><td class="num">${inp('tvr', 54)}</td><td class="num">${inp('spots', 52)}</td><td class="num">${inp('card', 78)}</td>
+          <td class="num" data-c="rate">${r.kind === 'bonus' ? '<span class="muted">free</span>' : derived ? n0(r.rate) : inp('rate', 78)}</td><td class="num" data-c="value"></td><td class="num" data-c="cost"></td><td class="num" data-c="grp"></td><td><button class="btn sm ghost danger" type="button" data-rm="${r.id}" aria-label="Remove row">x</button></td></tr>`; }).join('') || '<tr><td colspan="10" class="muted">Nothing here yet.</td></tr>'}</tbody></table></div></div>`;
+    const paintNums = () => {
+      e.rows.forEach((r) => { const x = calc(r), tr = body.querySelector(`tr[data-row="${r.id}"]`); if (!tr) return; tr.querySelector('[data-c=value]').textContent = n0(x.value); tr.querySelector('[data-c=cost]').textContent = n0(x.cost); tr.querySelector('[data-c=grp]').textContent = n1(x.grp);
+        const rc = tr.querySelector('[data-c=rate]'); if (rc && r.kind !== 'bonus') { const ri = rc.querySelector('input'); if (!ri) rc.textContent = n0(r.rate); else if (document.activeElement !== ri) ri.value = r.rate; } });
+      const t = $('#cb-top', body); if (t) t.innerHTML = top();
+    };
+    function paint() {
+      const com = e.rows.filter(isCom), pt = com.filter((r) => r.band === 'PT'), npt = com.filter((r) => r.band !== 'PT');
+      body.innerHTML = dealBar() + `<div id="cb-top" style="margin-top:12px">${top()}</div>
+        <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:12px">${isCur ? '' : '<button class="btn" type="button" id="cb-opt">Fill the programmes with the optimiser</button><button class="btn" type="button" id="cb-bon">Suggest bonus programmes</button>'}<button class="btn" type="button" id="cb-va">Add a sponsorship item</button></div>
+        ${picker()}${rowTbl('Prime time programmes', pt)}${rowTbl('Non prime time programmes', npt)}${rowTbl('Sponsorship items you add', e.rows.filter((r) => r.kind === 'va'), 'Paid items (billboards, tags, time checks). They are costed at the rate you give and count in all exposure ROI.')}${isCur ? '' : rowTbl('Bonus programmes', e.rows.filter((r) => r.kind === 'bonus'), 'Free extra programmes. They cost nothing and count at rate card value.')}`;
+      paintNums();
+    }
+    body.onchange = (ev) => { const t = ev.target; if (!t.classList.contains('cb-d')) return; if (t.value === '') delete d[t.dataset.f]; else d[t.dataset.f] = +t.value; const was = e.eff_discount != null; applyRates(kind, ch); save(); if ((e.eff_discount != null) !== was) paint(); else paintNums(); };
+    body.oninput = (ev) => { const t = ev.target;
+      if (t.id === 'cb-q') { q = t.value; const pos = t.selectionStart; const host = $('#cb-q', body).closest('.card'); const tmp = document.createElement('div'); tmp.innerHTML = picker(); host.replaceWith(tmp.firstElementChild); const nq = $('#cb-q', body); nq.focus(); nq.setSelectionRange(pos, pos); return; }
+      if (!t.dataset || !t.dataset.id) return; const r = e.rows.find((x) => x.id === t.dataset.id); if (!r) return; r[t.dataset.f] = t.type === 'number' ? (t.value === '' ? 0 : +t.value) : t.value;
+      if (isCur && t.dataset.f === 'card') applyRates(kind, ch); save(); paintNums(); };
+    body.onclick = (ev) => {
+      const g = (a) => ev.target.closest(`[${a}]`);
+      let b = g('data-rm'); if (b) { e.rows = e.rows.filter((x) => x.id !== b.dataset.rm); save(); applyRates(kind, ch); paint(); return; }
+      b = g('data-add'); if (b) { const c = (D.catalogue[ch] || []).find((x) => x.key === b.dataset.add); if (c) { const ex = e.rows.find((r) => r.key === c.key && isCom(r)); if (ex) ex.spots = (+ex.spots || 0) + 1; else e.rows.push(catRow('com', c, c.neg30 || c.card30 || 0)); applyRates(kind, ch); save(); paint(); } return; }
+      b = g('data-bonus'); if (b) { const c = (D.catalogue[ch] || []).find((x) => x.key === b.dataset.bonus); if (c) { const ex = e.rows.find((r) => r.key === c.key && r.kind === 'bonus'); if (ex) ex.spots = (+ex.spots || 0) + 1; else e.rows.push(catRow('bonus', c, 0)); save(); paint(); } return; }
+      if (ev.target.closest('#cb-va')) { e.rows.push({ id: uid(), kind: 'va', band: '', desc: 'Sponsorship item', day: 'Daily', from: '', to: '', dur: 10, tvr: 0, spots: 0, card: 0, rate: 0 }); save(); paint(); return; }
+      if (ev.target.closest('#cb-bon')) { if (!(numOf(d.bonus_pct) > 0)) { App.toast('Type the bonus % first.', 'error'); return; } const n = suggestBonus(ch, e); save(); paint(); App.toast(n ? `${n} bonus programme${n === 1 ? '' : 's'} added. Change the spots or remove any you do not want.` : 'The bonus allowance is already used, or no programme fits.', n ? 'ok' : 'error'); return; }
+      if (ev.target.closest('#cb-opt')) { const cap = comBudget(d) != null ? comBudget(d) : D.budgets[ch]; if (!(cap > 0)) { App.toast('This channel has no budget. Type the investment first.', 'error'); return; }
+        const a = window.MR.pitchAllocate(D.candidates.filter((c) => c.channel === ch), { [ch]: cap }, st.excluded, st.settings.objective);
+        if (!a.rows.length) { App.toast('No programme of this channel has a rate yet.', 'error'); return; }
+        e.rows = e.rows.filter((r) => !isCom(r)).concat(a.rows.map((r) => ({ id: uid(), kind: 'com', band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.neg30, key: r.key }))); applyRates(kind, ch); save(); paint(); }
+    };
+    paint();
   }
 
   /* ---------------------------------------------------------------- 7 matches */
