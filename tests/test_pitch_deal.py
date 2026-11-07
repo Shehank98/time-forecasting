@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -213,3 +214,26 @@ def test_odd_lmrb_rows_are_counted_and_reported(data, tmp_path):
     assert out.returncode == 0, out.stderr
     au = json.loads(out.stdout)["audit"]
     assert au["no_duration_rows"] >= 5 and au["zero_cost_rows"] >= 3 and au["negative_cost_rows"] == 1
+
+
+def test_same_programme_at_slightly_different_times_is_one_programme(data, tmp_path):
+    """The same TVR programme listed 15 minutes earlier on some days (or on a subset of days) is merged into one, with the TVR averaged over all airings."""
+    p, lm, tv = data
+    base = run(p, {"month": "all"})
+    n0 = len({(c["channel"], c["program"]) for c in base["candidates"]})
+    t2 = tv.copy()
+    husmak = t2[t2["Program"] == "HUSMAK LAGIN"].copy()
+    assert len(husmak) > 4
+    shifted = husmak.iloc[:4].copy()
+    shifted["Start"] = "20:15"
+    shifted["TVR"] = 2.0
+    t2 = pd.concat([t2[~t2.index.isin(shifted.index)], shifted], ignore_index=True)
+    t2.to_csv(tmp_path / "tv2.csv", index=False)
+    out = subprocess.run(["node", str(ROOT / "tests/js/pitch.js"), str(p / "lm.csv"), str(tmp_path / "tv2.csv"), json.dumps({**BASE, "month": "all"})], capture_output=True, text=True, timeout=240)
+    assert out.returncode == 0, out.stderr
+    r = json.loads(out.stdout)
+    assert r["audit"]["merged_tvr_slots"] >= 1
+    hus = [c for c in r["candidates"] if c["program"] == "HUSMAK LAGIN"]
+    assert len(hus) == 1                                                       # one programme, not two slots
+    allrows = t2[t2["Program"] == "HUSMAK LAGIN"]
+    assert hus[0]["tvr"] == pytest.approx(allrows["TVR"].mean(), rel=1e-6)    # averaged over every airing

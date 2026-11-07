@@ -72,7 +72,7 @@ For the chosen advertiser, month and filters, the engine reads the TV rows and b
 - **Rows: one per LMRB programme and duration.** Each row is a TVR programme (its TVR name), the LMRB programme name it came from, the **real duration** in seconds, the spots, the cost, the average rate per spot, the rate card rate and negotiated rate **at that duration** (30 sec rate x duration / 30), the TVR, GRPs, CPRP. So a programme bought at 10s, 15s and 30s is three rows with the spot counts of the sheet.
 - **Spots**: one LMRB row = one spot.
 - **30 second equivalents** (`eq30`) = spots x duration / 30. Rates, GRPs and CPRP are compared on this basis.
-- **TVR of a programme** = the average TVR over its airings in the TVR sheet (all months uploaded), not just the chosen month.
+- **TVR of a programme** = the average TVR over its airings in the TVR sheet (all months uploaded), not just the chosen month. Slots of the same channel and programme name that start within 30 minutes of each other and share a day are merged into one programme first (the busiest slot gives the time).
 - **Prime / non prime**: a programme is prime when its TVR start time falls inside the prime window.
 - **Sponsorship items** are shown apart from the basket, one line per channel and item (e.g. "-LLogo"), with total spots, spots per month, average cost, spend, TVR delivered, GRPs and CPRP. An item is a sponsorship when its LMRB theme is flagged as sponsorship (the same setting as the Market card). Each item keeps its real durations (a `durs` list, one entry per duration).
 - **Measures**: GRP = TVR x spots; NGRP = TVR x 30 sec equivalents; CPRP = cost / GRP; NCPRP = cost / NGRP.

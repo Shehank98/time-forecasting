@@ -42,12 +42,25 @@
       if (!e) byKey.set(key, (e = { key, channel: ch, program: pr, start: st, end: C.end[i], n: 0, tvr_sum: 0, zero: 0, days: Array(7).fill(0), months: new Set() }));
       const t = C.tvr[i]; e.n++; e.tvr_sum += t; if (!(t > 0)) e.zero++; e.days[dowMon(C.date[i])]++; const m = monthOf(C.date[i]); e.months.add(m); months.add(m);
     }
+    // The same programme listed at slightly different times or days (13:30 and 13:15, "Fri" and "Tue Fri") is one programme: merge slots of the same name that start within 30 minutes of each other and share a day.
+    const alias = new Map(), same = new Map();
+    for (const e of byKey.values()) { const k = `${e.channel}|${e.program}`; if (!same.has(k)) same.set(k, []); same.get(k).push(e); }
+    for (const list of same.values()) {
+      if (list.length < 2) continue; list.sort((a, b) => b.n - a.n || (a.key < b.key ? -1 : 1)); const kept = [];
+      for (const e of list) {
+        const host = kept.find((h) => h.start >= 0 && e.start >= 0 && Math.abs(h.start - e.start) <= 1800 && h.days.some((c, i) => c > 0 && e.days[i] > 0));
+        if (!host) { kept.push(e); continue; }
+        host.n += e.n; host.tvr_sum += e.tvr_sum; host.zero += e.zero; e.days.forEach((c, i) => { host.days[i] += c; }); e.months.forEach((m) => host.months.add(m));
+        (host.merged = host.merged || []).push({ start: hm(e.start), n: e.n }); alias.set(e.key, host.key); byKey.delete(e.key);
+      }
+    }
+    if (alias.size) { const get = Map.prototype.get, has = Map.prototype.has; byKey.get = (k) => (has.call(byKey, k) ? get.call(byKey, k) : get.call(byKey, alias.get(k))); byKey.has = (k) => has.call(byKey, k) || has.call(byKey, alias.get(k)); }
     const byCh = new Map();
     for (const e of byKey.values()) {
       e.tvr = e.tvr_sum / e.n; e.per_month = e.n / Math.max(1, e.months.size); e.day_label = dayLabel(e.days); e.start_hm = hm(e.start); e.end_hm = hm(e.end); e.pt = null;
       if (!byCh.has(e.channel)) byCh.set(e.channel, []); byCh.get(e.channel).push(e);
     }
-    return { byKey, byCh, months: [...months].sort() };
+    return { byKey, byCh, months: [...months].sort(), merged_slots: alias.size };
   }
   const isPT = (start, o) => start >= 0 && start >= o.pt_start && start < o.pt_end;
 
@@ -376,7 +389,7 @@
       missing_rate_programmes: missing.length, missing_rate_spend: missing.reduce((a, r) => a + r.cost, 0), missing_rate_list: missing.slice(0, 25).map((r) => ({ channel: r.channel, program: r.program, cost: r.cost })),
       zero_tvr_programmes: rows.filter((r) => r.zero_tvr).length, zero_tvr_rows: [...cat.byKey.values()].reduce((a, e) => a + e.zero, 0), low_confidence_matches: groups.filter((g) => g.level === 'Low' || g.level === 'Medium').length,
       skipped_channels: [...skipped.values()].sort((a, b) => b.spend - a.spend), no_medium: noMedium, candidates_without_rate: [...cat.byKey.values()].filter((e) => e.channel in budgets && e.tvr >= o.min_tvr && !(rr.neg(e) > 0)).length };
-    return { empty: !rows.length && !sponsorship.length, audit: aud, advertiser: advWanted, advertisers: [...advSpend.entries()].sort((a, b) => b[1] - a[1]).map(([name, spend]) => ({ name, spend })), month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective, current_basis: o.current_basis },
+    return { empty: !rows.length && !sponsorship.length, audit: { ...aud, merged_tvr_slots: cat.merged_slots }, advertiser: advWanted, advertisers: [...advSpend.entries()].sort((a, b) => b[1] - a[1]).map(([name, spend]) => ({ name, spend })), month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective, current_basis: o.current_basis },
       overview: { months: allMonths, rows: [...ov.entries()].map(([channel, m]) => ({ channel, months: allMonths.map((k) => m.get(k) || { com: 0, va: 0 }) })).sort((a, b) => b.months.reduce((s, x) => s + x.com + x.va, 0) - a.months.reduce((s, x) => s + x.com + x.va, 0)) },
       matches: groups, slots: slotRows, catalogue: [...cat.byCh.entries()].reduce((m, [ch, list]) => { m[ch] = list.sort((a, b) => b.n - a.n).map((e) => ({ key: e.key, program: e.program, label: `${e.program} (${e.start_hm || 'no time'}, ${e.day_label})`, start: e.start_hm, end: e.end_hm, days: e.day_label, tvr: e.tvr, pt: e.pt, card30: rr.card(e), neg30: rr.neg(e) })); return m; }, {}),
       current: { ...current, rows, sponsorship, channels, daypart }, candidates: cands, budgets, plan: { rows: plan.rows, channels: plan.channels, totals: planTotals }, rates: ratesRows, warnings, evidence, prime_share: primeShare, plan_inputs: planInputs,

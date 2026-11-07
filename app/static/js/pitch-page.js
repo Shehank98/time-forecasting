@@ -316,6 +316,7 @@
     if (w.unmatched_programmes) b.push(`${w.unmatched_programmes} LMRB programme${w.unmatched_programmes === 1 ? '' : 's'} (LKR ${fmt.num(w.unmatched_spend)}) could not be matched to a TVR programme and ${w.unmatched_programmes === 1 ? 'is' : 'are'} left out of the TVR numbers. Fix them in <b>Review matches</b>.`);
     if (w.missing_rate_programmes) b.push(`${w.missing_rate_programmes} programme${w.missing_rate_programmes === 1 ? '' : 's'} you bought (LKR ${fmt.num(w.missing_rate_spend)}) have no rate card rate, so ROI leaves them out. Add rates in <b>Rates and negotiation</b>.`);
     const au = D.audit || {};
+    if (au.merged_tvr_slots) b.push(`${fmt.num(au.merged_tvr_slots)} TVR slot${au.merged_tvr_slots === 1 ? ' was' : 's were'} merged into another: the same programme listed within 30 minutes and on a shared day (for example 13:30 and 13:15). Their TVR is averaged over all the airings.`);
     if (au.no_duration_rows) b.push(`${fmt.num(au.no_duration_rows)} LMRB row${au.no_duration_rows === 1 ? ' has' : 's have'} no duration. They are counted as 30 seconds.`);
     if (au.zero_cost_rows) b.push(`${fmt.num(au.zero_cost_rows)} LMRB row${au.zero_cost_rows === 1 ? ' has' : 's have'} a cost of zero (free or bonus spots). They count as spots and GRPs but add no cost.`);
     if (au.negative_cost_rows) b.push(`${fmt.num(au.negative_cost_rows)} LMRB row${au.negative_cost_rows === 1 ? ' has' : 's have'} a negative cost (credits). They reduce the cost of their programme.`);
