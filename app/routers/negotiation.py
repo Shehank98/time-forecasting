@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from ..core import workspace
-from ..services import export_executive, export_negotiation, export_pitch, export_press, export_spotlight, repo
+from ..services import export_executive, export_eval, export_negotiation, export_pitch, export_press, export_spotlight, repo
 from ..services.store import Workspace
 
 log = logging.getLogger("app")
@@ -183,3 +183,29 @@ def pitch_pdf(req: PitchReq, ws: Workspace = Depends(workspace)) -> Response:
 @router.post("/api/pitch/docx")
 def pitch_docx(req: PitchReq, ws: Workspace = Depends(workspace)) -> Response:
     return _pitch_file(req, ws, "docx")
+
+
+class EvalReq(BaseModel):
+    kind: str = "current"
+    spec: dict[str, Any]
+
+
+@router.post("/api/pitch/evaluation")
+def pitch_evaluation(req: EvalReq, ws: Workspace = Depends(workspace)) -> Response:
+    """The evaluation workbook in the agency's sheet format (styled, with live formulas), from the spec the page builds."""
+    chans = req.spec.get("channels") or []
+    if req.kind not in ("current", "plan", "built") or not chans:
+        raise HTTPException(422, "There is nothing to put in the evaluation yet. Add rates so the plan has programmes, or add programmes in Build evaluation.")
+    if len(chans) > 40 or sum(len(c.get("basket") or []) + len(c.get("sponsorship") or []) for c in chans) > 6000:
+        raise HTTPException(422, "That evaluation is too large. Choose fewer channels.")
+    client = repo.get_client(ws.client_id) or {"name": "client"}
+    try:
+        content = export_eval.build_eval_xlsx(req.spec)
+    except Exception:
+        log.exception("Evaluation workbook failed")
+        raise HTTPException(500, "The evaluation workbook could not be built. Check the rows for blank or odd values.") from None
+    name = re.sub(r"[^A-Za-z0-9]+", "_", client.get("name") or "client").strip("_")[:40] or "client"
+    fname = f"{name}_evaluation_{req.kind}_{dt.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    rid = repo.save_report(ws.client_id, "lmrb", "xlsx", fname, content, {"kind": "pitch-evaluation", "format": "xlsx", "title": f"Evaluation ({req.kind})"}, ws.user_id)
+    log.info("[pitch evaluation] built %s (%d bytes) for client %s", fname, len(content), ws.client_id)
+    return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})

@@ -231,7 +231,7 @@
     if (w.zero_tvr_rows) b.push(`${fmt.num(w.zero_tvr_rows)} TVR row${w.zero_tvr_rows === 1 ? ' has' : 's have'} a TVR of zero. They count as zero in the average TVR.`);
     if (w.skipped_channels.length) b.push(`Channels not in the TVR sheet, skipped: ${w.skipped_channels.slice(0, 6).map((c) => `${esc(tt(c.channel))} (LKR ${fmt.num(c.spend)})`).join(', ')}.`);
     if (D.comparison.current.left_out && D.comparison.current.left_out.length) b.push(`No plan can be built yet for ${D.comparison.current.left_out.map((c) => esc(tt(c))).join(', ')}: add a rate for at least one of their programmes. The comparison covers the other channels only.`);
-    $('#pt-warn').innerHTML = b.map((x) => `<div class="banner"><span>${x}</span></div>`).join('');
+    $('#pt-warn').innerHTML = b.length ? `<details class="pt-checks"><summary>Data checks (${b.length})</summary>${b.map((x) => `<div class="banner"><span>${x}</span></div>`).join('')}</details>` : '';
   }
   function render() {
     const out = $('#pt-out'); if (!D) return; tabTables = {};
@@ -424,12 +424,13 @@
       sponsorship: rows.filter((r) => r.ch === ch && r.kind === 'va').map((r) => ({ desc: r.desc, day: r.day, from: r.from, to: r.to, dur: r.dur, tvr: r.tvr, spots: r.spots, card: r.card, rate: r.rate })) })) };
   }
   async function downloadEval(kind) {
+    const b = $({ current: '#ev-c', plan: '#ev-p', built: '#ev-b' }[kind]) || $('#bd-xl'), txt = b ? b.textContent : '';
     try {
       const spec = { current: specCurrent, plan: specPlan, built: specBuilt }[kind]();
       if (!spec.channels.length) { App.toast(kind === 'built' ? 'Add programmes in Build evaluation first.' : 'Nothing to export yet. Add rates so the plan has programmes.', 'error'); return; }
-      const X = await loadXlsx(), wb = App.pitchXlsx.build(X, spec);
-      App.download(new Blob([X.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `evaluation_${kind}_${(D.month || 'all')}.xlsx`);
-    } catch (e) { App.toast('Excel export failed: ' + e.message, 'error'); }
+      if (b) { b.disabled = true; b.textContent = 'Building...'; }
+      const res = await App.api.blob('/api/pitch/evaluation', { kind, spec }); App.download(res.blob, res.name); App.toast('Evaluation downloaded. A copy is kept under Reports.', 'ok');
+    } catch (e) { App.toast('The evaluation could not be built: ' + e.message, 'error'); } finally { if (b) { b.disabled = false; b.textContent = txt; } }
   }
 
   /* ---------------------------------------------------------------- build evaluation */

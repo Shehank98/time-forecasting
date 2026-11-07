@@ -561,3 +561,12 @@ Channels sell a **contract** (for example a special frequency deal): one investm
 - **Costing the current buy at the actual investment** (Settings): the commercial investment is spread over the programmes in proportion to their rack value (one discount for the channel) and the rest goes to the sponsorship items, so ROI, CPRP, the comparison and the evaluation sheets use what was really paid. Programmes with no rate keep their LMRB cost. Channels with no investment typed keep the LMRB cost.
 - **Our plan's budget** (Settings, "Our plan is compared with"): *The investment I entered x its commercial share* gives each channel that budget (a channel without one keeps the current commercial spend). A prime share splits the budget between prime and non prime programmes; what one side cannot spend goes to the other. The comparison says "for the same budget" only when the budgets are within 2% of each other.
 - **Excel.** The channel sheets get a band column (PT / NPT) and a deal block on the right (investment, commercial share, sponsorship share, prime / non prime shares, budget against planned and the balance for each, and the discount against rate card), all formulas; the Summary adds Actual Investment, Commercial % of Investment and Discount vs Rate Card.
+
+### Evaluation workbook look (server-built)
+
+The evaluation Excel (current buy, our plan, built evaluation) is built on the server (`app/services/export_eval.py`, openpyxl, `POST /api/pitch/evaluation`, saved under Reports) so it can carry the agency's styling and still be fully formula-driven.
+- **Channel sheets**: black header row with white bold headings, grey section bars (SPONSORSHIP BENEFITS, COMMERCIAL BENEFITS), underlined PRIME TIME / NON PRIME TIME groups (each in time order), bordered rows, bold light-grey total rows, black ROI bars, a deal block on the right (yellow cells are the typed deal inputs), frozen header, no grid lines, landscape fit-to-width printing.
+- **Summary sheet**: black title banner, the agency summary table (banded rows, TV total, Total Budget), then the CPRP BY CHANNEL table; frozen header.
+- **Formulas sheet**: the settings the sheets read (yellow) and the formula of every column.
+- Excel works every formula out when the file is opened. The older all-tables Excel (Export tab, "all tables") is a plain data dump.
+- The data-check messages (unmatched programmes, missing rates, zero TVR rows, skipped channels) are folded into one collapsed "Data checks" line under the filters.

@@ -256,28 +256,31 @@ def test_optimiser_goals(data):
     assert r["totals"]["roi"] > g["totals"]["roi"] or r["rows"] == g["rows"]    # the special-rate programme has the best value per rupee
 
 
-@pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice is not installed")
-def test_evaluation_workbook_formulas_calculate(data, tmp_path):
-    """The workbook is written with formulas. A spreadsheet program recalculates every one and must land on the same numbers as the cached values and the engine."""
+def evaluation_file(data, tmp_path, opts, name="ev"):
+    """The engine's current buy -> the spec the page sends -> /api/pitch/evaluation -> the workbook, and a copy with every formula worked out by LibreOffice."""
     import openpyxl
+    from helpers import api
     p, *_ = data
-    o = {"rates": {"channels": OPTS["rates"]["channels"]}}                                                   # every programme has a rate, so ROI uses all spend
-    proc = subprocess.run(["node", str(ROOT / "tests/js/pitch_xlsx.js"), str(p / "lm.csv"), str(p / "tv.csv"), json.dumps(o), str(tmp_path / "ev")], capture_output=True, text=True, timeout=240)
+    proc = subprocess.run(["node", str(ROOT / "tests/js/pitch_xlsx.js"), str(p / "lm.csv"), str(p / "tv.csv"), json.dumps(opts)], capture_output=True, text=True, timeout=240)
     assert proc.returncode == 0, proc.stderr
     meta = json.loads(proc.stdout)
-    assert meta["sheets"] == ["Summary", "DERANA", "SIRASA", "HIRU", "Formulas"]
-    subprocess.run(["soffice", "--headless", "--convert-to", "xlsx:Calc MS Excel 2007 XML", "--outdir", str(tmp_path / "calc"), str(tmp_path / "ev_nocache.xlsx")], capture_output=True, timeout=180)
-    cached, calc, formulas = (openpyxl.load_workbook(tmp_path / "ev_cached.xlsx", data_only=True), openpyxl.load_workbook(tmp_path / "calc/ev_nocache.xlsx", data_only=True), openpyxl.load_workbook(tmp_path / "ev_cached.xlsx"))
-    n = 0
-    for ws in cached:
-        for row in ws.iter_rows():
-            for c in row:
-                if isinstance(c.value, (int, float)):
-                    n += 1
-                    v = calc[ws.title][c.coordinate].value
-                    assert isinstance(v, (int, float)) and abs(v - c.value) <= 1e-6 * max(1, abs(c.value)), (ws.title, c.coordinate, c.value, v)
-    assert n > 200
-    assert sum(1 for ws in formulas for row in ws.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("=")) > 150          # real formulas, not pasted numbers
+    r = api().post("/api/pitch/evaluation", json={"kind": "current", "spec": meta["spec"]})
+    assert r.status_code == 200 and r.content[:2] == b"PK" and r.headers["x-report-id"] and r.headers["content-disposition"].endswith('.xlsx"'), r.text[:200]
+    path = tmp_path / f"{name}.xlsx"
+    path.write_bytes(r.content)
+    subprocess.run(["soffice", "--headless", "--convert-to", "xlsx:Calc MS Excel 2007 XML", "--outdir", str(tmp_path / "calc"), str(path)], capture_output=True, timeout=180)
+    return meta, openpyxl.load_workbook(path), openpyxl.load_workbook(tmp_path / "calc" / f"{name}.xlsx", data_only=True)
+
+
+@pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice is not installed")
+def test_evaluation_workbook_is_styled_and_its_formulas_calculate(data, tmp_path):
+    """The workbook is written with formulas and the agency's look. LibreOffice works out every formula; the numbers must be the engine's."""
+    meta, raw, calc = evaluation_file(data, tmp_path, {"rates": {"channels": OPTS["rates"]["channels"]}})
+    assert raw.sheetnames == ["Summary", "DERANA", "SIRASA", "HIRU", "Formulas"]
+    errs = [(ws.title, c.coordinate, c.value) for ws in calc for row in ws.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith(("#", "Err:"))]
+    assert not errs, errs[:5]
+    n_formulas = sum(1 for ws in raw for row in ws.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("="))
+    assert n_formulas > 250                                                                        # real formulas, not pasted numbers
     S = calc["Summary"]
     hdr = {str(c.value).strip(): i for i, c in enumerate(S[2]) if c.value}
     assert list(hdr)[:17] == ["Channel", "Total Investment", "Total Rate Card (all Expo)", "Com Only", "C ROI%", "ROI%", "Com Only GRPs", "Com Only NGRPs", "Com Only CPRP", "Com Only N CPRP", "Total GRPs", "Total NGRPs",
@@ -287,60 +290,62 @@ def test_evaluation_workbook_formulas_calculate(data, tmp_path):
         if r[0].value:
             summ[r[0].value] = [x.value for x in r]
         if r[0].value == "TV ":
-            break                                                                                                  # below it comes the CPRP table, which repeats the channel names
+            break                                                                                  # below it comes the CPRP table, which repeats the channel names
     for c in meta["channels"]:
         row = summ[c["channel"]]
         g = lambda name: row[hdr[name]]  # noqa: E731
         assert g("Total Investment") == pytest.approx(c["spend"]) and g("C ROI%") == pytest.approx(c["com_roi"]) and g("ROI%") == pytest.approx(c["all_roi"])
         assert g("Com Only NGRPs") == pytest.approx(c["ngrp"]) and g("Com Only GRPs") == pytest.approx(c["grp"]) and g("Commercial Cost") == pytest.approx(c["com_spend"])
-        assert g("Com Only CPRP") == pytest.approx(c["com_spend"] / c["grp"]) and g("Com Only N CPRP") == pytest.approx(c["cprp"])                       # cost per rating point, and on a 30 second basis
+        assert g("Com Only CPRP") == pytest.approx(c["com_spend"] / c["grp"]) and g("Com Only N CPRP") == pytest.approx(c["cprp"])
         assert g("Total Exposures") == g("Total Number of Spots") + g("Total Number of V/A") == c["com_spots"] + c["va_spots"]
     assert summ["TV "][hdr["Total Investment"]] == pytest.approx(sum(c["spend"] for c in meta["channels"]))
-    # under the summary: the CPRP of every channel, company only and all exposure
     start = [i for i, r in enumerate(S.iter_rows(values_only=True), 1) if r[0] and str(r[0]).startswith("CPRP BY CHANNEL")][0]
-    head = [c.value for c in S[start + 1]][:7]
-    assert head == ["Channel", "Com Only CPRP", "Com Only NCPRP (30 sec)", "All Exposure CPRP", "All Exposure NCPRP (30 sec)", "Com Only GRPs", "All Exposure GRPs"]
+    assert [c.value for c in S[start + 1]][:7] == ["Channel", "Com Only CPRP", "Com Only NCPRP (30 sec)", "All Exposure CPRP", "All Exposure NCPRP (30 sec)", "Com Only GRPs", "All Exposure GRPs"]
     cp = {r[0].value: [x.value for x in r] for r in S.iter_rows(min_row=start + 2, max_row=start + 1 + len(meta["channels"]) + 1) if r[0].value}
     for c in meta["channels"]:
         assert cp[c["channel"]][2] == pytest.approx(c["cprp"]) and cp[c["channel"]][1] == pytest.approx(c["com_spend"] / c["grp"]) and cp[c["channel"]][5] == pytest.approx(c["grp"])
     assert "TV " in cp
     f = {r[0].value: r[1].value for r in calc["Formulas"].iter_rows(min_row=3, max_row=5)}
     assert f == {"Base seconds": 30, "SSCL rate": 0.025, "VAT rate": 0.18}
-    # a channel sheet is laid out like the agency sheets: number of spots straight after DUR, rates per spot at the row's duration, real time cells, comma style money, plain number GRPs and TVR
-    d, dc = calc["DERANA"], cached["DERANA"]
-    assert [c.value for c in d[8]][2:17] == ["DESCRIPTION", "DAY", "TIME BELT", None, "DUR", "NUMBER OF SPOTS", "TVR", "GRP", "NGRP", "CPRP", "NCPRP", "RATE CARD RATE", "NEGOTIATED RATE", "TOTAL VALUE", "TOTAL COST"]
+    # a channel sheet is laid out like the agency sheets
+    d, fm = calc["DERANA"], raw["DERANA"]
+    assert [c.value for c in d[8]][2:18] == ["DESCRIPTION", "DAY", "TIME BELT", None, "DUR", "NUMBER OF SPOTS", "TVR", "GRP", "NGRP", "CPRP", "NCPRP", "RATE CARD RATE", "NEGOTIATED RATE", "TOTAL VALUE", "TOTAL COST", "BAND"]
     assert [c.value for c in d[2]][2:4] == ["CLIENT :", "SAMPATH BANK"] and [c.value for c in d[5]][2:4] == ["CHANNEL :", "DERANA"]
-    fm = formulas["DERANA"]
     husmak = [r for r in range(9, d.max_row) if d.cell(r, 3).value == "HUSMAK LAGIN"][0]
     assert fm.cell(husmak, 10).value == f"=I{husmak}*H{husmak}" and fm.cell(husmak, 16).value == f"=N{husmak}*H{husmak}" and fm.cell(husmak, 17).value == f"=O{husmak}*H{husmak}"
     assert re.fullmatch(r"=\([0-9.]+/Formulas!\$B\$3\)\*G\d+", fm.cell(husmak, 14).value) and re.fullmatch(r"=\([0-9.]+/Formulas!\$B\$3\)\*G\d+", fm.cell(husmak, 15).value)      # rate per spot = 30 sec rate / 30 x DUR
     nf = lambda col: fm.cell(husmak, col).number_format  # noqa: E731
     assert nf(9) == "0.00" and nf(10) == "#,##0.00" and nf(11) == "#,##0.00"                                       # TVR and GRPs: Number
     assert nf(12).startswith("_(* #,##0.00_)") and nf(13).startswith("_(* #,##0.00_)")                              # CPRP and NCPRP: Comma Style
-    assert nf(14).startswith("_(* #,##0_)") and nf(15).startswith("_(* #,##0_)") and nf(16).startswith("_(* #,##0_)") and nf(17).startswith("_(* #,##0_)")      # rates, value, cost: Comma Style
-    assert isinstance(dc.cell(husmak, 5).value, (dt.time, dt.datetime)) and nf(5) == "h:mm"                          # the time belt is a real time
-    assert S.cell(3, 2).number_format.startswith("_(* #,##0_)") and S.cell(3, 9).number_format.startswith("_(* #,##0.00_)") and S.cell(3, 7).number_format == "#,##0.00"
-    inv = [r for r in d.iter_rows() if r[2].value and str(r[2].value).startswith("ACTUAL INVESTMENT")][0][15].value
-    gt = [r for r in d.iter_rows() if r[2].value == "GRAND TOTAL"][0][15].value
-    assert gt == pytest.approx(inv / 0.975 + inv / 0.975 * 0.18)                                           # the agency's tax method
+    assert all(nf(c).startswith("_(* #,##0_)") for c in (14, 15, 16, 17))                                            # rates, value, cost: Comma Style
+    assert isinstance(d.cell(husmak, 5).value, (dt.time, dt.datetime)) and nf(5) == "h:mm"                          # the time belt is a real time
+    assert raw["Summary"].cell(3, 2).number_format.startswith("_(* #,##0_)") and raw["Summary"].cell(3, 9).number_format.startswith("_(* #,##0.00_)") and raw["Summary"].cell(3, 7).number_format == "#,##0.00"
+    # the look: black header row, grey section bars, underlined group headings, borders, black ROI bars, frozen header, no grid lines
+    rgb = lambda cell: str(cell.fill.fgColor.rgb)[-6:]  # noqa: E731
+    h = fm.cell(8, 3)
+    assert rgb(h) == "000000" and h.font.bold and str(h.font.color.rgb)[-6:] == "FFFFFF" and h.alignment.horizontal == "center" and "E8:F8" in {str(m) for m in fm.merged_cells.ranges}
+    rows = {str(fm.cell(r, 3).value): r for r in range(9, fm.max_row + 1) if fm.cell(r, 3).value}
+    for bar, col in (("COMMERCIAL BENEFITS", "7F7F7F"), ("SPONSORSHIP BENEFITS", "7F7F7F"), ("COMMERCIAL ROI %", "000000"), ("ALL EXPOSURE ROI %", "000000")):
+        assert rgb(fm.cell(rows[bar], 3)) == col and fm.cell(rows[bar], 3).font.bold and str(fm.cell(rows[bar], 3).font.color.rgb)[-6:] == "FFFFFF", bar
+    assert fm.cell(rows["PRIME TIME"], 3).font.underline == "single" and fm.cell(rows["NON PRIME TIME"], 3).font.underline == "single"
+    assert fm.cell(rows["COMMERCIAL VALUE"], 3).font.bold and rgb(fm.cell(rows["ALL EXPOSURE VALUE"], 16)) == "F2F2F2"
+    assert fm.cell(husmak, 14).border.left.style == "thin" and fm.freeze_panes == "D9" and fm.sheet_view.showGridLines is False and fm.page_setup.orientation == "landscape"
+    sm = raw["Summary"]
+    assert rgb(sm.cell(2, 2)) == "000000" and sm.cell(2, 2).font.bold and sm.freeze_panes == "B3" and sm.sheet_view.showGridLines is False and "A1:Q1" in {str(m) for m in sm.merged_cells.ranges}
+    assert "EVALUATION SUMMARY" in sm["A1"].value
+    inv = d.cell(rows["ACTUAL INVESTMENT - 100% (WITHOUT TAXES)"], 16).value
+    assert d.cell(rows["GRAND TOTAL"], 16).value == pytest.approx(inv / 0.975 + inv / 0.975 * 0.18)               # the agency's tax method
+    # the commercial rows are grouped prime time first, each group in time order
+    com_first = rows["PRIME TIME"]
+    times = [d.cell(r, 5).value for r in range(com_first + 1, rows["NON PRIME TIME"]) if d.cell(r, 3).value]
+    assert times == sorted(times)
 
 
 @pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice is not installed")
 def test_deal_block_in_the_evaluation_workbook(data, tmp_path):
     """The contract's investment, commercial share and prime split sit beside the channel sheet and are compared with what the spots add up to."""
-    import openpyxl
-    p, *_ = data
     o = {"rates": {"channels": OPTS["rates"]["channels"]}, "deals": {"DERANA": {"investment": 20_000_000, "commercial_pct": 80, "prime_pct": 50}}}
-    proc = subprocess.run(["node", str(ROOT / "tests/js/pitch_xlsx.js"), str(p / "lm.csv"), str(p / "tv.csv"), json.dumps(o), str(tmp_path / "dl")], capture_output=True, text=True, timeout=240)
-    assert proc.returncode == 0, proc.stderr
-    subprocess.run(["soffice", "--headless", "--convert-to", "xlsx:Calc MS Excel 2007 XML", "--outdir", str(tmp_path / "calc"), str(tmp_path / "dl_nocache.xlsx")], capture_output=True, timeout=180)
-    cached, calc = openpyxl.load_workbook(tmp_path / "dl_cached.xlsx", data_only=True), openpyxl.load_workbook(tmp_path / "calc/dl_nocache.xlsx", data_only=True)
-    for ws in cached:
-        for row in ws.iter_rows():
-            for c in row:
-                if isinstance(c.value, (int, float)):
-                    v = calc[ws.title][c.coordinate].value
-                    assert isinstance(v, (int, float)) and abs(v - c.value) <= 1e-6 * max(1, abs(c.value)), (ws.title, c.coordinate, c.value, v)
+    meta, raw, calc = evaluation_file(data, tmp_path, o, "dl")
     d = calc["DERANA"]
     side = [r for r in d.iter_rows() if r[19].value]                                                      # column T
     k = [i for i, r in enumerate(side) if r[19].value == "PLANNED AGAINST BUDGET"][0]
@@ -356,9 +361,8 @@ def test_deal_block_in_the_evaluation_workbook(data, tmp_path):
     for r in d.iter_rows(min_row=9):
         if r[17].value in band:
             band[r[17].value] += r[16].value or 0
-    assert sum(band.values()) == pytest.approx(com[16].value)
+    assert sum(band.values()) == pytest.approx(com[16].value) and band["PT"] > 0 and band["NPT"] > 0
     lines = {str(r[19].value): r for r in side[k + 1:]}
-    # "Planned against budget" lines: budget (V), planned (W), balance (X)
     byname = {n: (lines[n][21].value, lines[n][22].value, lines[n][23].value) for n in ("Commercial benefits", "Prime time", "Non prime time", "Sponsorship / frequency items")}
     assert byname["Commercial benefits"][1] == pytest.approx(com[16].value) and byname["Prime time"][1] == pytest.approx(band["PT"]) and byname["Non prime time"][1] == pytest.approx(band["NPT"])
     assert all(b[2] == pytest.approx(b[0] - b[1]) for b in byname.values())
@@ -369,3 +373,13 @@ def test_deal_block_in_the_evaluation_workbook(data, tmp_path):
     assert row[hdr["Actual Investment"]].value == 20_000_000 and row[hdr["Commercial % of Investment"]].value == pytest.approx(0.8) and row[hdr["Discount vs Rate Card (Com)"]].value == pytest.approx(1 - 16_000_000 / com[15].value)
     assert [r for r in S.iter_rows(min_row=3) if r[0].value == "SIRASA"][0][hdr["Actual Investment"]].value in (None, 0)           # no deal: blank
     assert d.cell(8, 18).value == "BAND"
+    assert raw["DERANA"]["T10"].value == "DEAL / COMMERCIAL BUDGET" and str(raw["DERANA"]["T10"].fill.fgColor.rgb)[-6:] == "000000"
+
+
+def test_evaluation_endpoint_refuses_empty_and_unknown(data):
+    from helpers import api
+    c = api()
+    assert c.post("/api/pitch/evaluation", json={"kind": "current", "spec": {"channels": []}}).status_code == 422
+    assert c.post("/api/pitch/evaluation", json={"kind": "other", "spec": {"channels": [{"name": "X"}]}}).status_code == 422
+    ok = c.post("/api/pitch/evaluation", json={"kind": "built", "spec": {"client": "X", "channels": [{"name": "Derana", "basket": [{"desc": "A", "from": "20:00", "to": "20:30", "dur": 30, "tvr": 5, "spots": 2, "card": 100000, "rate": 30000}]}]}})
+    assert ok.status_code == 200 and ok.content[:2] == b"PK"
