@@ -107,6 +107,9 @@
     const cat = catalogue(V);
     cat.byKey.forEach((e) => { e.pt = isPT(e.start, o); });
     const tvrChannels = [...cat.byCh.keys()].sort(), inTvr = new Set(tvrChannels);
+    const chAvg = {};      // channel -> average TVR of its prime time and non prime airings in the TVR sheet
+    cat.byKey.forEach((e) => { const a = (chAvg[e.channel] = chAvg[e.channel] || { pt: [0, 0], npt: [0, 0] }), b = e.pt ? a.pt : a.npt; b[0] += e.tvr_sum; b[1] += e.n; });
+    Object.values(chAvg).forEach((a) => { const all = (a.pt[0] + a.npt[0]) / Math.max(1, a.pt[1] + a.npt[1]); a.pt_tvr = a.pt[1] ? a.pt[0] / a.pt[1] : all; a.npt_tvr = a.npt[1] ? a.npt[0] / a.npt[1] : all; });
     const LC = L.cols, med = LC.medium, sponsor = L.dicts.theme.map(MR.isSponsorTheme);
     // TV rows of the LMRB sheet whose channel is in the TVR sheet
     const tvRows = [], skipped = new Map(); let noMedium = !med;
@@ -136,13 +139,17 @@
       const ch = L.dicts.channel[LC.channel[i]]; if (chWanted.size && !chWanted.has(ch)) continue;
       const g = gmap.get(`${ch}|${L.dicts.program[LC.program[i]]}`), e = g && g.tvr_key ? cat.byKey.get(g.tvr_key) : null;
       const isVa = LC.theme[i] >= 0 && sponsor[LC.theme[i]], dur = Number.isFinite(LC.dur[i]) && LC.dur[i] > 0 ? LC.dur[i] : 30, eq = dur / 30, cost = LC.cost[i];
+      if (isVa) {      // sponsorship items are grouped by channel + item; prime or not comes from the programme start (else the ad time), so they do not need a programme match
+        const ps = LC.prog_sec[i] >= 0 ? LC.prog_sec[i] : LC.advt_sec[i], pt = ps >= 0 ? isPT(ps, o) : !!(e && e.pt);
+        if (o.daypart !== 'all' && (o.daypart === 'PT') !== pt) continue;
+        const th = L.dicts.theme[LC.theme[i]], k2 = `${ch}|${th}`; let s = spon.get(k2);
+        if (!s) spon.set(k2, (s = { channel: ch, theme: th, spots: 0, eq30: 0, spend: 0, pt_spots: 0, npt_spots: 0, value: 0, rated_spend: 0 }));
+        s.spots++; s.eq30 += eq; s.spend += cost; if (pt) s.pt_spots++; else s.npt_spots++;
+        const c30 = e ? rr.card(e) : null; if (c30 > 0) { s.value += c30 * eq; s.rated_spend += cost; }
+        continue;
+      }
       if (!e) { const u = unmatched.get(g ? g.key : ch) || { channel: ch, lmrb_program: g ? g.lmrb_program : '', spots: 0, spend: 0, ignored: g && g.method === 'ignored' }; u.spots++; u.spend += cost; unmatched.set(g ? g.key : ch, u); continue; }
       if (o.daypart !== 'all' && (o.daypart === 'PT') !== e.pt) continue;
-      if (isVa) {
-        const th = L.dicts.theme[LC.theme[i]], k2 = `${e.key}|${th}`; let s = spon.get(k2);
-        if (!s) spon.set(k2, (s = { channel: ch, program: e.program, start: e.start_hm, theme: th, spots: 0, eq30: 0, spend: 0, tvr: e.tvr, pt: e.pt, card30: rr.card(e) }));
-        s.spots++; s.eq30 += eq; s.spend += cost; continue;
-      }
       let p = prog.get(e.key);
       if (!p) prog.set(e.key, (p = { e, spots: 0, eq30: 0, cost: 0, dur_sum: 0 }));
       p.spots++; p.eq30 += eq; p.cost += cost; p.dur_sum += dur;
@@ -152,7 +159,9 @@
       return { key: e.key, channel: e.channel, program: e.program, start: e.start_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, spots: p.spots, eq30: p.eq30, avg_dur: p.dur_sum / p.spots, cost: p.cost,
         avg30, tvr: e.tvr, airings: e.n, grp, ngrp, cprp: div(p.cost, ngrp), card30, neg30, value: card30 > 0 ? card30 * p.eq30 : null, rated: card30 > 0, zero_tvr: !(e.tvr > 0) };
     }).sort((a, b) => b.cost - a.cost);
-    const sponsorship = [...spon.values()].map((s) => ({ ...s, daypart: s.pt ? 'Prime' : 'Non prime', grp: s.tvr * s.spots, ngrp: s.tvr * s.eq30, cprp: div(s.spend, s.tvr * s.eq30), value: s.card30 > 0 ? s.card30 * s.eq30 : null })).sort((a, b) => b.spend - a.spend);
+    const monthsInView = month === 'all' ? Math.max(1, allMonths.length) : 1;
+    const sponsorship = [...spon.values()].map((x) => { const a = chAvg[x.channel] || { pt_tvr: 0, npt_tvr: 0 }, tvr = (x.pt_spots * a.pt_tvr + x.npt_spots * a.npt_tvr) / x.spots;
+      return { ...x, spots_per_month: x.spots / monthsInView, avg_cost: x.spend / x.spots, avg_pt_tvr: a.pt_tvr, avg_npt_tvr: a.npt_tvr, tvr, grp: tvr * x.spots, ngrp: tvr * x.eq30, cprp: div(x.spend, tvr * x.eq30) }; }).sort((a, b) => b.spend - a.spend);
 
     // per channel (current evaluation, ROI)
     const sumRows = (rs) => {
@@ -163,7 +172,7 @@
     const chNames = [...new Set([...rows.map((r) => r.channel), ...sponsorship.map((s) => s.channel)])];
     const channels = chNames.map((ch) => {
       const R = rows.filter((r) => r.channel === ch), S = sponsorship.filter((s) => s.channel === ch), c = sumRows(R);
-      const va = S.reduce((a, s) => ({ spend: a.spend + s.spend, spots: a.spots + s.spots, eq30: a.eq30 + s.eq30, ngrp: a.ngrp + s.ngrp, grp: a.grp + s.grp, rated_spend: a.rated_spend + (s.card30 > 0 ? s.spend : 0), value: a.value + (s.value || 0) }), { spend: 0, spots: 0, eq30: 0, ngrp: 0, grp: 0, rated_spend: 0, value: 0 });
+      const va = S.reduce((a, s) => ({ spend: a.spend + s.spend, spots: a.spots + s.spots, eq30: a.eq30 + s.eq30, ngrp: a.ngrp + s.ngrp, grp: a.grp + s.grp, rated_spend: a.rated_spend + s.rated_spend, value: a.value + s.value }), { spend: 0, spots: 0, eq30: 0, ngrp: 0, grp: 0, rated_spend: 0, value: 0 });
       const total = c.cost + va.spend, ratedAll = c.rated_cost + va.rated_spend, valueAll = c.value + va.value;
       return { channel: ch, com_spend: c.cost, va_spend: va.spend, spend: total, com_spots: c.spots, va_spots: va.spots, spots: c.spots + va.spots, eq30: c.eq30, ngrp: c.ngrp, grp: c.grp, avg30: div(c.cost, c.eq30), cprp: div(c.cost, c.ngrp),
         avg_tvr: div(c.tvr_w, c.tvr_n), com_value: c.value, all_value: valueAll, com_roi: div(c.value, c.rated_cost), all_roi: div(valueAll, ratedAll), rated_pct: total > 0 ? (ratedAll / total) * 100 : null, share_pct: null };
@@ -176,7 +185,7 @@
     const daypart = { prime: dp(PT), non_prime: dp(NPT), by_channel: chNames.map((ch) => ({ channel: ch, prime: dp(PT.filter((r) => r.channel === ch)), non_prime: dp(NPT.filter((r) => r.channel === ch)) })) };
     const totalsFor = (set) => {
       const R = set ? rows.filter((r) => set.has(r.channel)) : rows, S = set ? sponsorship.filter((x) => set.has(x.channel)) : sponsorship;
-      const ct = sumRows(R), va = S.reduce((a, x) => ({ spend: a.spend + x.spend, spots: a.spots + x.spots, eq30: a.eq30 + x.eq30, ngrp: a.ngrp + x.ngrp, value: a.value + (x.value || 0), rated: a.rated + (x.card30 > 0 ? x.spend : 0) }), { spend: 0, spots: 0, eq30: 0, ngrp: 0, value: 0, rated: 0 });
+      const ct = sumRows(R), va = S.reduce((a, x) => ({ spend: a.spend + x.spend, spots: a.spots + x.spots, eq30: a.eq30 + x.eq30, ngrp: a.ngrp + x.ngrp, value: a.value + (x.value || 0), rated: a.rated + x.rated_spend }), { spend: 0, spots: 0, eq30: 0, ngrp: 0, value: 0, rated: 0 });
       const P = R.filter((r) => r.pt), N = R.filter((r) => !r.pt), dpt = dp(P), dnp = dp(N);
       return { com_spend: ct.cost, va_spend: va.spend, spend: ct.cost + va.spend, spots: ct.spots, eq30: ct.eq30, ngrp: ct.ngrp, avg30: div(ct.cost, ct.eq30), cprp: div(ct.cost, ct.ngrp), pt_tvr: dpt.tvr, npt_tvr: dnp.tvr,
         pt_spend_share: ct.cost > 0 ? (dpt.spend / ct.cost) * 100 : null, pt_spot_share: ct.spots > 0 ? (dpt.spots / ct.spots) * 100 : null,

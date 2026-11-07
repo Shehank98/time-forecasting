@@ -96,8 +96,10 @@ def build_pitch_pdf(d: dict, client: dict, branding: dict, logos: dict) -> bytes
         el.append(_table(rows, [3.4, 1.6, 1, 1.4, 0.9, 1.6, 1.5, 0.9, 1.3, 1.2], s, brand, [("ALIGN", (4, 1), (-1, -1), "RIGHT")]))
     if cur.get("sponsorship"):
         el += [Paragraph("Sponsorship items (shown apart from the basket)", s.h2), Spacer(1, 2)]
-        rows = [["Channel", "Programme (TVR name)", "Item", "Spots", "Spend (LKR)", "TVR delivered", "GRPs"]] + [[_t(r["channel"]), _t(r["program"]), safe(r["theme"]), _n(r["spots"]), _n(r["spend"]), f"{r['tvr']:.2f}", _n(r["grp"], "dec")] for r in cur["sponsorship"][:15]]
-        el.append(_table(rows, [1.6, 3.2, 2.6, 0.9, 1.6, 1.2, 1.1], s, brand, [("ALIGN", (3, 1), (-1, -1), "RIGHT")]))
+        rows = [["Channel", "Sponsorship item", "Total spots", "Spots per month", "Average cost per spot", "Spend (LKR)", "Avg prime TVR", "Avg non prime TVR", "Avg TVR delivered", "GRPs"]] + \
+               [[_t(r["channel"]), safe(r["theme"]), _n(r["spots"]), _n(r["spots_per_month"], "dec"), _n(r["avg_cost"]), _n(r["spend"]), f"{r['avg_pt_tvr']:.2f}", f"{r['avg_npt_tvr']:.2f}", f"{r['tvr']:.2f}", _n(r["grp"], "dec")] for r in cur["sponsorship"][:25]]
+        el.append(_table(rows, [1.6, 2.4, 1, 1.1, 1.5, 1.6, 1.2, 1.3, 1.3, 1.1], s, brand, [("ALIGN", (2, 1), (-1, -1), "RIGHT")]))
+        el.append(Paragraph("TVR of a sponsorship item = the channel's average prime time and non prime TVR in the TVR sheet, weighted by the item's prime and non prime spots.", s.small))
     w = d.get("warnings") or {}
     notes = []
     if w.get("unmatched_programmes"):

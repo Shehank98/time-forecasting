@@ -190,3 +190,26 @@ def test_pitch_exports(data):
     words = " ".join(par.text for par in Document(io.BytesIO(docx.content)).paragraphs) + " ".join(cell.text for t in Document(io.BytesIO(docx.content)).tables for row in t.rows for cell in row.cells)
     assert "Client Pitch Evaluation" in words and "Total GRPs" in words
     assert c.post("/api/pitch/pdf", json={"comparison": {}}).status_code == 422
+
+
+def test_sponsorship_is_grouped_by_channel_and_item(data):
+    p, lm, tv, _ = data
+    r = run(p / "lm.csv", p / "tv.csv", OPTS)
+    rows = r["current"]["sponsorship"]
+    assert len({(x["channel"], x["theme"]) for x in rows}) == len(rows)                      # one line per channel and item
+    d = reference(lm, tv)
+    va = d[d["va"] & (d["ch"] == "DERANA")]
+    x = [q for q in rows if q["channel"] == "DERANA" and q["theme"] == "Time Check"][0]
+    mins = lambda hm: int(hm[:2]) * 60 + int(hm[3:5])  # noqa: E731
+    is_pt = lambda hm: 19 * 60 <= mins(hm) < 22 * 60 + 30  # noqa: E731
+    t = tv[tv["Channel"] == "Tv - Derana"]
+    pt_avg = t[t["Start"].map(is_pt)]["TVR"].mean()
+    npt_avg = t[~t["Start"].map(is_pt)]["TVR"].mean()
+    n_pt = int(va["Prog_time"].map(is_pt).sum())
+    assert x["spots"] == len(va) and x["spots_per_month"] == len(va) and x["spend"] == pytest.approx(va["Cost"].sum()) and x["avg_cost"] == pytest.approx(va["Cost"].mean())
+    assert x["pt_spots"] == n_pt and x["avg_pt_tvr"] == pytest.approx(pt_avg) and x["avg_npt_tvr"] == pytest.approx(npt_avg)
+    tvr = (n_pt * pt_avg + (len(va) - n_pt) * npt_avg) / len(va)
+    assert x["tvr"] == pytest.approx(tvr) and x["grp"] == pytest.approx(tvr * len(va)) and x["ngrp"] == pytest.approx(tvr * va["eq30"].sum())
+    allm = run(p / "lm.csv", p / "tv.csv", {**OPTS, "month": "all"})
+    y = [q for q in allm["current"]["sponsorship"] if q["channel"] == "DERANA" and q["theme"] == "Time Check"][0]
+    assert y["spots_per_month"] == pytest.approx(y["spots"] / 2)                                # two months uploaded
