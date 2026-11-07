@@ -21,12 +21,12 @@
   const kpi = (l, v, s, g) => `<div class="kpi"><div class="k-lbl">${esc(l)} ${g ? tip(g) : ''}</div><div class="k-val">${v}</div>${s ? `<div class="k-sub">${s}</div>` : ''}</div>`;
   const KEY = () => 'pitch:' + App.clientId();
   const DEF = () => ({ month: null, channels: [], daypart: 'all', tab: 'overview', settings: { pt_start: '19:00', pt_end: '22:30', min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, match_min: 45, current_basis: 'actual' },
-    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', evals: { current: {}, plan: {} }, ours: {}, build_kind: 'current', learned: {}, deals: {} });
+    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', evals: { current: {}, plan: {} }, advertiser: undefined, ours: {}, build_kind: 'current', learned: {}, deals: {} });
   let st = DEF(), D = null, root = null, status = null, seq = 0, tabTables = {}, RC = { entries: [], channels: [] };
   const load = () => { try { const v = App.store.get(KEY(), null); st = { ...DEF(), ...(v || {}), settings: { ...DEF().settings, ...((v || {}).settings || {}) } }; } catch (e) { st = DEF(); } };
   const save = () => { try { App.store.set(KEY(), st); } catch (e) { /* storage blocked */ } };
   const sec = (hm) => { const [h, m] = String(hm).split(':').map(Number); return (h || 0) * 3600 + (m || 0) * 60; };
-  const opts = () => ({ month: st.month, channels: st.channels, daypart: st.daypart, pt_start: sec(st.settings.pt_start), pt_end: sec(st.settings.pt_end), min_tvr: +st.settings.min_tvr, max_spots: +st.settings.max_spots,
+  const opts = () => ({ advertiser: st.advertiser || '', month: st.month, channels: st.channels, daypart: st.daypart, pt_start: sec(st.settings.pt_start), pt_end: sec(st.settings.pt_end), min_tvr: +st.settings.min_tvr, max_spots: +st.settings.max_spots,
     budget_basis: st.settings.budget_basis, objective: st.settings.objective, ratecard: RC.entries, use_card_nego: st.settings.use_card_nego !== false, match_min: +st.settings.match_min || 45, learned: st.learned, deals: st.deals, plan_deals: st.ours, current_basis: st.settings.current_basis, mappings: st.mappings, rates: st.rates, nego: st.nego, excluded: st.excluded });
   const loadXlsx = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((ok, no) => { const s = document.createElement('script'); s.src = '/js/vendor/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => no(new Error('The Excel library could not load.')); document.head.appendChild(s); }));
   const SHEET = { lmrb: 'LMRB sheet', tv: 'TVR sheet' };
@@ -246,13 +246,14 @@
 
   /* ================================================================ filters */
   function filters() {
-    const chs = (D && D.tvr_channels) || [], months = (D && D.months) || [], cur = D ? D.month : null;
-    $('#pt-filters').innerHTML = `<div class="pt-bar"><div class="field"><label for="pf-m">Month</label><select id="pf-m"><option value="all" ${cur === 'all' ? 'selected' : ''}>All months</option>${months.slice().reverse().map((m) => `<option ${m === cur ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
+    const chs = (D && D.tvr_channels) || [], months = (D && D.months) || [], cur = D ? D.month : null, advs = (D && D.advertisers) || [];
+    $('#pt-filters').innerHTML = `<div class="pt-bar"><div class="field"><label for="pf-a">Advertiser</label><select id="pf-a" style="max-width:240px"><option value="">All advertisers</option>${advs.map((a) => `<option value="${esc(a.name)}" ${a.name === st.advertiser ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label for="pf-m">Month</label><select id="pf-m"><option value="all" ${cur === 'all' ? 'selected' : ''}>All months</option>${months.slice().reverse().map((m) => `<option ${m === cur ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
       <div data-ms="pch"></div><div class="field"><label>Prime / non prime ${tip('PT')}</label><div class="seg" id="pf-dp">${[['all', 'All'], ['PT', 'Prime'], ['NPT', 'Non prime']].map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${st.daypart === k}">${l}</button>`).join('')}</div></div>
       <div class="field"><label>&nbsp;</label><button class="btn" type="button" id="pf-set">Settings</button></div></div>
-      <div class="muted small" style="margin-top:6px">Client: <b>${esc(((App.shell.client() || {}).name) || 'none selected')}</b>. Change the client in the left menu: each client keeps its own files, rates and match fixes. Only channels in the TVR sheet are evaluated.</div>`;
+      <div class="muted small" style="margin-top:6px">Client: <b>${esc(((App.shell.client() || {}).name) || 'none selected')}</b>. Change the client in the left menu: each client keeps its own files, rates and match fixes. Pick the <b>advertiser</b> to focus on: the current buy, the budgets and both evaluations are built from that advertiser's LMRB rows only. Only channels in the TVR sheet are evaluated.</div>`;
     const again = App.debounce(() => { save(); run(); }, 250);
     const m = App.filters.multi({ key: 'channels', label: 'Channel' }, chs, st, again); m.dataset.ms = 'pch'; $('[data-ms="pch"]').replaceWith(m);
+    $('#pf-a').onchange = (e) => { st.advertiser = e.target.value; st.evals = { current: {}, plan: {} }; save(); run(); };
     $('#pf-m').onchange = (e) => { st.month = e.target.value; save(); run(); };
     $$('#pf-dp button').forEach((b) => { b.onclick = () => { st.daypart = b.dataset.k; save(); run(); }; });
     $('#pf-set').onclick = settingsDialog;
@@ -277,7 +278,9 @@
     if (sheetOpen()) out.innerHTML = App.skeleton(3);
     let d; try { d = await App.data.pitchBuild({ options: opts() }); } catch (e) { out.innerHTML = App.emptyState('The evaluation could not be built', e.message); return; }
     if (my !== seq) return;
-    D = d; if (!st.month || st.month === 'null') st.month = d.month; filters(); warnings(); render();
+    D = d;
+    if (st.advertiser === undefined) { const cn = String(((App.shell.client() || {}).name) || '').toLowerCase(), hit = cn && (d.advertisers || []).find((a) => a.name.toLowerCase().includes(cn) || cn.includes(a.name.toLowerCase())); st.advertiser = hit ? hit.name : ''; save(); if (hit) { run(); return; } }
+    if (!st.month || st.month === 'null') st.month = d.month; filters(); warnings(); render();
   }
   function warnings() {
     const w = D.warnings, b = [];

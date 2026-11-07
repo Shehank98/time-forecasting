@@ -140,3 +140,18 @@ def test_our_plan_has_its_own_investment_discount_prime_and_bonus(data):
     assert all(c["neg30"] == pytest.approx(c["card30"] * 0.7) for c in ch["candidates"] if c["channel"] == "DERANA")
     # without our inputs the plan is as before
     assert run(d, {})["budgets"]["DERANA"] == pytest.approx(cur["DERANA"]["com_spend"]) and run(d, {})["plan_inputs"]["DERANA"]["source"] == "current buy"
+
+
+def test_evaluation_is_built_for_one_advertiser(data):
+    """Choosing an advertiser keeps only that advertiser's LMRB rows in the current buy; the list of advertisers is offered."""
+    p, *_ = data
+    allr = run(p, {"month": "all"})
+    advs = [a["name"] for a in allr["advertisers"]]
+    assert len(advs) >= 1 and allr["advertiser"] is None
+    one = run(p, {"month": "all", "advertiser": advs[0]})
+    assert one["advertiser"] == advs[0]
+    assert one["current"]["spend"] <= allr["current"]["spend"] + 1e-6
+    if len(advs) > 1:
+        assert one["current"]["spend"] < allr["current"]["spend"]
+    none = run(p, {"month": "all", "advertiser": "No Such Advertiser"})
+    assert none["empty"]
