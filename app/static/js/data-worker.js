@@ -4,7 +4,7 @@
  */
 /* global MR */
 importScripts('/js/vendor/xlsx.full.min.js', '/js/engine/core.js', '/js/engine/ingest.js', '/js/engine/filters.js', '/js/engine/analytics_tv.js',
-  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js', '/js/engine/negotiation.js', '/js/engine/spotlight.js', '/js/engine/executive.js', '/js/engine/tenure.js', '/js/engine/press.js', '/js/engine/mediaspend.js');
+  '/js/engine/analytics_lmrb.js', '/js/engine/analytics_kpi.js', '/js/engine/ingest_kpi.js', '/js/engine/joins.js', '/js/engine/series.js', '/js/engine/predict.js', '/js/engine/negotiation.js', '/js/engine/pitchalloc.js', '/js/engine/pitch.js', '/js/engine/spotlight.js', '/js/engine/executive.js', '/js/engine/tenure.js', '/js/engine/press.js', '/js/engine/mediaspend.js');
 
 const DB_NAME = 'media-radar', DB_VER = 1, MAX_CSV_ROWS = 1000000;
 let scope = null;                       // "u<user>:c<client>"
@@ -162,10 +162,10 @@ const OPS = {
   status,
   configure({ config }) { MR.configure(config); return true; },
 
-  async upload({ kind, file, mode }, progress) {
+  async upload({ kind, file, mode, colmap }, progress) {
     if (!scope) throw new MR.IngestError('Sign in and pick a client first.');
     progress(0, `Reading ${file.name}`);
-    const T = await MR.parseFile(kind, file, (p) => progress(Math.min(0.9, p * 0.9), `Reading ${file.name}`));
+    const T = await MR.parseFile(kind, file, (p) => progress(Math.min(0.9, p * 0.9), `Reading ${file.name}`), colmap);
     T.files = [file.name];
     let out = T, merged = null;
     const old = tables[kind];
@@ -281,6 +281,8 @@ const OPS = {
   },
   pressSummary({ options }) { const P = table('press'); return MR.pressSummary(P, MR.allIdx(P), options || {}); },
   pressContracts({ options }) { const P = table('press'); return MR.pressContracts(P, MR.allIdx(P), options || {}); },
+  peekHeaders({ kind, file }) { return MR.peekHeaders(kind, file); },
+  pitchBuild({ options }) { table('lmrb'); table('tv'); return MR.pitchBuild(tables.lmrb, MR.allIdx(tables.lmrb), tables.tv, options || {}); },
   mediaOptions() { table('lmrb'); return MR.mediaSpendOptions(tables.lmrb, tables.press); },
   mediaSpend({ options }) { table('lmrb'); const L = tables.lmrb, P = tables.press && tables.press.n ? tables.press : null; return MR.mediaSpend(L, MR.allIdx(L), P, P ? MR.allIdx(P) : null, options || {}); },
   sponsorshipLookup({ filters, options }) { table('lmrb'); const L = tables.lmrb; return MR.sponsorshipLookup(L, MR.applyFilters(L, 'lmrb', filters || {}), options || {}); },

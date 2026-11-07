@@ -36,7 +36,7 @@
           <span class="muted small">${App.fmt.num(total)} rows</span><span class="grow" style="flex:1"></span>
           <button class="btn sm" type="button" data-csv>Download CSV</button></div>
         <div class="tbl-scroll"><table class="tbl"><thead><tr>${cols.map((c) => `<th class="${c.num ? 'num' : ''}" ${c.sortable === false ? '' : `data-sort="${esc(c.key)}" tabindex="0"`} ${st.sort === c.key ? `aria-sort="${st.desc ? 'descending' : 'ascending'}"` : ''}>${esc(c.label)}</th>`).join('')}</tr></thead>
-        <tbody>${busy ? `<tr><td colspan="${cols.length}"><div class="skeleton" style="height:60px"></div></td></tr>` : view.length ? view.map((r) => `<tr>${cols.map((c) => {
+        <tbody>${busy ? `<tr><td colspan="${cols.length}"><div class="skeleton" style="height:60px"></div></td></tr>` : view.length ? view.map((r) => `<tr${cfg.rowClass && cfg.rowClass(r) ? ` class="${esc(cfg.rowClass(r))}"` : ''}>${cols.map((c) => {
           const v = r[c.key]; const inner = c.html ? c.html(v, r) : esc(c.fmt ? c.fmt(v, r) : v ?? '');
           return `<td class="${c.num ? 'num' : ''}">${inner}</td>`; }).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" class="muted" style="text-align:center;padding:24px">${esc(cfg.empty || 'No rows to show')}</td></tr>`}</tbody></table></div>
         <div class="pager"><span class="muted small">Page ${st.page} of ${pages}</span><span class="row"><button class="btn sm" data-prev ${st.page <= 1 ? 'disabled' : ''}>Previous</button><button class="btn sm" data-next ${st.page >= pages ? 'disabled' : ''}>Next</button></span></div>`;

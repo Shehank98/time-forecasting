@@ -797,3 +797,13 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .sy-tbl .sy-sub td { font-weight: 700; background: var(--surface-2, rgba(127, 127, 160, .12)); border-top: 1px solid var(--line, rgba(127, 127, 160, .3)); }
 .pr-dates { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .pr-dates .chip { font-size: 12px; }
+
+/* Client Pitch Evaluator */
+.home-card.c4 { --card-glow: rgba(34, 245, 166, .32); } .home-card.c4 .ic { color: var(--good); background: rgba(34, 245, 166, .1); border-color: rgba(34, 245, 166, .4); }
+.uploads.four { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.pt-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; align-items: end; }
+.pt-tabs { max-width: 100%; overflow-x: auto; flex-wrap: nowrap; } .pt-tabs button { white-space: nowrap; }
+.pt-hero { text-align: center; padding: 26px 18px; } .pt-sentence { font-family: var(--display); font-size: clamp(20px, 3.2vw, 32px); line-height: 1.25; margin-top: 8px; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.tbl tr.worst td { background: color-mix(in srgb, var(--bad) 14%, transparent); } .tbl tr.off td { opacity: .5; }
+.good-t { color: var(--good); font-weight: 700; } .bad-t { color: var(--bad); font-weight: 700; }
+.rt-in { width: 110px; max-width: 100%; text-align: right; }

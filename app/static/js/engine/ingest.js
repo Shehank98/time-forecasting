@@ -118,9 +118,11 @@
   const SCHEMA = { tv: { headers: TV_HEADERS, expected: TV_EXPECTED, required: TV_REQUIRED }, lmrb: { headers: LM_HEADERS, expected: LM_EXPECTED, required: LM_REQUIRED },
     press: { headers: PR_HEADERS, expected: PR_EXPECTED, required: PR_REQUIRED } };
 
+  let EXTRA = null;       // column choices made by the user for this upload: headerKey(text) -> field
   function mapHeader(kind, headerRow) {
     const sch = SCHEMA[kind], pos = {}, seen = new Set();
-    headerRow.forEach((h, i) => { const k = sch.headers[headerKey(h)]; if (k && !seen.has(k)) { pos[k] = i; seen.add(k); } });
+    if (EXTRA) headerRow.forEach((h, i) => { const k = EXTRA[headerKey(h)]; if (k && !seen.has(k)) { pos[k] = i; seen.add(k); } });
+    headerRow.forEach((h, i) => { const k = EXTRA && EXTRA[headerKey(h)] ? null : sch.headers[headerKey(h)]; if (k && !seen.has(k)) { pos[k] = i; seen.add(k); } });
     const missing = sch.expected.filter((c) => !(c in pos));
     const reqMissing = sch.required.filter((c) => !(c in pos));
     if (reqMissing.length) throw new IngestError(`Missing required columns: ${reqMissing.join(', ')}. Found: ${Object.keys(pos).join(', ') || 'none'}`);
@@ -299,12 +301,30 @@
   }
 
   /** Parse a TV or LMRB file into a columnar table. */
-  async function parseFile(kind, file, onProgress) {
+  async function parseFile(kind, file, onProgress, colmap) {
     const b = kind === 'tv' ? tvBuilder() : kind === 'press' ? pressBuilder() : lmrbBuilder();
-    const finder = headerFinder(new Set(Object.keys(SCHEMA[kind].headers)), (h) => b.header(h), (r) => b.row(r));
-    await readRows(file, (r) => finder.row(r), onProgress);
-    finder.end();
-    return b.finish(file.name);
+    const known = new Set(Object.keys(SCHEMA[kind].headers));
+    EXTRA = null;
+    if (colmap && Object.keys(colmap).length) { EXTRA = {}; for (const [field, text] of Object.entries(colmap)) if (text) { EXTRA[headerKey(text)] = field; known.add(headerKey(text)); } }
+    try {
+      const finder = headerFinder(known, (h) => b.header(h), (r) => b.row(r));
+      await readRows(file, (r) => finder.row(r), onProgress);
+      finder.end();
+      return b.finish(file.name);
+    } finally { EXTRA = null; }
+  }
+
+  /** First rows of a file, to let the user say which column is which when the automatic match is wrong. */
+  async function peekHeaders(kind, file) {
+    const rows = [], STOP = new Error('enough');
+    try { await readRows(file, (r) => { if (r.some((v) => String(v == null ? '' : v).trim() !== '')) rows.push(r); if (rows.length >= 30) throw STOP; }, () => {}); } catch (e) { if (e !== STOP) throw e; }
+    if (!rows.length) throw new IngestError('The file looks empty.');
+    const sch = SCHEMA[kind];
+    let bi = 0, best = -1;
+    rows.forEach((r, i) => { const hits = r.filter((v) => sch.headers[headerKey(v)]).length, texty = r.filter((v) => typeof v === 'string' && v.trim()).length; const sc = hits * 100 + texty; if (sc > best) { best = sc; bi = i; } });
+    const headers = rows[bi].map((v) => String(v == null ? '' : v).trim());
+    const guess = {}; headers.forEach((h, i) => { const k = sch.headers[headerKey(h)]; if (k && !(k in guess)) guess[k] = h; });
+    return { headers, guess, fields: sch.expected.map((k) => ({ key: k, required: sch.required.includes(k) })), sample: rows.slice(bi + 1, bi + 4).map((r) => r.map((v) => String(v == null ? '' : v))) };
   }
 
   /** Append a new table to the stored one and de-duplicate (same keys as a single file). */
@@ -318,5 +338,5 @@
     return { T, added, skipped: B.n - added };
   }
 
-  Object.assign(MR, { IngestError, CsvParser, readRows, headerFinder, parseFile, merge, MAX_XLSX_MB, SCHEMA });
+  Object.assign(MR, { IngestError, CsvParser, readRows, headerFinder, parseFile, peekHeaders, merge, MAX_XLSX_MB, SCHEMA });
 })(typeof self !== 'undefined' ? self : globalThis);

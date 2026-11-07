@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from ..core import workspace
-from ..services import export_executive, export_negotiation, export_press, export_spotlight, repo
+from ..services import export_executive, export_negotiation, export_pitch, export_press, export_spotlight, repo
 from ..services.store import Workspace
 
 log = logging.getLogger("app")
@@ -141,3 +141,45 @@ def press_pdf(req: PressReq, ws: Workspace = Depends(workspace)) -> Response:
                                                                         "dataset": str(req.meta.get("dataset") or "")[:200]}, ws.user_id)
     log.info("[press pdf] built %s (%d bytes) for client %s", fname, len(content), ws.client_id)
     return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})
+
+
+class PitchReq(BaseModel):
+    comparison: dict[str, Any]
+    current: dict[str, Any] = Field(default_factory=dict)
+    plan: dict[str, Any] = Field(default_factory=dict)
+    warnings: dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
+    month: str | None = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+def _pitch_file(req: PitchReq, ws: Workspace, ext: str) -> Response:
+    if not (req.comparison.get("current") and req.comparison.get("plan")):
+        raise HTTPException(422, "There is no comparison to report yet. Upload the sheets and add rates first.")
+    client = repo.get_client(ws.client_id) or {"name": "client"}
+    data = req.model_dump()
+    try:
+        if ext == "pdf":
+            content = export_pitch.build_pitch_pdf(data, client, repo.get_branding(), {"agency": repo.agency_logo(), "client": repo.client_logo(ws.client_id)})
+        else:
+            content = export_pitch.build_pitch_docx(data, client, repo.get_branding())
+    except Exception:
+        log.exception("Pitch %s failed", ext)
+        raise HTTPException(500, "The pitch report could not be built. Try fewer channels.") from None
+    name = re.sub(r"[^A-Za-z0-9]+", "_", (req.meta.get("client") or client.get("name") or "client")).strip("_")[:40] or "client"
+    fname = f"{name}_pitch_evaluation_{dt.datetime.now().strftime('%Y%m%d_%H%M')}.{ext}"
+    rid = repo.save_report(ws.client_id, "lmrb", ext, fname, content, {"kind": "pitch", "format": ext, "title": "Client pitch evaluation"}, ws.user_id)
+    log.info("[pitch %s] built %s (%d bytes) for client %s", ext, fname, len(content), ws.client_id)
+    mt = "application/pdf" if ext == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return Response(content, media_type=mt, headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Report-Id": str(rid)})
+
+
+@router.post("/api/pitch/pdf")
+def pitch_pdf(req: PitchReq, ws: Workspace = Depends(workspace)) -> Response:
+    """Client pitch evaluation: current agency vs our plan, from the browser's numbers."""
+    return _pitch_file(req, ws, "pdf")
+
+
+@router.post("/api/pitch/docx")
+def pitch_docx(req: PitchReq, ws: Workspace = Depends(workspace)) -> Response:
+    return _pitch_file(req, ws, "docx")

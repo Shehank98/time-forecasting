@@ -10,6 +10,9 @@
     { kind: 'lmrb', href: '/lmrb.html', cls: 'c2', tag: 'Card 02', title: 'Market Prediction',
       text: 'Predict competitor spend and campaign bursts, spot volume, break clutter and position, share of voice and the cheapest rating points to buy.',
       icon: '<path d="M3 20h18"/><path d="M5 16l4-5 4 3 6-8"/><path d="M15 6h4v4"/>' },
+    { kind: 'pitch', href: '/pitch.html', cls: 'c4', tag: 'Card 04', title: 'Client Pitch Evaluator',
+      text: 'Show a prospect what their current agency bought, rate it against the TVR sheet, then show more GRPs and a lower cost per rating point for the same money at our rates.',
+      icon: '<path d="M4 19V9M10 19V5M16 19v-8M22 19H2"/><path d="M3 7l5-3 4 3 8-5"/>' },
     { kind: 'kpi', href: '/kpi.html', cls: 'c3', tag: 'Card 03', title: 'Client KPI Forecast',
       text: 'Any dated client data: leads, sales, traffic and search demand. Forecasts, CPL, CPA and CPRP, spend scenarios, pacing and demand peaks.',
       icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>' },
@@ -27,6 +30,7 @@
   function status(kind, st) {
     if (!st) return '<span class="muted">Checking this browser</span>';
     if (kind === 'kpi') return st.kpi.length ? `<span class="badge good">${st.kpi.length} dataset${st.kpi.length === 1 ? '' : 's'}</span> ${esc(st.kpi.map((x) => x.name).join(', '))}` : '<span class="muted">No data yet: upload once, it stays in this browser</span>';
+    if (kind === 'pitch') return st.lmrb && st.tv ? '<span class="badge good">Ready</span> LMRB and TVR sheets loaded' : st.lmrb || st.tv ? `<span class="badge">Needs the ${st.lmrb ? 'TVR' : 'LMRB'} sheet</span>` : '<span class="muted">Upload the LMRB and TVR sheets of the prospect</span>';
     const s = st[kind];
     return s ? `<span class="badge good">Ready</span> ${fmt.num(s.rows)} rows, ${esc(s.date_min)} to ${esc(s.date_max)}` : '<span class="muted">No data yet: upload once, it stays in this browser</span>';
   }
@@ -43,7 +47,7 @@
     if (!c) { App.shell.noClient(root); return; }
     $('#client-head').innerHTML = `<div class="row">${c.has_logo ? `<img src="/api/clients/${c.id}/logo" alt="" class="client-logo lg">` : `<span class="client-dot lg" style="background:${esc(c.brand_color)};color:${esc(c.brand_color)}"></span>`}<div><div class="eyebrow">Mission control</div><h1>${esc(c.name)}</h1></div></div>`;
     root.innerHTML = `<section class="hero"><h1>Which prediction do you need <span class="grad-text">today</span>?</h1></section>
-      <div class="home-cards two" id="cards">${CARDS.map((k, i) => `<a class="home-card ${k.cls}" href="${k.href}" data-i="${i}"><span class="tag">${k.tag}</span><div class="ic"><svg viewBox="0 0 24 24">${k.icon}</svg></div>
+      <div class="home-cards ${CARDS.length > 2 ? 'three' : 'two'}" id="cards">${CARDS.map((k, i) => `<a class="home-card ${k.cls}" href="${k.href}" data-i="${i}"><span class="tag">${k.tag}</span><div class="ic"><svg viewBox="0 0 24 24">${k.icon}</svg></div>
         <h2>${k.title}</h2><p>${k.text}</p>${wave(i + 1)}<div class="small" data-st="${k.kind}">${status(k.kind, null)}</div><span class="go">Open prediction <span aria-hidden="true">&rarr;</span></span></a>`).join('')}</div>
       <div class="grid g2" style="margin-top:24px">
         <div class="card"><div class="card-head"><div><h3>Saved forecasts</h3><div class="sub">Forecasts, scenario plans and pacing checks saved for ${esc(c.name)}</div></div></div><div id="h-fc">${App.skeleton(1)}</div></div>
