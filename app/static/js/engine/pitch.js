@@ -119,22 +119,48 @@
     return out;
   }
 
-  /** Card and negotiated 30 sec rate for a TVR programme. A rate typed for the programme beats the channel's prime / non prime rate. */
+  /** Card and negotiated 30 sec rate for a TVR programme.
+   *  Card rate: a rate typed for the programme, else the agency rate card (database) row that matches it, else the channel's prime / non prime rate.
+   *  Negotiation: a rule typed for the programme, else the channel's own rule, else the rate card row's negotiated rate (a discount, or a special rate), else the default rule.
+   *  A rate card row matches a TVR programme by channel + weekday + start time (within 15 minutes) first, then by name. */
   function rateResolver(o) {
-    const R = o.rates || {}, N = o.nego || {};
+    const R = o.rates || {}, N = o.nego || {}, byCh = new Map(), useCardNego = o.use_card_nego !== false, memo = new Map();
+    for (const r of o.ratecard || []) { if (!byCh.has(r.channel)) byCh.set(r.channel, []); byCh.get(r.channel).push(r); }
+    const days = (e) => { const mx = Math.max(...e.days); return e.days.map((c) => mx > 0 && c >= mx * 0.25); };
+    const cardRow = (e) => {
+      if (memo.has(e.key)) return memo.get(e.key);
+      const list = byCh.get(e.channel); let best = null, bs = 0;
+      if (list) {
+        const ds = days(e);
+        for (const r of list) {
+          const ns = sim(e.program, r.programme), timeOk = e.start >= 0 && r.start != null && Math.abs(r.start - e.start) <= 900 && ds.some((on, i) => on && r.mask[i] === '1');
+          const sc = timeOk ? 0.6 + 0.4 * ns : ns >= 0.85 ? 0.7 * ns : 0;
+          if (sc > bs) { bs = sc; best = r; }
+        }
+      }
+      const row = bs >= 0.6 ? best : null; memo.set(e.key, row); return row;
+    };
+    const typed = (e) => R.programmes && R.programmes[`${e.channel}|${e.program}`];
     const card = (e) => {
-      const p = R.programmes && R.programmes[`${e.channel}|${e.program}`];
+      const p = typed(e);
       if (p && p.rate > 0) return MR.pitchTo30(p.rate, p.secs);
+      const row = cardRow(e); if (row && row.rack30 > 0) return row.rack30;
       const c = R.channels && R.channels[e.channel], d = c && (e.pt ? c.pt : c.npt);
       return d && d.rate > 0 ? MR.pitchTo30(d.rate, d.secs) : null;
     };
-    const rule = (e) => (N.programmes && N.programmes[`${e.channel}|${e.program}`]) || (N.channels && N.channels[e.channel]) || N.default || null;
-    return { card, rule, neg: (e) => { const c = card(e), r = rule(e); const v = MR.pitchNegotiated(c, r); return v; } };
+    const source = (e) => { const p = typed(e); if (p && p.rate > 0) return 'typed'; const row = cardRow(e); if (row && row.rack30 > 0) return 'rate card'; const c = R.channels && R.channels[e.channel], d = c && (e.pt ? c.pt : c.npt); return d && d.rate > 0 ? 'channel rate' : null; };
+    const rule = (e) => {
+      const pr = N.programmes && N.programmes[`${e.channel}|${e.program}`]; if (pr && pr.mode) return pr;
+      const ch = N.channels && N.channels[e.channel]; if (ch && ch.mode) return ch;
+      const row = useCardNego ? cardRow(e) : null; if (row && row.neg_mode) return { mode: row.neg_mode, value: row.neg_value };
+      return N.default || null;
+    };
+    return { card, rule, source, row: cardRow, neg: (e) => MR.pitchNegotiated(card(e), rule(e)) };
   }
 
   /** opts: see the README. L/lidx: LMRB table and rows, V: TVR table. */
   function pitchBuild(L, lidx, V, opts) {
-    const o = { pt_start: 19 * 3600, pt_end: 22.5 * 3600, min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', month: null, channels: [], daypart: 'all', excluded: [], ...opts };
+    const o = { pt_start: 19 * 3600, pt_end: 22.5 * 3600, min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, ratecard: [], month: null, channels: [], daypart: 'all', excluded: [], ...opts };
     const cat = catalogue(V);
     cat.byKey.forEach((e) => { e.pt = isPT(e.start, o); });
     const tvrChannels = [...cat.byCh.keys()].sort(), inTvr = new Set(tvrChannels);
@@ -249,7 +275,7 @@
       if (!(chWanted.size ? chWanted.has(e.channel) : inTvr.has(e.channel))) return;
       const card30 = rr.card(e), neg30 = rr.neg(e), rule = rr.rule(e);
       ratesRows.push({ key: e.key, channel: e.channel, program: e.program, start: e.start_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', tvr: e.tvr, in_buy: paid.has(e.key), paid30: paid.get(e.key) ?? null,
-        card30, neg30, rule_mode: rule ? rule.mode : 'none', rule_value: rule ? rule.value : null, saving_pct: card30 > 0 && neg30 > 0 ? (1 - neg30 / card30) * 100 : null,
+        card30, neg30, card_src: rr.source(e), card_prog: rr.row(e) ? rr.row(e).programme : null, card_eff: rr.row(e) ? rr.row(e).effective_from : null, rule_mode: rule ? rule.mode : 'none', rule_value: rule ? rule.value : null, saving_pct: card30 > 0 && neg30 > 0 ? (1 - neg30 / card30) * 100 : null,
         saving_vs_paid_pct: paid.get(e.key) > 0 && neg30 > 0 ? (1 - neg30 / paid.get(e.key)) * 100 : null });
     });
 

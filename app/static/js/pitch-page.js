@@ -20,14 +20,14 @@
   const tip = (k) => (GLOSS[k] ? App.help(GLOSS[k][0], GLOSS[k][1], { howLabel: 'What it is' }) : '');
   const kpi = (l, v, s, g) => `<div class="kpi"><div class="k-lbl">${esc(l)} ${g ? tip(g) : ''}</div><div class="k-val">${v}</div>${s ? `<div class="k-sub">${s}</div>` : ''}</div>`;
   const KEY = () => 'pitch:' + App.clientId();
-  const DEF = () => ({ month: null, channels: [], daypart: 'all', tab: 'overview', settings: { pt_start: '19:00', pt_end: '22:30', min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp' },
+  const DEF = () => ({ month: null, channels: [], daypart: 'all', tab: 'overview', settings: { pt_start: '19:00', pt_end: '22:30', min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true },
     rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', builder: { rows: [] } });
-  let st = DEF(), D = null, root = null, status = null, seq = 0, tabTables = {};
+  let st = DEF(), D = null, root = null, status = null, seq = 0, tabTables = {}, RC = { entries: [], channels: [] };
   const load = () => { try { const v = App.store.get(KEY(), null); st = { ...DEF(), ...(v || {}), settings: { ...DEF().settings, ...((v || {}).settings || {}) } }; } catch (e) { st = DEF(); } };
   const save = () => { try { App.store.set(KEY(), st); } catch (e) { /* storage blocked */ } };
   const sec = (hm) => { const [h, m] = String(hm).split(':').map(Number); return (h || 0) * 3600 + (m || 0) * 60; };
   const opts = () => ({ month: st.month, channels: st.channels, daypart: st.daypart, pt_start: sec(st.settings.pt_start), pt_end: sec(st.settings.pt_end), min_tvr: +st.settings.min_tvr, max_spots: +st.settings.max_spots,
-    budget_basis: st.settings.budget_basis, objective: st.settings.objective, mappings: st.mappings, rates: st.rates, nego: st.nego, excluded: st.excluded });
+    budget_basis: st.settings.budget_basis, objective: st.settings.objective, ratecard: RC.entries, use_card_nego: st.settings.use_card_nego !== false, mappings: st.mappings, rates: st.rates, nego: st.nego, excluded: st.excluded });
   const loadXlsx = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((ok, no) => { const s = document.createElement('script'); s.src = '/js/vendor/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => no(new Error('The Excel library could not load.')); document.head.appendChild(s); }));
   const SHEET = { lmrb: 'LMRB sheet', tv: 'TVR sheet' };
   const TABS = [['overview', 'Spend overview'], ['basket', 'Current basket'], ['daypart', 'Daypart view'], ['plan', 'Our recommended basket'], ['build', 'Build evaluation'], ['compare', 'Comparison'], ['export', 'Export'], ['matches', 'Review matches'], ['rates', 'Rates and negotiation']];
@@ -55,10 +55,10 @@
     $('#pt-src').innerHTML = `<div class="card-head"><div><h3>Data sources</h3><div class="sub">Each file is kept in this browser for this client, so it is still here next time. Upload several months to compare them; the latest month is shown first. TV only.</div></div>
         <button class="btn" type="button" id="pt-sample">Load sample data</button></div>
       <div class="uploads four">${slot('lmrb')}${slot('tv')}
-        <div class="up-slot ${st.rates_file ? 'loaded' : ''}" data-kind="rates"><div class="up-t">Rate card file</div><div class="up-meta">${st.rates_file ? esc(st.rates_file) + `<br><span class="muted small">${fmt.num(nProg)} programme rates</span>` : 'Columns: Channel, Programme, Rate, Seconds. Rates for 10 or 15 sec are converted to 30 sec.'}</div>
-          <div class="row" style="gap:6px;margin-top:8px"><button class="btn sm" type="button" id="pt-ratefile">${st.rates_file ? 'Replace' : 'Choose file'}</button><button class="btn sm" type="button" id="pt-tpl">Template</button></div><input type="file" accept=".csv,.xlsx,.xls" hidden id="pt-ratein"></div>
-        <div class="up-slot ${nProg + nChan ? 'loaded' : ''}" data-kind="manual"><div class="up-t">Manual rate input</div><div class="up-meta">Type a 30 sec rate where the rate card has none: for one programme, or one prime / non prime rate for a whole channel.<br><span class="muted small">${fmt.num(nProg)} programme rates, ${fmt.num(nChan)} channel rates saved</span></div>
-          <div class="row" style="gap:6px;margin-top:8px"><button class="btn sm primary" type="button" id="pt-addrate">Add a rate</button><button class="btn sm" type="button" id="pt-paste">Paste from Excel</button></div></div></div>`;
+        <div class="up-slot ${RC.entries.length ? 'loaded' : ''}" data-kind="rc"><div class="up-t">Rate card (agency database)</div><div class="up-meta">${RC.entries.length ? `${fmt.num(RC.entries.length)} programme rates, ${RC.channels.length} channels<br><span class="muted small">${esc(RC.channels.map((c) => `${tt(c.channel)} ${c.effective_from}`).join(' · '))}</span>` : 'No rate card in the database yet. An admin can import the agency rate card workbook.'}</div>
+          <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${isAdmin() ? '<button class="btn sm primary" type="button" id="pt-rcimp">Import rate card sheet</button>' : ''}<button class="btn sm" type="button" id="pt-rcver">Channels and versions</button></div></div>
+        <div class="up-slot ${nProg + nChan ? 'loaded' : ''}" data-kind="manual"><div class="up-t">Manual rate input</div><div class="up-meta">Type a 30 sec rate where the rate card has none: for one programme, or one prime / non prime rate for a whole channel. A typed rate beats the rate card.<br><span class="muted small">${fmt.num(nProg)} programme rates, ${fmt.num(nChan)} channel rates saved${st.rates_file ? ' (file: ' + esc(st.rates_file) + ')' : ''}</span></div>
+          <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm primary" type="button" id="pt-addrate">Add a rate</button><button class="btn sm" type="button" id="pt-paste">Paste from Excel</button><button class="btn sm" type="button" id="pt-ratefile">Rates file</button><button class="btn sm" type="button" id="pt-tpl">Template</button></div><input type="file" accept=".csv,.xlsx,.xls" hidden id="pt-ratein"></div></div>`;
     $$('#pt-src .up-slot[data-kind=lmrb], #pt-src .up-slot[data-kind=tv]').forEach((el) => {
       const k = el.dataset.kind, inp = $('input[type=file]', el); let mode = 'replace';
       $$('[data-pick]', el).forEach((b) => { b.onclick = (e) => { e.stopPropagation(); mode = b.dataset.pick; inp.click(); }; });
@@ -72,6 +72,27 @@
     $('#pt-ratein').onchange = (e) => { if (e.target.files[0]) importRates(e.target.files[0]); e.target.value = ''; };
     $('#pt-tpl').onclick = () => App.download(new Blob(['﻿Channel,Programme,Rate,Seconds\nDERANA,HUSMAK LAGIN,1092000,30\nHIRU,HIRU MORNING,40000,10\n'], { type: 'text/csv' }), 'rates_template.csv');
     $('#pt-addrate').onclick = addRateDialog; $('#pt-paste').onclick = pasteDialog; $('#pt-sample').onclick = loadSample;
+    $('#pt-rcver').onclick = versionsDialog; if ($('#pt-rcimp')) $('#pt-rcimp').onclick = importRateCardDialog;
+  }
+  const isAdmin = () => !!(App.shell.me && App.shell.me.user && App.shell.me.user.is_admin);
+  async function refreshRC() { try { RC = await App.api.get('/api/ratecards/current'); } catch (e) { RC = { entries: [], channels: [] }; } }
+  function importRateCardDialog() {
+    const m = App.modal('Import the agency rate card', `<p class="small muted">Choose the rate card workbook (.xlsx): one tab per channel with Programme, Day/s, Start, End and Rack Rate 30 Sec (a 10 sec rate is multiplied by 3). In the Negosiated Rate column a formula such as rack x 27% is saved as a discount rate (73% off); a typed number is saved as a special rate for that programme. Tabs with a date in their title ("Effective: 2026.08.07") keep it; a new date adds a version, the same date replaces it.</p>
+      <div class="grid g2"><div class="field"><label for="rc-eff">Effective date for tabs that do not give one</label><input id="rc-eff" type="date" value="${new Date().toISOString().slice(0, 10)}"></div><div class="field"><label for="rc-file">Workbook</label><input id="rc-file" type="file" accept=".xlsx"></div></div><div id="rc-out" style="margin-top:10px"></div>`);
+    $('#rc-file', m).onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return; const out = $('#rc-out', m); out.innerHTML = App.skeleton(1);
+      try {
+        const r = await fetch(`/api/ratecards/import?filename=${encodeURIComponent(f.name)}&effective=${encodeURIComponent($('#rc-eff', m).value || '')}`, { method: 'POST', body: await f.arrayBuffer(), headers: { 'X-Requested-With': 'fetch', 'Content-Type': 'application/octet-stream' } });
+        const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'The import failed.');
+        out.innerHTML = `<div class="banner good"><span>${fmt.num(j.rows)} programme rates imported.</span></div><div class="tbl-scroll"><table class="tbl"><thead><tr><th>Channel</th><th>Effective</th><th class="num">Programmes</th><th class="num">Discount rates</th><th class="num">Special rates</th></tr></thead><tbody>${j.imported.map((d) => `<tr><td>${esc(tt(d.channel))}</td><td>${esc(d.effective_from)}${d.dated ? '' : ' <span class="muted small">(no date in the sheet)</span>'}</td><td class="num">${d.rows}</td><td class="num">${d.discount_rows}</td><td class="num">${d.special_rows}</td></tr>`).join('')}</tbody></table></div>${j.warnings.map((w) => `<div class="banner"><span>${esc(w)}</span></div>`).join('')}`;
+        await refreshRC(); sources(); run();
+      } catch (err) { out.innerHTML = `<div class="banner bad"><span>${esc(err.message)}</span></div>`; }
+    };
+  }
+  async function versionsDialog() {
+    let sm; try { sm = await App.api.get('/api/ratecards/summary'); } catch (e) { App.toast(e.message, 'error'); return; }
+    const m = App.modal('Rate card: channels and versions', sm.channels.length ? `<p class="small muted">The newest version of each channel is used. Rates for the programmes are matched to the TVR programmes by channel, day and start time, then by name.</p><div class="tbl-scroll"><table class="tbl"><thead><tr><th>Channel</th><th>Effective</th><th class="num">Programmes</th><th class="num">Discount</th><th class="num">Special</th><th>File</th>${isAdmin() ? '<th></th>' : ''}</tr></thead><tbody>${sm.channels.flatMap((c) => c.versions.map((v, i) => `<tr><td>${i ? '' : '<b>' + esc(tt(c.channel)) + '</b>'}</td><td>${esc(v.effective_from)}${i ? '' : ' <span class="badge good">in use</span>'}</td><td class="num">${v.rows}</td><td class="num">${v.discount_rows}</td><td class="num">${v.special_rows}</td><td class="small">${esc(v.source || '')}</td>${isAdmin() ? `<td><button class="btn sm ghost danger" type="button" data-ch="${esc(c.channel)}" data-ef="${esc(v.effective_from)}">Delete</button></td>` : ''}</tr>`)).join('')}</tbody></table></div>` : '<p>No rate card has been imported yet.</p>');
+    m.onclick = async (e) => { const b = e.target.closest('[data-ch]'); if (!b || !confirm(`Delete the ${b.dataset.ch} rate card of ${b.dataset.ef}?`)) return; try { await App.api.del(`/api/ratecards?channel=${encodeURIComponent(b.dataset.ch)}&effective_from=${encodeURIComponent(b.dataset.ef)}`); m.close(); await refreshRC(); sources(); run(); } catch (err) { App.toast(err.message, 'error'); } };
   }
   async function refreshStatus() { status = await App.data.status(); sources(); }
   async function upload(k, file, mode, el, colmap) {
@@ -183,9 +204,10 @@
     const s = st.settings;
     const m = App.modal('Settings', `<div class="grid g2"><div class="field"><label>Prime time starts ${tip('PT')}</label><input id="se-p0" type="time" value="${esc(s.pt_start)}"></div><div class="field"><label>Prime time ends</label><input id="se-p1" type="time" value="${esc(s.pt_end)}"></div>
       <div class="field"><label>Minimum TVR for our plan</label><input id="se-tvr" type="number" min="0" step="0.1" value="${esc(s.min_tvr)}"></div><div class="field"><label>Most spots per episode in our plan</label><input id="se-ms" type="number" min="1" step="1" value="${esc(s.max_spots)}"></div>
+      <div class="field"><label class="row" style="gap:6px"><input type="checkbox" id="se-cn" ${s.use_card_nego !== false ? 'checked' : ''}> Use the negotiated rates stored in the rate card</label><div class="small muted">A programme or channel rule you set yourself always wins. Without it, the rate card's discount or special rate is used, then the default rule.</div></div>
       <div class="field"><label>Our plan is compared with</label><select id="se-b"><option value="com" ${s.budget_basis === 'com' ? 'selected' : ''}>Programme basket only (commercial spots)</option><option value="all" ${s.budget_basis === 'all' ? 'selected' : ''}>All exposure (commercial + sponsorship items)</option></select></div></div>
       <p class="small muted">Budget per channel = what the current agency spent on that channel (same basis as the choice above). Tax (VAT, SSCL) is not included anywhere.</p><div class="row" style="margin-top:10px"><button class="btn primary" id="se-go" type="button">Save</button></div>`);
-    $('#se-go', m).onclick = () => { Object.assign(st.settings, { pt_start: $('#se-p0', m).value || '19:00', pt_end: $('#se-p1', m).value || '22:30', min_tvr: +$('#se-tvr', m).value || 0, max_spots: Math.max(1, +$('#se-ms', m).value || 1), budget_basis: $('#se-b', m).value }); save(); m.close(); run(); };
+    $('#se-go', m).onclick = () => { Object.assign(st.settings, { pt_start: $('#se-p0', m).value || '19:00', pt_end: $('#se-p1', m).value || '22:30', min_tvr: +$('#se-tvr', m).value || 0, max_spots: Math.max(1, +$('#se-ms', m).value || 1), budget_basis: $('#se-b', m).value, use_card_nego: $('#se-cn', m).checked }); save(); m.close(); run(); };
   }
 
   /* ================================================================ run */
@@ -199,6 +221,7 @@
   }
   function warnings() {
     const w = D.warnings, b = [];
+    if (!RC.entries.length) b.push('No agency rate card is in the database yet. An admin can import the rate card workbook in Data sources; until then rates come from what you type.');
     if (w.no_medium) b.push('This LMRB sheet was loaded before TV and radio were separated, so radio rows may be counted. Upload it again for a clean TV-only view.');
     if (w.unmatched_programmes) b.push(`${w.unmatched_programmes} LMRB programme${w.unmatched_programmes === 1 ? '' : 's'} (LKR ${fmt.num(w.unmatched_spend)}) could not be matched to a TVR programme and ${w.unmatched_programmes === 1 ? 'is' : 'are'} left out of the TVR numbers. Fix them in <b>Review matches</b>.`);
     if (w.missing_rate_programmes) b.push(`${w.missing_rate_programmes} programme${w.missing_rate_programmes === 1 ? '' : 's'} you bought (LKR ${fmt.num(w.missing_rate_spend)}) have no rate card rate, so ROI leaves them out. Add rates in <b>Rates and negotiation</b>.`);
@@ -459,11 +482,11 @@
     const chs = D.tvr_channels, R = st.rates, N = st.nego;
     const chanRow = (ch) => { const c = R.channels[ch] || {}, rule = N.channels[ch] || {}; const inp = (b, k, v) => `<input class="rt-in" type="number" min="0" step="any" data-ch="${esc(ch)}" data-b="${b}" data-k="${k}" value="${v == null ? '' : esc(v)}" aria-label="${esc(ch)} ${b} ${k}">`;
       return `<tr><td><b>${esc(tt(ch))}</b></td><td>${inp('pt', 'rate', (c.pt || {}).rate)}</td><td>${inp('pt', 'secs', (c.pt || {}).secs || 30)}</td><td>${inp('npt', 'rate', (c.npt || {}).rate)}</td><td>${inp('npt', 'secs', (c.npt || {}).secs || 30)}</td>
-        <td><select class="rt-ng" data-ch="${esc(ch)}" data-k="mode">${[['', 'Channel default'], ['none', 'No negotiation'], ['discount', 'Discount % off card'], ['flat', 'Flat 30 sec rate']].map(([v, l]) => `<option value="${v}" ${(rule.mode || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
+        <td><select class="rt-ng" data-ch="${esc(ch)}" data-k="mode">${[['', 'Rate card / default'], ['none', 'No negotiation'], ['discount', 'Discount % off card']].map(([v, l]) => `<option value="${v}" ${(rule.mode || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
         <td><input class="rt-ng" type="number" min="0" step="any" data-ch="${esc(ch)}" data-k="value" value="${rule.value == null ? '' : esc(rule.value)}" aria-label="${esc(ch)} negotiation value"></td></tr>`; };
     const d = N.default || { mode: 'none', value: 0 };
-    out.innerHTML = card('Rates and negotiation', `Card rates can be typed per programme (table below), or once per channel for prime and non prime time. A rate typed for 10 or 15 seconds is converted to 30 seconds. Then pick how we negotiate: a discount % off the card, a flat 30 sec rate, or a special rate for one programme. ${tip('30s')}`,
-      `<div class="pt-bar"><div class="field"><label>Default negotiation (all channels)</label><select id="rt-dm">${[['none', 'No negotiation (card rate)'], ['discount', 'Discount % off card'], ['flat', 'Flat 30 sec rate']].map(([v, l]) => `<option value="${v}" ${d.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    out.innerHTML = card('Rates and negotiation', `Card rates can be typed per programme (table below), or once per channel for prime and non prime time. A rate typed for 10 or 15 seconds is converted to 30 seconds. Then pick how we negotiate: a discount % off the card (rate card discounts, such as 73%, mean you pay 27% of the rack rate), or a special 30 sec rate for one programme. ${tip('30s')}`,
+      `<div class="pt-bar"><div class="field"><label>Default negotiation (all channels)</label><select id="rt-dm">${[['none', 'No negotiation (card rate)'], ['discount', 'Discount % off card']].map(([v, l]) => `<option value="${v}" ${d.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         <div class="field"><label>Value (% or LKR)</label><input id="rt-dv" type="number" min="0" step="any" value="${esc(d.value || 0)}"></div><div class="field"><label>&nbsp;</label><button class="btn" type="button" id="rt-add">Add a rate</button></div></div>
       <h4 style="margin:14px 0 6px">Channel rates (30 sec equivalent is worked out)</h4><div class="tbl-scroll"><table class="tbl"><thead><tr><th>Channel</th><th class="num">Prime rate</th><th class="num">Prime: for secs</th><th class="num">Non prime rate</th><th class="num">Non prime: for secs</th><th>Negotiation</th><th class="num">Value</th></tr></thead><tbody>${chs.map(chanRow).join('')}</tbody></table></div>
       <h4 style="margin:18px 0 6px">Programme rates</h4><div class="row" style="gap:14px;margin-bottom:8px"><label class="row small" style="gap:4px"><input type="checkbox" id="rt-ob" ${st.only_buy ? 'checked' : ''}> Only programmes in the current buy</label><label class="row small" style="gap:4px"><input type="checkbox" id="rt-om" ${st.only_missing ? 'checked' : ''}> Only programmes without a card rate</label></div><div id="rt-a"></div>`);
@@ -481,8 +504,8 @@
       { key: 'pr', label: 'Programme (TVR name)' }, { key: 'ch', label: 'Channel' }, { key: 'start', label: 'Starts' }, { key: 'daypart', label: 'Daypart' }, { key: 'tvr', label: 'TVR', num: true, fmt: n2 },
       { key: 'pr_rate', label: 'Card rate (type here)', num: true, html: (v, r) => `<input class="rt-in" type="number" min="0" step="any" data-pk="${esc(r.k)}" data-w="rate" value="${v == null ? '' : esc(v)}" aria-label="Card rate for ${esc(r.pr)}">` },
       { key: 'pr_secs', label: 'For secs', num: true, html: (v, r) => `<select data-pk="${esc(r.k)}" data-w="secs" aria-label="Seconds">${[10, 15, 20, 30, 45, 60].map((s) => `<option ${s === +v ? 'selected' : ''}>${s}</option>`).join('')}</select>` },
-      { key: 'card30', label: 'Card 30 sec rate', num: true, fmt: n0 },
-      { key: 'ng_mode', label: 'Negotiation', html: (v, r) => `<select data-pk="${esc(r.k)}" data-w="mode" aria-label="Negotiation for ${esc(r.pr)}">${[['', 'Channel / default'], ['discount', 'Discount %'], ['special', 'Special 30 sec rate']].map(([x, l]) => `<option value="${x}" ${v === x ? 'selected' : ''}>${l}</option>`).join('')}</select>` },
+      { key: 'card30', label: 'Card 30 sec rate', num: true, fmt: n0 }, { key: 'card_src', label: 'Rate from', html: (v, r) => (v ? `<span title="${esc(r.card_prog ? 'Rate card: ' + r.card_prog + ' (' + (r.card_eff || '') + ')' : '')}">${esc(v)}${r.card_prog ? ` <span class="muted small">${esc(tt(r.card_prog))}</span>` : ''}</span>` : '<span class="muted">no rate</span>') },
+      { key: 'ng_mode', label: 'Negotiation', html: (v, r) => `<select data-pk="${esc(r.k)}" data-w="mode" aria-label="Negotiation for ${esc(r.pr)}">${[['', 'Rate card / channel'], ['discount', 'Discount %'], ['special', 'Special 30 sec rate']].map(([x, l]) => `<option value="${x}" ${v === x ? 'selected' : ''}>${l}</option>`).join('')}</select>` },
       { key: 'ng_val', label: 'Value', num: true, html: (v, r) => `<input class="rt-in" type="number" min="0" step="any" data-pk="${esc(r.k)}" data-w="value" value="${v == null ? '' : esc(v)}" aria-label="Negotiation value for ${esc(r.pr)}">` },
       { key: 'neg30', label: 'Negotiated 30 sec', num: true, fmt: n0 }, { key: 'paid30', label: 'Effective: agency paid', num: true, fmt: n0 }, { key: 'saving_pct', label: 'Saving vs card', num: true, fmt: pc }, { key: 'saving_vs_paid_pct', label: 'Saving vs agency', num: true, fmt: pc }] });
   }
@@ -492,7 +515,7 @@
     root = $('#ws'); load(); App.loader.show('Initialising', 'Opening your data vault in this browser');
     App.shell.init('pitch').then(async () => {
       if (!App.clientId()) { App.loader.hide(0); App.shell.noClient(root); return; }
-      try { await App.data.open(); status = await App.data.status(); load(); shell(); sources(); filters(); await run(); } catch (e) { root.innerHTML = App.emptyState('Could not open the data vault', e.message); }
+      try { await App.data.open(); status = await App.data.status(); await refreshRC(); load(); shell(); sources(); filters(); await run(); } catch (e) { root.innerHTML = App.emptyState('Could not open the data vault', e.message); }
       App.loader.hide(0);
     });
   }

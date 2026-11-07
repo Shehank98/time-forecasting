@@ -10,7 +10,7 @@ import os
 import threading
 from pathlib import Path
 
-from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Integer, LargeBinary, MetaData, String, Table, Text,
+from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, MetaData, String, Table, Text,
                         UniqueConstraint, create_engine, event, func)
 from sqlalchemy.engine import Engine
 
@@ -111,6 +111,28 @@ reports = Table(
     Column("content", LargeBinary, nullable=False),
     Column("size", Integer, nullable=False, default=0),
     Column("request", Text, nullable=False, default="{}"),
+    Column("created_by", Integer, ForeignKey("users.id", ondelete="SET NULL")),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+)
+
+rate_cards = Table(
+    "rate_cards", metadata,                                   # agency-wide TV rack rate cards, one row per programme, versioned by effective date
+    Column("id", Integer, primary_key=True),
+    Column("channel", String(100), nullable=False, index=True),
+    Column("effective_from", String(10), nullable=False),     # YYYY-MM-DD
+    Column("programme", String(300), nullable=False),
+    Column("band", String(40), nullable=False, default=""),   # PT / NPT / PT - A as written in the sheet
+    Column("days", String(60), nullable=False, default=""),
+    Column("day_mask", String(7), nullable=False, default="1111111"),   # Mon..Sun, 1 = airs
+    Column("start_sec", Integer),
+    Column("end_sec", Integer),
+    Column("rating", Float),
+    Column("rack30", Float, nullable=False),                  # rack rate for 30 seconds
+    Column("rack10", Float),
+    Column("neg_mode", String(12)),                           # discount | special | NULL
+    Column("neg_value", Float),                               # discount % off rack, or the special 30 sec rate
+    Column("neg_rate", Float),                                # the negotiated 30 sec rate as the sheet works it out
+    Column("source", String(300), nullable=False, default=""),
     Column("created_by", Integer, ForeignKey("users.id", ondelete="SET NULL")),
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
 )
