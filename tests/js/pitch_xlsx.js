@@ -4,7 +4,7 @@
 const { load, fileOf } = require('./load.js');
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const MR = load();
-for (const f of ['pitchalloc.js', 'pitch.js']) vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../../app/static/js/engine', f), 'utf8'));
+for (const f of ['pitchalloc.js', 'pitchmatch.js', 'pitch.js']) vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../../app/static/js/engine', f), 'utf8'));
 globalThis.window = globalThis; globalThis.App = {};
 vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../../app/static/js/pitch-xlsx.js'), 'utf8'));
 (async () => {
