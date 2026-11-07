@@ -155,3 +155,18 @@ def test_evaluation_is_built_for_one_advertiser(data):
         assert one["current"]["spend"] < allr["current"]["spend"]
     none = run(p, {"month": "all", "advertiser": "No Such Advertiser"})
     assert none["empty"]
+
+
+def test_current_basket_rows_follow_the_lmrb_programme_and_duration(data):
+    """One row per LMRB programme and duration: the spot count is the sheet's, and the rates are given at that duration."""
+    p, lm, _ = data
+    r = run(p, {"month": "all"})
+    rows = r["current"]["rows"]
+    keys = {(x["key"], x["lmrb_program"], x["dur"]) for x in rows}
+    assert len(keys) == len(rows)
+    for x in rows:
+        assert x["avg_rate"] == pytest.approx(x["cost"] / x["spots"])
+        if x["card_rate"]:
+            assert x["card_rate"] == pytest.approx(x["card30"] * x["dur"] / 30)
+        if x["neg_rate"]:
+            assert x["neg_rate"] == pytest.approx(x["neg30"] * x["dur"] / 30)

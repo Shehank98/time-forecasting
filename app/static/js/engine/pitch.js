@@ -252,13 +252,14 @@
       }
       if (!e) { const u = unmatched.get(g ? g.key : ch) || { channel: ch, lmrb_program: g ? g.lmrb_program : '', spots: 0, spend: 0, ignored: g && g.method === 'ignored' }; u.spots++; u.spend += cost; unmatched.set(g ? g.key : ch, u); continue; }
       if (o.daypart !== 'all' && (o.daypart === 'PT') !== e.pt) continue;
-      let p = prog.get(e.key);
-      if (!p) prog.set(e.key, (p = { e, spots: 0, eq30: 0, cost: 0, dur_sum: 0 }));
+      const pk = `${e.key}|${g.lmrb_program}|${dur}`;      // one row per LMRB programme and duration, so the spot count is the one in the sheet
+      let p = prog.get(pk);
+      if (!p) prog.set(pk, (p = { e, lmrb: g.lmrb_program, dur, spots: 0, eq30: 0, cost: 0, dur_sum: 0 }));
       p.spots++; p.eq30 += eq; p.cost += cost; p.dur_sum += dur;
     }
     const rows = [...prog.values()].map((p) => {
       const e = p.e, card30 = rr.card(e), neg30 = rr.neg(e), avg30 = div(p.cost, p.eq30), grp = e.tvr * p.spots, ngrp = e.tvr * p.eq30;
-      return { key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, spots: p.spots, eq30: p.eq30, avg_dur: p.dur_sum / p.spots, cost: p.cost, cost_lmrb: p.cost,
+      return { key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, lmrb_program: p.lmrb, dur: p.dur, spots: p.spots, eq30: p.eq30, avg_dur: p.dur_sum / p.spots, cost: p.cost, avg_rate: div(p.cost, p.spots), card_rate: card30 > 0 ? (card30 * p.dur) / 30 : null, neg_rate: neg30 > 0 ? (neg30 * p.dur) / 30 : null, cost_lmrb: p.cost,
         avg30, tvr: e.tvr, airings: e.n, grp, ngrp, cprp: div(p.cost, ngrp), card30, neg30, value: card30 > 0 ? card30 * p.eq30 : null, rated: card30 > 0, zero_tvr: !(e.tvr > 0),
         card_src: rr.source(e), card_prog: rr.row(e) ? rr.row(e).programme : null, card_eff: rr.row(e) ? rr.row(e).effective_from : null };
     }).sort((a, b) => b.cost - a.cost);
@@ -356,7 +357,7 @@
       planInputs[ch] = { ...(pd || {}), commercial_budget: budgets[ch], source: pd && pd.investment ? 'entered' : o.budget_basis === 'deal' && dealOf(ch) && dealOf(ch).investment ? 'current deal' : 'current buy', card_value: rv, bonus_allowed: pd && pd.bonus_pct ? (pd.bonus_pct / 100) * rv : 0 }; }
 
     // rates table (every TVR programme on the evaluated channels, with what the current agency paid)
-    const paid = new Map(); for (const r of rows) paid.set(r.key, r.avg30);
+    const paid = new Map(), pw = new Map(); for (const r of rows) { const a = pw.get(r.key) || [0, 0]; a[0] += r.cost; a[1] += r.eq30; pw.set(r.key, a); } pw.forEach((a, k) => paid.set(k, div(a[0], a[1])));
     const ratesRows = [];
     cat.byKey.forEach((e) => {
       if (!(chWanted.size ? chWanted.has(e.channel) : inTvr.has(e.channel))) return;
