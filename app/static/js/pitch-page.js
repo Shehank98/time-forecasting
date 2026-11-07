@@ -30,16 +30,72 @@
     budget_basis: st.settings.budget_basis, objective: st.settings.objective, ratecard: RC.entries, use_card_nego: st.settings.use_card_nego !== false, match_min: +st.settings.match_min || 45, learned: st.learned, deals: st.deals, current_basis: st.settings.current_basis, mappings: st.mappings, rates: st.rates, nego: st.nego, excluded: st.excluded });
   const loadXlsx = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((ok, no) => { const s = document.createElement('script'); s.src = '/js/vendor/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => no(new Error('The Excel library could not load.')); document.head.appendChild(s); }));
   const SHEET = { lmrb: 'LMRB sheet', tv: 'TVR sheet' };
-  const TABS = [['overview', 'Spend overview'], ['basket', 'Current basket'], ['invest', 'Investment and discount'], ['daypart', 'Daypart view'], ['plan', 'Our recommended basket'], ['build', 'Build evaluation'], ['compare', 'Comparison'], ['export', 'Export'], ['matches', 'Review matches'], ['rates', 'Rates and negotiation']];
+  const IC = {
+    overview: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', basket: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/>', invest: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5c0-1 1-1.5 2.5-1.5s2.5.6 2.5 1.7-1 1.5-2.5 1.8-2.5.7-2.5 1.8 1 1.7 2.5 1.7 2.5-.5 2.5-1.5"/>',
+    daypart: '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>', plan: '<path d="M3 17l6-6 4 4 8-9"/><path d="M15 6h6v6"/>', build: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
+    compare: '<path d="M7 4v16M17 4v16"/><path d="M3 9h8M13 15h8"/>', export: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 20h16"/>', matches: '<path d="M8 6h11M8 12h11M8 18h11"/><path d="M3.5 6l1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/>',
+    rates: '<path d="M20 12l-8 8-9-9V4h7z"/><circle cx="8" cy="8" r="1.4"/>',
+  };
+  const GROUPS = [
+    ['The current buy', 'What the prospect\'s agency bought, what it was worth and what it really cost.', [['overview', 'Spend overview', 'Monthly spend by channel, the sponsorship split and how each channel moved.'], ['basket', 'Current basket', 'Every programme bought: spots, rate, TVR, GRPs and cost per rating point. The worst are shaded.'],
+      ['invest', 'Investment and discount', 'Their spend estimated at rate card, the real investment you know, and the discount that follows, with the evidence.'], ['daypart', 'Daypart view', 'Prime and non prime time: TVR, rate and cost per rating point for every channel.']]],
+    ['Our plan', 'Same money, our rates.', [['plan', 'Our recommended basket', 'The programmes to buy for each channel budget, best value first. Switch any programme off and see the totals change.'], ['build', 'Build evaluation', 'Make your own evaluation in the agency format, or let the optimiser fill it for the best ROI.'],
+      ['compare', 'Comparison', 'The pitch slide: current agency against our plan, in one line and one table.']]],
+    ['Set up and share', 'Check the matches, set the rates, download the files.', [['matches', 'Review matches', 'Which TVR programme each LMRB programme is. Approve the right ones, correct the rest.'], ['rates', 'Rates and negotiation', 'Rate card, typed rates and the discount or special rate we negotiate.'], ['export', 'Export', 'Evaluation sheets with formulas, PDF and Word summaries, all tables.']]],
+  ];
+  const TABS = GROUPS.flatMap((g) => g[2].map((x) => [x[0], x[1]]));
+  const TAB_INFO = Object.fromEntries(GROUPS.flatMap((g) => g[2].map((x) => [x[0], { label: x[1], text: x[2] }])));
 
   /* ================================================================ shell */
   function shell() {
+    const card = ([k, l, d]) => `<button class="tab scard" type="button" id="tab-${k}" data-t="${k}" aria-haspopup="dialog" aria-controls="pt-sheet"><span class="sc-ic"><svg viewBox="0 0 24 24" aria-hidden="true">${IC[k]}</svg></span><span class="sc-t">${esc(l)}</span>
+      <span class="sc-d">${esc(d)}</span><span class="sc-stat" data-stat="${k}">&nbsp;</span><span class="sc-go" aria-hidden="true">Open &rarr;</span></button>`;
     root.innerHTML = `<div class="card" id="pt-src"></div>
       <div class="card" id="pt-filters" style="margin-top:16px"></div>
-      <div id="pt-warn" style="margin-top:16px"></div>
-      <div class="seg pt-tabs" id="pt-tabs" role="tablist" style="margin-top:16px">${TABS.map(([k, l]) => `<button type="button" role="tab" data-t="${k}" aria-pressed="${k === st.tab}">${esc(l)}</button>`).join('')}</div>
-      <div id="pt-out" style="margin-top:16px"></div>`;
-    $$('#pt-tabs button').forEach((b) => { b.onclick = () => { st.tab = b.dataset.t; save(); $$('#pt-tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); render(); }; });
+      <div id="pt-warn" style="margin-top:12px"></div>
+      <div id="pt-tabs">${GROUPS.map(([t, sub, list]) => `<div class="sec-title">${esc(t)} <span class="muted small" style="font-weight:400;text-transform:none;letter-spacing:0">${esc(sub)}</span></div><div class="section-cards ${list.length === 4 ? '' : 'wide'}">${list.map(card).join('')}</div>`).join('')}</div>
+      <div class="sheet-back" id="pt-sheet" role="dialog" aria-modal="true" aria-labelledby="pt-sheet-title" hidden><div class="sheet pt-sheet">
+        <div class="sheet-bar"><div class="grow"><h2 id="pt-sheet-title"></h2><div class="muted small" id="pt-sheet-ctx"></div></div><div class="row"><label class="small muted" for="pt-sheet-sel">Go to</label><select id="pt-sheet-sel" aria-label="Go to another section">${TABS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select><button class="btn sm primary" id="pt-sheet-close" type="button">Close</button></div></div>
+        <div class="sheet-body"><div id="pt-out"></div></div></div></div>`;
+    $$('#pt-tabs .scard').forEach((b) => { b.onclick = () => openSheet(b.dataset.t); });
+    $('#pt-sheet-close').onclick = closeSheet;
+    $('#pt-sheet-sel').onchange = (e) => openSheet(e.target.value);
+    $('#pt-sheet').addEventListener('mousedown', (e) => { if (e.target.id === 'pt-sheet') closeSheet(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sheetOpen() && !document.querySelector('.modal-back') && !document.querySelector('.ms-pop')) closeSheet(); });
+  }
+  const sheetOpen = () => { const el = $('#pt-sheet'); return !!el && !el.hidden; };
+  function openSheet(id) {
+    if (!TAB_INFO[id]) return;
+    st.tab = id; save(); const el = $('#pt-sheet'); el.hidden = false; document.body.classList.add('sheet-open');
+    $('#pt-sheet-title').textContent = TAB_INFO[id].label; $('#pt-sheet-sel').value = id; $$('#pt-tabs .scard').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.t === id)));
+    const body = $('.sheet-body', el); if (body) body.scrollTop = 0;
+    paintContext(); render(); $('#pt-sheet-close').focus();
+  }
+  function closeSheet() {
+    const el = $('#pt-sheet'); if (!el || el.hidden) return; el.hidden = true; document.body.classList.remove('sheet-open'); if (App.charts && App.charts.destroyAll) App.charts.destroyAll();
+    const b = $('#tab-' + st.tab); if (b) b.focus();
+  }
+  /** What the window is showing: the month, channels and daypart chosen on the page. */
+  function paintContext() {
+    const el = $('#pt-sheet-ctx'); if (!el) return; const ch = st.channels && st.channels.length ? st.channels.map(tt).join(', ') : 'all channels';
+    el.textContent = `Month ${D ? (D.month === 'all' ? 'all months' : D.month) : 'n/a'}  ·  ${ch}  ·  ${{ all: 'prime and non prime', PT: 'prime time only', NPT: 'non prime only' }[st.daypart] || 'prime and non prime'}  ·  change these on the page behind`;
+  }
+  /** The headline number on every card. */
+  function paintCards() {
+    const put = (k, v) => { const el = $(`[data-stat="${k}"]`); if (el) el.innerHTML = v || '&nbsp;'; };
+    if (!D || D.empty) { Object.keys(TAB_INFO).forEach((k) => put(k, k === 'export' || k === 'rates' || k === 'matches' ? '' : '<span class="muted">Needs both sheets</span>')); put('rates', `<b>${fmt.num(RC.entries.length)}</b> rate card rows`); return; }
+    const cur = D.current, ov = D.overview, need = (D.slots || []).filter((x) => !x.approved && !x.ignored).length, ev = D.evidence || [], ent = ev.filter((e) => e.deal);
+    const tot = ov.rows.reduce((a, r) => a + r.months.reduce((s2, x) => s2 + x.com + x.va, 0), 0), g = D.comparison && D.comparison.grp_gain_pct;
+    put('overview', `<b>${fmt.lkrc(tot)}</b> over ${ov.months.length} month${ov.months.length === 1 ? '' : 's'}`);
+    put('basket', `<b>${fmt.num(cur.spots)}</b> spots · ROI <b>${xr(cur.com_roi)}</b>`);
+    put('invest', ent.length ? `Real discount <b>${pc(ent.reduce((a, e) => a + (e.implied_discount_pct || 0), 0) / ent.length)}</b>` : `Rack estimate <b>${fmt.lkrc(ev.reduce((a, e) => a + e.rack_value, 0))}</b>`);
+    put('daypart', `Prime time <b>${pc(cur.pt_spend_share)}</b> of spend`);
+    put('plan', `<b>${fmt.num((D.plan.rows || []).length)}</b> programmes · ${fmt.lkrc(D.plan.totals.spend)}`);
+    put('build', `<b>${fmt.num(st.builder.rows.length)}</b> rows`);
+    put('compare', g == null ? 'Add rates to compare' : `<b>${g > 0 ? '+' : ''}${n1(g)}%</b> GRPs`);
+    put('matches', need ? `<b>${need}</b> of ${(D.slots || []).length} to check` : `All ${(D.slots || []).length} approved`);
+    put('rates', `<b>${fmt.num(RC.entries.length)}</b> rate card rows · <b>${fmt.num(Object.keys(st.rates.programmes).length)}</b> typed`);
+    put('export', 'Excel · PDF · Word');
   }
 
   /* ================================================================ sources */
@@ -216,8 +272,8 @@
   /* ================================================================ run */
   async function run() {
     const my = ++seq, out = $('#pt-out');
-    if (!status || !status.lmrb || !status.tv) { D = null; filters(); $('#pt-warn').innerHTML = `<div class="banner info"><span>Upload the client's LMRB sheet and the TVR sheet above to start, or press <b>Load sample data</b> to see how it works.</span></div>`; out.innerHTML = App.emptyState('Nothing to evaluate yet', 'Both sheets are needed: LMRB for what was bought, TVR for the audience each programme delivered.'); return; }
-    out.innerHTML = App.skeleton(3);
+    if (!status || !status.lmrb || !status.tv) { D = null; filters(); $('#pt-warn').innerHTML = `<div class="banner info"><span>Upload the client's LMRB sheet and the TVR sheet above to start, or press <b>Load sample data</b> to see how it works.</span></div>`; paintCards(); if (sheetOpen()) out.innerHTML = App.emptyState('Nothing to evaluate yet', 'Both sheets are needed: LMRB for what was bought, TVR for the audience each programme delivered.'); return; }
+    if (sheetOpen()) out.innerHTML = App.skeleton(3);
     let d; try { d = await App.data.pitchBuild({ options: opts() }); } catch (e) { out.innerHTML = App.emptyState('The evaluation could not be built', e.message); return; }
     if (my !== seq) return;
     D = d; if (!st.month || st.month === 'null') st.month = d.month; filters(); warnings(); render();
@@ -234,7 +290,8 @@
     $('#pt-warn').innerHTML = b.length ? `<details class="pt-checks"><summary>Data checks (${b.length})</summary>${b.map((x) => `<div class="banner"><span>${x}</span></div>`).join('')}</details>` : '';
   }
   function render() {
-    const out = $('#pt-out'); if (!D) return; tabTables = {};
+    const out = $('#pt-out'); paintCards(); if (!out || !sheetOpen()) return; tabTables = {}; paintContext();
+    if (!D) { out.innerHTML = App.emptyState('Upload the LMRB and TVR sheets first', 'This section needs both: the LMRB sheet for what was bought, the TVR sheet for the audience each programme delivered.'); return; }
     if (D.empty) { out.innerHTML = App.emptyState('No TV spots for this choice', 'Pick another month or clear the channel and prime / non prime filters.'); return; }
     ({ overview, basket, invest, daypart, plan, build, compare, export: exportTab, matches, rates })[st.tab](out);
   }
@@ -273,12 +330,15 @@
       { key: 'com_value', label: 'Rate card value: com', num: true, fmt: n0 }, { key: 'all_value', label: 'Rate card value: all', num: true, fmt: n0 }, { key: 'com_roi', label: 'ROI com only', num: true, fmt: xr }, { key: 'all_roi', label: 'ROI all exposure', num: true, fmt: xr }, { key: 'rated_pct', label: 'Spend with a rate', num: true, fmt: pc }] });
     $('#bk-1').innerHTML = card('Programme basket', `Programmes use their TVR names. The worst 20% by CPRP are shaded.`, '<div id="bk-b"></div>');
     table('bk-b', $('#bk-b'), { rowClass: (r) => (r.cprp >= cut ? 'worst' : ''), csv: 'pitch_current_basket', defaultSort: { key: 'cost', desc: true }, empty: 'No commercial spots here.',
-      rows: rows.map((r) => ({ ...r, ch: tt(r.channel), pr: tt(r.program) })), columns: [{ key: 'pr', label: 'Programme (TVR name)' }, { key: 'ch', label: 'Channel' }, { key: 'start', label: 'Starts' }, { key: 'daypart', label: 'Daypart' }, { key: 'spots', label: 'Spots', num: true, fmt: n0 }, { key: 'eq30', label: '30 sec eq.', num: true, fmt: n1 }, { key: 'cost', label: 'Cost (LKR)', num: true, fmt: n0 },
-        { key: 'avg30', label: 'Avg 30 sec rate', num: true, fmt: n0 }, { key: 'tvr', label: 'TVR', num: true, fmt: n2 }, { key: 'ngrp', label: 'GRPs (30 sec)', num: true, fmt: n1 }, { key: 'cprp', label: 'CPRP', num: true, fmt: n0 }, { key: 'card30', label: 'Card 30 sec rate', num: true, fmt: n0 }] });
+      rows: rows.map((r) => ({ ...r, ch: tt(r.channel), pr: tt(r.program) })), columns: [
+        { key: 'pr', label: 'Programme (TVR name)', html: (v, r) => `<span class="pn"><b>${esc(v)}</b><span class="sub">${esc(r.days)} ${esc(r.start)} · ${esc(r.daypart)}</span></span>` }, { key: 'ch', label: 'Channel' },
+        { key: 'spots', label: 'Spots', num: true, fmt: n0 }, { key: 'eq30', label: '30 sec eq.', num: true, fmt: n1 }, { key: 'cost', label: 'Cost (LKR)', num: true, fmt: n0 }, { key: 'avg30', label: 'Avg 30 sec rate', num: true, fmt: n0 },
+        { key: 'card30', label: 'Rate card 30 sec', num: true, fmt: n0 }, { key: 'tvr', label: 'TVR', num: true, fmt: n2 }, { key: 'ngrp', label: 'GRPs (30 sec)', num: true, fmt: n1 }, { key: 'cprp', label: 'CPRP', num: true, fmt: n0 }] });
     $('#bk-2').innerHTML = card('Sponsorship items (shown apart from the basket)', `One line per channel and item, for ${D.month === 'all' ? 'all months (spots per month is the average)' : D.month}. Average cost is the average of the cost column per spot. TVR is worked out from the channel's average prime time and non prime TVR in the TVR sheet, weighted by how many of the item's spots ran in each.`, '<div id="bk-c"></div>');
     table('bk-c', $('#bk-c'), { csv: 'pitch_sponsorship', defaultSort: { key: 'spend', desc: true }, empty: 'No sponsorship items in this view.', rows: cur.sponsorship.map((s) => ({ ...s, ch: tt(s.channel) })),
-      columns: [{ key: 'ch', label: 'Channel' }, { key: 'theme', label: 'Sponsorship item' }, { key: 'spots', label: 'Total spots', num: true, fmt: n0 }, { key: 'spots_per_month', label: 'Spots per month', num: true, fmt: n1 }, { key: 'avg_cost', label: 'Average cost per spot', num: true, fmt: n0 }, { key: 'spend', label: 'Spend (LKR)', num: true, fmt: n0 },
-        { key: 'avg_pt_tvr', label: 'Channel avg prime TVR', num: true, fmt: n2 }, { key: 'avg_npt_tvr', label: 'Channel avg non prime TVR', num: true, fmt: n2 }, { key: 'tvr', label: 'Average TVR delivered', num: true, fmt: n2 }, { key: 'grp', label: 'GRPs', num: true, fmt: n1 }, { key: 'cprp', label: 'CPRP', num: true, fmt: n0 }] });
+      columns: [{ key: 'ch', label: 'Channel' }, { key: 'theme', label: 'Sponsorship item' }, { key: 'spots', label: 'Total spots', num: true, fmt: n0 }, { key: 'spots_per_month', label: 'Spots per month', num: true, fmt: n1 }, { key: 'avg_cost', label: 'Average cost per spot', num: true, fmt: n0 },
+        { key: 'spend', label: 'Spend (LKR)', num: true, fmt: n0 }, { key: 'avg_pt_tvr', label: 'Channel TVR: prime / non prime', num: true, html: (v, x) => `${n2(v)} / ${n2(x.avg_npt_tvr)}` }, { key: 'tvr', label: 'Average TVR delivered', num: true, fmt: n2 },
+        { key: 'grp', label: 'GRPs', num: true, fmt: n1 }, { key: 'cprp', label: 'CPRP', num: true, fmt: n0 }] });
   }
 
   /* ---------------------------------------------------------------- investment and discount */
@@ -289,11 +349,11 @@
     out.innerHTML = `<div class="kpis">${kpi('Estimated at rate card', fmt.lkrc(sum('rack_value')), 'commercial spots x the channel\'s rack rate')}${kpi('Cost in the LMRB sheet', fmt.lkrc(sum('lmrb_rated_cost')), 'same programmes, as monitored')}
         ${kpi('Investment entered', entered.length ? fmt.lkrc(entered.reduce((a, e) => a + e.deal.investment, 0)) : 'none yet', entered.length ? `${entered.length} channel${entered.length === 1 ? '' : 's'}` : 'type it below')}${kpi('Real discount (entered channels)', entered.length && rackEntered > 0 ? pc((1 - comInv / rackEntered) * 100) : 'n/a', 'commercial investment vs rack value')}</div>
       <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Investment and discount</h3><div class="sub">The LMRB sheet shows what each spot was <b>monitored</b> at, which is not always what was paid. So the previous agency's spend on a channel is first <b>estimated at the channel's rate card</b>: for every programme they bought, spots x duration / 30 x the rack rate, commercial spots only. If you know the real investment (from the contract), type it: a share of it buys the commercial spots (100%, 90% or 80%) and the rest pays for the frequency and sponsorship items; the discount they really got follows. The tables under it show the programmes behind every number.</div></div></div>
-        <div class="tbl-scroll"><table class="tbl ex-tbl" id="dl-t"><thead><tr><th>Channel</th><th class="num">Spots</th><th class="num">Estimated at rate card</th><th class="num">Programmes without a rate</th><th class="num">Cost in the LMRB sheet</th><th class="num">LMRB cost as % of rack</th>
-          <th class="num">Actual investment (LKR)</th><th class="num">Commercial share %</th><th class="num">Prime share of it %</th><th class="num">Commercial investment</th><th class="num">Real discount vs rack</th><th class="num">Pays % of rack</th></tr></thead><tbody>
-        ${ev.map((e) => { const d = deals[e.channel] || {}; return `<tr><td><b>${esc(tt(e.channel))}</b></td><td class="num">${n0(e.spots)}</td><td class="num"><b>${n0(e.rack_value)}</b></td><td class="num">${e.unrated_programmes ? `<span class="badge" title="These programmes have no rate card rate, so they are not in the estimate">${e.unrated_programmes} (${pc(100 - (e.coverage_pct == null ? 100 : e.coverage_pct))} of the cost)</span>` : '0'}</td>
-          <td class="num">${n0(e.lmrb_cost)}</td><td class="num">${pc(e.lmrb_pct_of_rack)}</td><td class="num">${inp(e.channel, 'investment', d.investment, 130, 'type it')}</td><td class="num">${inp(e.channel, 'commercial_pct', d.commercial_pct, 70, '100')}</td><td class="num">${inp(e.channel, 'prime_pct', d.prime_pct, 70, 'any')}</td>
-          <td class="num">${e.deal ? n0(e.commercial_investment) : '<span class="muted">n/a</span>'}</td><td class="num">${e.implied_discount_pct == null ? '<span class="muted">enter the investment</span>' : `<b>${pc(e.implied_discount_pct)}</b>`}</td><td class="num">${pc(e.implied_pays_pct)}</td></tr>`; }).join('') || '<tr><td colspan="12" class="muted">No programmes with a rate in this view.</td></tr>'}</tbody></table></div>
+        <div class="tbl-scroll"><table class="tbl ex-tbl" id="dl-t"><thead><tr><th>Channel</th><th class="num">Spots</th><th class="num">Estimated at rate card</th><th class="num">Cost in the LMRB sheet</th><th class="num">Actual investment (LKR)</th><th class="num">Commercial share %</th><th class="num">Prime share %</th><th class="num">Commercial investment</th><th class="num">Real discount vs rack</th></tr></thead><tbody>
+        ${ev.map((e) => { const d = deals[e.channel] || {}; return `<tr><td><b>${esc(tt(e.channel))}</b></td><td class="num">${n0(e.spots)}</td>
+          <td class="num"><b>${n0(e.rack_value)}</b>${e.unrated_programmes ? `<span class="sub" title="These programmes have no rate card rate, so they are not in the estimate">${e.unrated_programmes} without a rate (${pc(100 - (e.coverage_pct == null ? 100 : e.coverage_pct))} of the cost) left out</span>` : ''}</td>
+          <td class="num">${n0(e.lmrb_cost)}<span class="sub">${pc(e.lmrb_pct_of_rack)} of rack</span></td><td class="num">${inp(e.channel, 'investment', d.investment, 120, 'type it')}</td><td class="num">${inp(e.channel, 'commercial_pct', d.commercial_pct, 62, '100')}</td><td class="num">${inp(e.channel, 'prime_pct', d.prime_pct, 62, 'any')}</td>
+          <td class="num">${e.deal ? n0(e.commercial_investment) : '<span class="muted">n/a</span>'}</td><td class="num">${e.implied_discount_pct == null ? '<span class="muted">enter the investment</span>' : `<b>${pc(e.implied_discount_pct)}</b><span class="sub">pays ${pc(e.implied_pays_pct)} of rack</span>`}</td></tr>`; }).join('') || '<tr><td colspan="9" class="muted">No programmes with a rate in this view.</td></tr>'}</tbody></table></div>
         <div class="muted small" style="margin-top:8px">Real discount = 1 - (actual investment x commercial share) / estimated at rate card. When some programmes have no rate, only their share of the investment is compared, and the table says so. Prime share is how much of the commercial money goes to prime time (the contract's 50% / 50%); our plan follows it when the budget is taken from this investment. ${actual ? '<b>The current buy is costed at the actual investment (Settings).</b>' : 'In Settings the current buy can be costed at the actual investment instead of the LMRB cost.'}</div></div>
       <div id="dl-ev" style="margin-top:16px"></div>`;
     $('#dl-t').onchange = (e) => {
@@ -304,10 +364,10 @@
     $('#dl-ev').innerHTML = ev.map((e) => {
       const rows = D.current.rows.filter((r) => r.channel === e.channel).sort((a, b) => (b.value || 0) - (a.value || 0)), pt = e.pt_share_pct, dp = e.deal && e.deal.prime_pct;
       return `<details class="card" style="margin-bottom:12px" ${ev.length === 1 ? 'open' : ''}><summary><b>${esc(tt(e.channel))}</b>: ${n0(rows.length)} programmes, ${n0(e.spots)} spots, <b>${fmt.lkrc(e.rack_value)}</b> at rate card${e.implied_discount_pct == null ? '' : `, discount <b>${pc(e.implied_discount_pct)}</b>`}. Prime time is ${pc(pt)} of the rack value${dp ? ` (the deal says ${pc(dp)})` : ''}.</summary>
-        <div class="tbl-scroll" style="margin-top:8px"><table class="tbl"><thead><tr><th>Programme (TVR name)</th><th>Days</th><th>Starts</th><th>Daypart</th><th class="num">Spots</th><th class="num">30 sec eq.</th><th class="num">Rack rate (30 sec)</th><th>Rate from</th><th class="num">Value at rack</th><th class="num">Share of channel</th><th class="num">LMRB cost</th><th class="num">LMRB as % of rack</th></tr></thead><tbody>
-        ${rows.map((r) => `<tr class="${r.rated ? '' : 'worst'}"><td>${esc(tt(r.program))}</td><td>${esc(r.days)}</td><td>${esc(r.start)}</td><td>${esc(r.daypart)}</td><td class="num">${n0(r.spots)}</td><td class="num">${n1(r.eq30)}</td><td class="num">${r.rated ? n0(r.card30) : '<b>no rate</b>'}</td>
-          <td class="small">${r.card_src ? `${esc(r.card_src)}${r.card_prog ? ` <span class="muted">${esc(tt(r.card_prog))}${r.card_eff ? ' ' + esc(r.card_eff) : ''}</span>` : ''}` : '<span class="muted">not in the estimate</span>'}</td><td class="num">${r.rated ? n0(r.value) : ''}</td><td class="num">${r.rated && e.rack_value > 0 ? pc((r.value / e.rack_value) * 100) : ''}</td><td class="num">${n0(r.cost_lmrb)}</td><td class="num">${r.rated ? pc((r.cost_lmrb / r.value) * 100) : ''}</td></tr>`).join('')}</tbody>
-        <tfoot><tr class="ex-tot"><td colspan="4">Total</td><td class="num">${n0(e.spots)}</td><td class="num">${n1(e.eq30)}</td><td></td><td></td><td class="num">${n0(e.rack_value)}</td><td></td><td class="num">${n0(e.lmrb_cost)}</td><td class="num">${pc(e.lmrb_pct_of_rack)}</td></tr></tfoot></table></div></details>`;
+        <div class="tbl-scroll" style="margin-top:8px"><table class="tbl"><thead><tr><th>Programme (TVR name)</th><th class="num">Spots</th><th class="num">30 sec eq.</th><th class="num">Rack rate (30 sec)</th><th class="num">Value at rack</th><th class="num">Share of channel</th><th class="num">LMRB cost</th><th class="num">LMRB as % of rack</th></tr></thead><tbody>
+        ${rows.map((r) => `<tr class="${r.rated ? '' : 'worst'}"><td><span class="pn"><b>${esc(tt(r.program))}</b><span class="sub">${esc(r.days)} ${esc(r.start)} · ${esc(r.daypart)}</span></span></td><td class="num">${n0(r.spots)}</td><td class="num">${n1(r.eq30)}</td>
+          <td class="num">${r.rated ? n0(r.card30) : '<b>no rate</b>'}<span class="sub">${r.card_src ? `${esc(r.card_src)}${r.card_prog ? ': ' + esc(tt(r.card_prog)) + (r.card_eff ? ' ' + esc(r.card_eff) : '') : ''}` : 'not in the estimate'}</span></td><td class="num">${r.rated ? n0(r.value) : ''}</td><td class="num">${r.rated && e.rack_value > 0 ? pc((r.value / e.rack_value) * 100) : ''}</td><td class="num">${n0(r.cost_lmrb)}</td><td class="num">${r.rated ? pc((r.cost_lmrb / r.value) * 100) : ''}</td></tr>`).join('')}</tbody>
+        <tfoot><tr class="ex-tot"><td>Total</td><td class="num">${n0(e.spots)}</td><td class="num">${n1(e.eq30)}</td><td></td><td class="num">${n0(e.rack_value)}</td><td></td><td class="num">${n0(e.lmrb_cost)}</td><td class="num">${pc(e.lmrb_pct_of_rack)}</td></tr></tfoot></table></div></details>`;
     }).join('');
   }
 
@@ -347,8 +407,8 @@
     $('#pl-tbl').innerHTML = card('Programmes to buy', D.candidates.length ? 'On = in the plan. Programmes with no rate or a TVR below the minimum are not listed.' : 'No programme has a rate yet. Add rates in Rates and negotiation.', '<div id="pl-a"></div>');
     const t = table('pl-a', $('#pl-tbl #pl-a'), { rowClass: (r) => (r.on ? '' : 'off'), csv: 'pitch_plan', defaultSort: { key: 'cprp', desc: false }, empty: 'No programmes available.', rows: rowsOf(), columns: [
       { key: 'on', label: 'In plan', sortable: true, html: (v, r) => `<label class="row small" style="gap:4px"><input type="checkbox" data-k="${esc(r.key)}" ${v ? 'checked' : ''} aria-label="Include ${esc(r.pr)}"> ${v ? 'On' : 'Off'}</label>` },
-      { key: 'pr', label: 'Programme (TVR name)' }, { key: 'ch', label: 'Channel' }, { key: 'start', label: 'Starts' }, { key: 'days', label: 'Days' }, { key: 'daypart', label: 'Daypart' }, { key: 'tvr', label: 'TVR', num: true, fmt: n2 }, { key: 'neg30', label: 'Our 30 sec rate', num: true, fmt: n0 }, { key: 'cprp', label: 'CPRP', num: true, fmt: n0 },
-      { key: 'cap', label: 'Most spots', num: true, fmt: n0 }, { key: 'spots', label: 'Planned spots', num: true, fmt: n0 }, { key: 'spend', label: 'Planned spend', num: true, fmt: n0 }, { key: 'grp', label: 'GRPs', num: true, fmt: n1 }] });
+      { key: 'pr', label: 'Programme (TVR name)', html: (v, r) => `<span class="pn"><b>${esc(v)}</b><span class="sub">${esc(r.days)} ${esc(r.start)} · ${esc(r.daypart)}</span></span>` }, { key: 'ch', label: 'Channel' }, { key: 'tvr', label: 'TVR', num: true, fmt: n2 }, { key: 'neg30', label: 'Our 30 sec rate', num: true, fmt: n0 },
+      { key: 'cprp', label: 'CPRP', num: true, fmt: n0 }, { key: 'cap', label: 'Most spots', num: true, fmt: n0 }, { key: 'spots', label: 'Planned spots', num: true, fmt: n0 }, { key: 'spend', label: 'Planned spend', num: true, fmt: n0 }, { key: 'grp', label: 'GRPs', num: true, fmt: n1 }] });
     $('#pl-a').onchange = (e) => { const k = e.target.dataset && e.target.dataset.k; if (!k) return; const set = new Set(st.excluded); e.target.checked ? set.delete(k) : set.add(k); st.excluded = [...set]; save(); paintTotals(); t.refresh(rowsOf()); };
   }
 
@@ -471,15 +531,15 @@
     const body = $('#bd-body');
     const order = [...new Set(B.rows.map((r) => r.ch))];
     const inp = (r, f, w = 70, ty = 'number') => `<input class="bd-in" type="${ty}" ${ty === 'number' ? 'min="0" step="any"' : ''} data-id="${r.id}" data-f="${f}" value="${esc(r[f] == null ? '' : r[f])}" style="width:${w}px" aria-label="${f}">`;
-    body.innerHTML = order.length ? order.map((ch) => `<div class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>${esc(tt(ch))}</h3><div class="sub" data-sum="${esc(ch)}"></div></div></div><div class="tbl-scroll"><table class="tbl bd-tbl"><thead><tr><th>Description</th><th>Day</th><th>From</th><th>To</th><th class="num">Dur</th><th class="num">TVR</th><th class="num">Spots</th><th class="num">Rate card (30s)</th><th class="num">Negotiated (30s)</th><th class="num">GRP</th><th class="num">NGRP</th><th class="num">Total value</th><th class="num">Total cost</th><th></th></tr></thead><tbody>
-      ${B.rows.filter((r) => r.ch === ch).map((r) => `<tr data-row="${r.id}" class="${r.kind === 'va' ? 'bd-va' : ''}"><td>${r.kind === 'va' ? '<span class="badge">Sponsorship</span> ' : ''}${inp(r, 'desc', 170, 'text')}</td><td>${inp(r, 'day', 80, 'text')}</td><td>${inp(r, 'from', 64, 'text')}</td><td>${inp(r, 'to', 64, 'text')}</td><td class="num">${inp(r, 'dur', 54)}</td><td class="num">${inp(r, 'tvr', 60)}</td><td class="num">${inp(r, 'spots', 60)}</td><td class="num">${inp(r, 'card', 90)}</td><td class="num">${inp(r, 'rate', 90)}</td>
-        <td class="num" data-c="grp"></td><td class="num" data-c="ngrp"></td><td class="num" data-c="value"></td><td class="num" data-c="cost"></td><td><button class="btn sm ghost danger" type="button" data-rm="${r.id}" aria-label="Remove row">x</button></td></tr>`).join('')}</tbody></table></div></div>`).join('')
+    body.innerHTML = order.length ? order.map((ch) => `<div class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>${esc(tt(ch))}</h3><div class="sub" data-sum="${esc(ch)}"></div></div></div><div class="tbl-scroll"><table class="tbl bd-tbl"><thead><tr><th>Description</th><th>Day</th><th>Time belt</th><th class="num">Dur</th><th class="num">TVR</th><th class="num">Spots</th><th class="num">Rate card (30 sec)</th><th class="num">Negotiated (30 sec)</th><th class="num">GRP</th><th class="num">Total value</th><th class="num">Total cost</th><th></th></tr></thead><tbody>
+      ${B.rows.filter((r) => r.ch === ch).map((r) => `<tr data-row="${r.id}" class="${r.kind === 'va' ? 'bd-va' : ''}"><td>${r.kind === 'va' ? '<span class="badge">Sponsorship</span> ' : ''}${inp(r, 'desc', 150, 'text')}</td><td>${inp(r, 'day', 76, 'text')}</td><td><span class="row" style="gap:3px;flex-wrap:nowrap">${inp(r, 'from', 52, 'text')}<span class="muted">-</span>${inp(r, 'to', 52, 'text')}</span></td><td class="num">${inp(r, 'dur', 48)}</td><td class="num">${inp(r, 'tvr', 56)}</td><td class="num">${inp(r, 'spots', 54)}</td><td class="num">${inp(r, 'card', 86)}</td><td class="num">${inp(r, 'rate', 86)}</td>
+        <td class="num" data-c="grp"></td><td class="num" data-c="value"></td><td class="num" data-c="cost"></td><td><button class="btn sm ghost danger" type="button" data-rm="${r.id}" aria-label="Remove row">x</button></td></tr>`).join('')}</tbody></table></div></div>`).join('')
       : App.emptyState('No rows yet', 'Press "Optimise for a better ROI", start from the current buy or our plan, or add programmes one by one.');
     const recalc = () => {
       let T = { grp: 0, ngrp: 0, value: 0, cost: 0, cv: 0, cc: 0 };
       order.forEach((ch) => {
         let c = { grp: 0, ngrp: 0, value: 0, cost: 0, cv: 0, cc: 0 };
-        B.rows.filter((r) => r.ch === ch).forEach((r) => { const x = calc(r), tr = body.querySelector(`tr[data-row="${r.id}"]`); if (tr) { tr.querySelector('[data-c=grp]').textContent = n1(x.grp); tr.querySelector('[data-c=ngrp]').textContent = n1(x.ngrp); tr.querySelector('[data-c=value]').textContent = n0(x.value); tr.querySelector('[data-c=cost]').textContent = n0(x.cost); }
+        B.rows.filter((r) => r.ch === ch).forEach((r) => { const x = calc(r), tr = body.querySelector(`tr[data-row="${r.id}"]`); if (tr) { tr.querySelector('[data-c=grp]').textContent = n1(x.grp); tr.querySelector('[data-c=value]').textContent = n0(x.value); tr.querySelector('[data-c=cost]').textContent = n0(x.cost); }
           ['grp', 'ngrp', 'value', 'cost'].forEach((k) => { c[k] += x[k]; }); if (r.kind !== 'va') { c.cv += x.value; c.cc += x.cost; } });
         const el = body.querySelector(`[data-sum="${CSS.escape(ch)}"]`); if (el) el.textContent = `Cost ${n0(c.cost)} | GRPs (30 sec) ${n1(c.ngrp)} | CPRP ${n0(c.ngrp > 0 ? c.cost / c.ngrp : null)} | ROI commercial ${xr(c.cc > 0 ? c.cv / c.cc : null)} | ROI all exposure ${xr(c.cost > 0 ? c.value / c.cost : null)}`;
         Object.keys(T).forEach((k) => { T[k] += c[k]; });
@@ -543,12 +603,10 @@
     };
     const rows = D.rates.filter((r) => (!st.only_buy || r.in_buy) && (!st.only_missing || !(r.card30 > 0))).map((r) => { const k = `${r.channel}|${r.program}`, pr = R.programmes[k] || {}, ng = N.programmes[k] || {}; return { ...r, ch: tt(r.channel), pr: tt(r.program), k, pr_rate: pr.rate, pr_secs: pr.secs || 30, ng_mode: ng.mode || '', ng_val: ng.value }; });
     table('rt-a', $('#rt-a'), { csv: 'pitch_rates', pageSize: 20, defaultSort: { key: 'tvr', desc: true }, empty: 'No programmes. Upload the TVR sheet.', rows, columns: [
-      { key: 'pr', label: 'Programme (TVR name)' }, { key: 'ch', label: 'Channel' }, { key: 'start', label: 'Starts' }, { key: 'daypart', label: 'Daypart' }, { key: 'tvr', label: 'TVR', num: true, fmt: n2 },
-      { key: 'pr_rate', label: 'Card rate (type here)', num: true, html: (v, r) => `<input class="rt-in" type="number" min="0" step="any" data-pk="${esc(r.k)}" data-w="rate" value="${v == null ? '' : esc(v)}" aria-label="Card rate for ${esc(r.pr)}">` },
-      { key: 'pr_secs', label: 'For secs', num: true, html: (v, r) => `<select data-pk="${esc(r.k)}" data-w="secs" aria-label="Seconds">${[10, 15, 20, 30, 45, 60].map((s) => `<option ${s === +v ? 'selected' : ''}>${s}</option>`).join('')}</select>` },
-      { key: 'card30', label: 'Card 30 sec rate', num: true, fmt: n0 }, { key: 'card_src', label: 'Rate from', html: (v, r) => (v ? `<span title="${esc(r.card_prog ? 'Rate card: ' + r.card_prog + ' (' + (r.card_eff || '') + ')' : '')}">${esc(v)}${r.card_prog ? ` <span class="muted small">${esc(tt(r.card_prog))}</span>` : ''}</span>` : '<span class="muted">no rate</span>') },
-      { key: 'ng_mode', label: 'Negotiation', html: (v, r) => `<select data-pk="${esc(r.k)}" data-w="mode" aria-label="Negotiation for ${esc(r.pr)}">${[['', 'Rate card / channel'], ['discount', 'Discount %'], ['special', 'Special 30 sec rate']].map(([x, l]) => `<option value="${x}" ${v === x ? 'selected' : ''}>${l}</option>`).join('')}</select>` },
-      { key: 'ng_val', label: 'Value', num: true, html: (v, r) => `<input class="rt-in" type="number" min="0" step="any" data-pk="${esc(r.k)}" data-w="value" value="${v == null ? '' : esc(v)}" aria-label="Negotiation value for ${esc(r.pr)}">` },
+      { key: 'pr', label: 'Programme (TVR name)', html: (v, r) => `<span class="pn"><b>${esc(v)}</b><span class="sub">${esc(r.days)} ${esc(r.start)} · ${esc(r.daypart)}</span></span>` }, { key: 'ch', label: 'Channel' }, { key: 'tvr', label: 'TVR', num: true, fmt: n2 },
+      { key: 'pr_rate', label: 'Type a card rate, for how many seconds', num: true, html: (v, r) => `<span class="row" style="gap:4px;flex-wrap:nowrap;justify-content:flex-end"><input class="rt-in" type="number" min="0" step="any" style="width:84px" data-pk="${esc(r.k)}" data-w="rate" value="${v == null ? '' : esc(v)}" aria-label="Card rate for ${esc(r.pr)}"><select style="width:56px" data-pk="${esc(r.k)}" data-w="secs" aria-label="Seconds">${[10, 15, 20, 30, 45, 60].map((x) => `<option ${x === +r.pr_secs ? 'selected' : ''}>${x}</option>`).join('')}</select></span>` },
+      { key: 'card30', label: 'Card 30 sec rate and where from', num: true, html: (v, r) => `${n0(v)}<span class="sub" ${r.card_prog ? `title="${esc('Rate card: ' + r.card_prog + ' (' + (r.card_eff || '') + ')')}"` : ''}>${r.card_src ? esc(r.card_src) + (r.card_prog ? ': ' + esc(tt(r.card_prog)) : '') : 'no rate'}</span>` },
+      { key: 'ng_mode', label: 'Negotiation', html: (v, r) => `<span class="row" style="gap:4px;flex-wrap:nowrap"><select style="width:104px" data-pk="${esc(r.k)}" data-w="mode" aria-label="Negotiation for ${esc(r.pr)}">${[['', 'Default'], ['discount', 'Discount %'], ['special', 'Special rate']].map(([x, l]) => `<option value="${x}" ${v === x ? 'selected' : ''}>${l}</option>`).join('')}</select><input class="rt-in" type="number" min="0" step="any" style="width:70px" data-pk="${esc(r.k)}" data-w="value" value="${r.ng_val == null ? '' : esc(r.ng_val)}" aria-label="Negotiation value for ${esc(r.pr)}"></span>` },
       { key: 'neg30', label: 'Negotiated 30 sec', num: true, fmt: n0 }, { key: 'paid30', label: 'Effective: agency paid', num: true, fmt: n0 }, { key: 'saving_pct', label: 'Saving vs card', num: true, fmt: pc }, { key: 'saving_vs_paid_pct', label: 'Saving vs agency', num: true, fmt: pc }] });
   }
 

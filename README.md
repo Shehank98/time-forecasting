@@ -570,3 +570,8 @@ The evaluation Excel (current buy, our plan, built evaluation) is built on the s
 - **Formulas sheet**: the settings the sheets read (yellow) and the formula of every column.
 - Excel works every formula out when the file is opened. The older all-tables Excel (Export tab, "all tables") is a plain data dump.
 - The data-check messages (unmatched programmes, missing rates, zero TVR rows, skipped channels) are folded into one collapsed "Data checks" line under the filters.
+
+### Pitch Evaluator layout: section cards and windows
+
+The page is the data sources, the filters (month, channel, prime / non prime, Settings) and **ten section cards** in three groups: *The current buy* (Spend overview, Current basket, Investment and discount, Daypart view), *Our plan* (Our recommended basket, Build evaluation, Comparison) and *Set up and share* (Review matches, Rates and negotiation, Export). Every card shows its headline number (for example "14 of 14 to check", "+59.8% GRPs"). Clicking a card opens that section in its own large window (same as the Market card); the **Go to** list in the window's bar switches section without closing; Escape or Close returns to the cards. The window shows the month, channels and daypart chosen on the page behind it.
+Tables are laid out to fit the window with one vertical scroll and no sideways scroll bar at 1280 px and wider: related details sit on a second line inside a cell (programme: days, start and daypart; rate: where it came from; discount: what share of rack is paid) and headings are plain words. On narrower screens a table falls back to scrolling sideways.
