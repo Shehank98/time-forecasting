@@ -859,3 +859,6 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .pt-ready .rd-l { font-weight: 700; } .pt-ready .rd-v { color: var(--muted); }
 .pt-checks2 { display: grid; gap: 6px; } .pt-checks2 > div { display: flex; gap: 10px; align-items: baseline; font-size: 13px; } .pt-checks2 .ok > span:first-child { color: var(--good, #16a34a); font-weight: 800; } .pt-checks2 .bad > span:first-child { color: var(--bad, #dc2626); font-weight: 800; }
 .pt-how { border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; background: var(--surface); } .pt-how summary { cursor: pointer; font-weight: 700; } .pt-how p { margin: 8px 0; line-height: 1.5; }
+
+.pt-ready .rd.next { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); } .pt-ready .rd.warn .rd-i { font-size: 11px; }
+#pt-ch-sheet [data-c] { cursor: help; }

@@ -32,14 +32,17 @@ Scope: engine (`engine/pitch*.js`), page (`pitch-page.js`), Excel builder (`expo
 - **Tax** is not in any on-screen number; the Excel has SSCL and VAT cells.
 - **The browser flows are tested by Playwright scripts that are not in the repository.** The engine and the Excel builder are covered by pytest.
 
-## 4. Recommended next steps (UI and features, not yet built)
+## 4. Implemented after the audit
 
-Ordered by value for a planner. Each is a separate piece of work.
+1. **Guided steps.** The Ready strip is now seven numbered steps (Advertiser, Matches, Rate card, Rates cover, Investment or discount, Current estimate, Our plan) with a "Next step" line; the next undone step is highlighted and each opens where it is done.
+2. **Scenarios.** Comparison has a Scenarios table: save the plan under a name (12 kept per client), compare spend, GRPs, CPRP and ROI against the unsaved plan, load or delete. Loading restores investments, discounts, built channels and switched-off programmes.
+3. **Undo** in every channel window (button and Ctrl/Cmd+Z, 40 steps).
+4. **Working on hover.** Value, cost, GRP and CPRP cells in the channel window show their calculation (for example `Cost 14,608,000 / NGRP 339.5`).
+5. **Focus.** The channel window takes focus on open, is labelled for screen readers, and returns focus to the card on close.
+6. **Rate card freshness.** The Rate card step shows its effective date and warns when it is more than 6 months old.
 
-1. **Guided flow.** A stepper on the page (Files, Advertiser, Matches, Rates, Current estimate, Plan, Compare, Export) with the Ready chips as its steps.
-2. **Scenarios.** Save, name and compare several plans for one client (for example 90% vs 100% commercial, two discount levels), and an undo for edits in the channel window.
-3. **Inline "why".** Click any number (CPRP, ROI, discount) to see its working for that row, using the same formulas as the Excel.
-4. **Real-data trial.** Run on a real LMRB / TVR pair, and turn every surprise into a test. This is the one check that could change the numbers.
-5. **Print and share view.** A one-page pitch summary (headline sentence, by channel table, top programmes) as PDF, built from the Comparison.
-6. **Keyboard and accessibility pass.** Focus into and out of windows, arrow-key row editing, visible focus rings in all 12 skins.
-7. **Rate card freshness.** Show the effective date of the rate card used per channel on the Rates card, and warn when a channel's card is older than a set number of months.
+## 5. Still open
+
+- **A trial on a real LMRB / TVR pair** (the one check that could change numbers).
+- **One-page print / PDF pitch view** built from the Comparison.
+- **Arrow-key row editing** and a contrast check of every new element in all 12 skins (the new elements use the theme variables, but only the default skin was looked at).

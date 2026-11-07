@@ -21,7 +21,7 @@
   const kpi = (l, v, s, g) => `<div class="kpi"><div class="k-lbl">${esc(l)} ${g ? tip(g) : ''}</div><div class="k-val">${v}</div>${s ? `<div class="k-sub">${s}</div>` : ''}</div>`;
   const KEY = () => 'pitch:' + App.clientId();
   const DEF = () => ({ month: null, channels: [], daypart: 'all', tab: 'overview', settings: { pt_start: '19:00', pt_end: '22:30', min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, match_min: 45, current_basis: 'actual' },
-    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', evals: { current: {}, plan: {} }, advertiser: undefined, ours: {}, build_kind: 'current', learned: {}, deals: {} });
+    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', evals: { current: {}, plan: {} }, scenarios: [], advertiser: undefined, ours: {}, build_kind: 'current', learned: {}, deals: {} });
   let st = DEF(), D = null, root = null, status = null, seq = 0, tabTables = {}, RC = { entries: [], channels: [] };
   const load = () => { try { const v = App.store.get(KEY(), null); st = { ...DEF(), ...(v || {}), settings: { ...DEF().settings, ...((v || {}).settings || {}) } }; } catch (e) { st = DEF(); } };
   const save = () => { try { App.store.set(KEY(), st); } catch (e) { /* storage blocked */ } };
@@ -84,17 +84,21 @@
   /** "Ready to pitch": one chip per thing that must be right, each opens the section where it is fixed. */
   function paintReady() {
     const el = $('#pt-ready'); if (!el) return; if (!status || !status.lmrb || !status.tv || !D || D.empty) { el.innerHTML = ''; return; }
-    const sl = D.slots || [], todo = sl.filter((x) => !x.approved && !x.ignored).length, ev = D.evidence || [], deals = Object.keys(st.deals || {}).length, cur = D.current, nb = (k) => Object.values(st.evals[k] || {}).filter((x) => x.rows && x.rows.length).length;
-    const chips = [
-      [!!st.advertiser, 'Advertiser', st.advertiser || 'all advertisers: pick one', 'filters'],
-      [todo === 0, 'Matches', todo === 0 ? `all ${sl.length} checked` : `${todo} of ${sl.length} to check`, 'matches'],
-      [RC.entries.length > 0, 'Rate card', RC.entries.length ? `${fmt.num(RC.entries.length)} rows` : 'not imported', 'rates'],
-      [cur.rated_pct >= 95, 'Rates cover', cur.rated_pct == null ? 'n/a' : `${n1(cur.rated_pct)}% of the spend`, 'rates'],
-      [deals > 0, 'Investment or discount', deals ? `${deals} channel${deals === 1 ? '' : 's'}` : 'none entered', 'invest'],
-      [nb('current') > 0 && nb('plan') > 0, 'Evaluations built', `current ${nb('current')} · plan ${nb('plan')}`, 'build'],
-    ];
-    el.innerHTML = `<div class="pt-ready" role="list" aria-label="Ready to pitch checklist">${chips.map(([ok, l, v, t]) => `<button type="button" class="rd ${ok ? 'ok' : 'warn'}" role="listitem" data-go="${t}"><span class="rd-i" aria-hidden="true">${ok ? '&#10003;' : '!'}</span><span class="rd-l">${esc(l)}</span><span class="rd-v">${esc(v)}</span></button>`).join('')}</div>`;
-    $$('#pt-ready .rd', el).forEach((b) => { b.onclick = () => { if (b.dataset.go === 'filters') { const a = $('#pf-a'); if (a) a.focus(); } else openSheet(b.dataset.go); }; });
+    const sl = D.slots || [], todo = sl.filter((x) => !x.approved && !x.ignored).length, deals = Object.keys(st.deals || {}).length, cur = D.current, nb = (k) => Object.values(st.evals[k] || {}).filter((x) => x.rows && x.rows.length).length;
+    const dates = [...new Set(RC.entries.map((e) => e.effective_from).filter(Boolean))];
+    const oldest = dates.length ? dates.slice().sort()[0] : null, ageDays = oldest ? Math.floor((Date.now() - Date.parse(oldest)) / 86400000) : null;
+    const steps = [
+      [!!st.advertiser, 'Advertiser', st.advertiser || 'pick the advertiser to pitch for', 'filters', 'Pick the advertiser in the filters'],
+      [todo === 0, 'Matches', todo === 0 ? `all ${sl.length} checked` : `${todo} of ${sl.length} to check`, 'matches', `Check the ${todo} programme matches`],
+      [RC.entries.length > 0 && !(ageDays > 180), 'Rate card', !RC.entries.length ? 'not imported' : `dated ${oldest}${ageDays > 180 ? ` (${Math.round(ageDays / 30)} months old)` : ''}`, 'rates', RC.entries.length ? 'The rate card is more than 6 months old: import a newer one' : 'Import the agency rate card'],
+      [cur.rated_pct >= 95, 'Rates cover', cur.rated_pct == null ? 'n/a' : `${n1(cur.rated_pct)}% of the spend`, 'rates', 'Add rates for the programmes without one'],
+      [deals > 0, 'Investment or discount', deals ? `${deals} channel${deals === 1 ? '' : 's'}` : 'none entered', 'invest', 'Enter an investment or a discount for the channels'],
+      [nb('current') > 0, 'Current estimate', nb('current') ? `${nb('current')} channel${nb('current') === 1 ? '' : 's'} built` : 'not built', 'build', 'Build the current agency estimate'],
+      [nb('plan') > 0, 'Our plan', nb('plan') ? `${nb('plan')} channel${nb('plan') === 1 ? '' : 's'} built` : 'suggested only', 'plan', 'Build our plan channel by channel'],
+    ], next = steps.findIndex((x) => !x[0]);
+    el.innerHTML = `<div class="pt-ready" role="list" aria-label="Steps to a pitch">${steps.map(([ok, l, v, t], i) => `<button type="button" class="rd ${ok ? 'ok' : 'warn'} ${i === next ? 'next' : ''}" role="listitem" data-go="${t}"><span class="rd-i" aria-hidden="true">${ok ? '&#10003;' : i + 1}</span><span class="rd-l">${esc(l)}</span><span class="rd-v">${esc(v)}</span></button>`).join('')}</div>
+      <div class="small" style="margin-top:8px">${next < 0 ? '<b>Ready to pitch.</b> Compare, then download the evaluations from Export.' : `<b>Next step:</b> ${esc(steps[next][4])}.`}</div>`;
+    $$('#pt-ready .rd', el).forEach((b) => { b.onclick = () => { if (b.dataset.go === 'filters') { const a2 = $('#pf-a'); if (a2) a2.focus(); } else openSheet(b.dataset.go); }; });
   }
   /** The headline number on every card. */
   function paintCards() {
@@ -455,6 +459,23 @@
   }
 
   /* ---------------------------------------------------------------- 5 comparison */
+  /** Scenarios: named snapshots of our plan (what we put into each channel and the channels as built), compared side by side. */
+  function paintScenarios() {
+    const el = $('#cm-sc'); if (!el) return; const now = planNumbers().totals, sc = st.scenarios || [];
+    const row = (name, t, extra) => `<tr><td><b>${esc(name)}</b></td><td class="num">${n0(t.spend)}</td><td class="num">${n1(t.ngrp)}</td><td class="num">${n0(t.cprp)}</td><td class="num">${xr(t.roi)}</td><td class="num">${fmt.num(t.built || 0)}</td><td class="num">${extra || ''}</td></tr>`;
+    el.innerHTML = card('Scenarios', 'Save the plan as it is now under a name, change it, and compare. Loading a scenario puts its investments, discounts and built channels back.', `<div class="row" style="margin-bottom:10px"><button class="btn primary" type="button" id="sc-save">Save the current plan as a scenario</button></div>
+      <div class="tbl-scroll"><table class="tbl"><thead><tr><th>Scenario</th><th class="num">Spend (LKR)</th><th class="num">GRPs (30 sec)</th><th class="num">CPRP</th><th class="num">ROI</th><th class="num">Channels built</th><th></th></tr></thead><tbody>
+      ${row('Now (unsaved)', { ...now, built: builtChannels('plan').length }, '')}${sc.map((x) => row(x.name, x.totals, `<button class="btn sm" type="button" data-load="${esc(x.id)}">Load</button> <button class="btn sm ghost danger" type="button" data-del="${esc(x.id)}" aria-label="Delete ${esc(x.name)}">x</button>`)).join('')}</tbody></table></div>`);
+    $('#sc-save', el).onclick = () => {
+      if ((st.scenarios || []).length >= 12) { App.toast('You can keep 12 scenarios. Delete one first.', 'error'); return; }
+      const m = App.modal('Save the plan as a scenario', `<div class="field"><label for="sc-name">Name</label><input id="sc-name" type="text" maxlength="60" value="Scenario ${(st.scenarios || []).length + 1}" style="width:100%"></div><div class="row" style="margin-top:12px"><button class="btn primary" id="sc-ok" type="button">Save</button></div>`);
+      const inp = $('#sc-name', m); inp.focus(); inp.select();
+      $('#sc-ok', m).onclick = () => { const t = planNumbers().totals; st.scenarios = [...(st.scenarios || []), { id: uid(), name: (inp.value || 'Scenario').trim().slice(0, 60), saved: new Date().toISOString().slice(0, 16).replace('T', ' '), ours: JSON.parse(JSON.stringify(st.ours || {})), plan: JSON.parse(JSON.stringify(EVS('plan'))), excluded: st.excluded.slice(), totals: { spend: t.spend, ngrp: t.ngrp, cprp: t.cprp, roi: t.roi, built: builtChannels('plan').length } }]; save(); m.close(); paintScenarios(); App.toast('Scenario saved.', 'ok'); };
+    };
+    el.onclick = (ev) => { const l = ev.target.closest('[data-load]'), x = ev.target.closest('[data-del]');
+      if (l) { const sc2 = st.scenarios.find((y) => y.id === l.dataset.load); if (!sc2) return; st.ours = JSON.parse(JSON.stringify(sc2.ours)); st.evals.plan = JSON.parse(JSON.stringify(sc2.plan)); st.excluded = sc2.excluded.slice(); save(); App.toast(`Loaded "${sc2.name}".`, 'ok'); run(); }
+      if (x) { st.scenarios = st.scenarios.filter((y) => y.id !== x.dataset.del); save(); paintScenarios(); } };
+  }
   const cur0Channels = () => D.current.channels.map((c) => c.channel);
   function compare(out) {
     const { totals: P, cmp } = planNumbers(), cur = D.comparison.current;
@@ -464,7 +485,7 @@
         ${row('Total spend (LKR)', cur.spend, P.spend, n0, 0, 'same')}${row('Total spots (30 sec equivalent)', cur.eq30, P.eq30, n1, 0, 'higher')}${row('Total GRPs (30 sec) ' + tip('NGRP'), cur.ngrp, P.ngrp, n1, 0, 'higher')}${row('Average 30 sec rate (LKR)', cur.avg30, P.avg30, n0, 0, 'lower')}${row('Average CPRP (LKR) ' + tip('CPRP'), cur.cprp, P.cprp, n0, 0, 'lower')}
         ${row('Average prime time TVR', cur.pt_tvr, P.pt_tvr, n2, 0, 'higher')}${row('Average non prime TVR', cur.npt_tvr, P.npt_tvr, n2, 0, 'higher')}${row('Prime time share of spend', cur.pt_spend_share, P.pt_spend_share, pc, 0, 'higher')}${row('Prime time share of spots', cur.pt_spot_share, P.pt_spot_share, pc, 0, 'higher')}${row('ROI at rate card ' + tip('ROI'), cur.roi, P.roi, xr, 0, 'higher')}
         </tbody></table></div><p class="small muted">${cur.spend > 0 ? `Plan spends ${pc((P.spend / cur.spend) * 100)} of the current spend. ` : ''}Tax is not included. GRPs and rates are on a 30 second basis. ${D.comparison.basis === 'all' ? 'The current side includes sponsorship items.' : 'Sponsorship items are not part of this comparison.'}</p></div>
-        <div class="card"><h3>GRPs for the same money</h3><div class="chart-wrap" style="height:260px"><canvas id="cm-chart" role="img" aria-label="GRPs: current agency against our plan"></canvas></div></div></div><div id="cm-ch" style="margin-top:16px"></div><div id="cm-how" style="margin-top:16px"></div>`;
+        <div class="card"><h3>GRPs for the same money</h3><div class="chart-wrap" style="height:260px"><canvas id="cm-chart" role="img" aria-label="GRPs: current agency against our plan"></canvas></div></div></div><div id="cm-ch" style="margin-top:16px"></div><div id="cm-sc" style="margin-top:16px"></div><div id="cm-how" style="margin-top:16px"></div>`;
     const { a: pa } = planNumbers(), chs = [...new Set([...cur0Channels(), ...pa.rows.map((r) => r.channel)])];
     const sum = (rows, f) => rows.reduce((x, r) => x + f(r), 0), pct = (x, y) => (x > 0 && y != null ? ((y / x - 1) * 100) : null), chg = (v, better) => (v == null ? '<span class="muted">n/a</span>' : `<span class="${(better === 'lower' ? v < 0 : v > 0) ? 'good-t' : 'bad-t'}">${v > 0 ? '+' : ''}${fmt.num(v, 1)}%</span>`);
     const line = (label, cr, pr) => { const c = { spend: sum(cr, (r) => r.cost), spots: sum(cr, (r) => r.eq30), ngrp: sum(cr, (r) => r.ngrp), value: sum(cr.filter((r) => r.rated), (r) => r.value), vcost: sum(cr.filter((r) => r.rated), (r) => r.cost) }, q = { spend: sum(pr, (r) => r.spend), spots: sum(pr, (r) => r.spots), ngrp: sum(pr, (r) => r.grp || r.tvr * r.spots), value: sum(pr, (r) => (r.card30 || 0) * r.spots), vcost: sum(pr.filter((r) => r.card30 > 0), (r) => r.spend) };
@@ -472,6 +493,7 @@
       return `<tr><td><b>${esc(label)}</b></td><td class="num">${n0(c.spend)}</td><td class="num">${n0(q.spend)}</td><td class="num">${n1(c.ngrp)}</td><td class="num"><b>${n1(q.ngrp)}</b></td><td class="num">${chg(pct(c.ngrp, q.ngrp), 'higher')}</td><td class="num">${n0(cp)}</td><td class="num"><b>${n0(pp)}</b></td><td class="num">${chg(cp > 0 && pp != null ? (pp / cp - 1) * 100 : null, 'lower')}</td><td class="num">${xr(cr2)}</td><td class="num"><b>${xr(pr2)}</b></td></tr>`; };
     $('#cm-ch').innerHTML = card('By channel', 'Programmes only (sponsorship items and bonus are not in this table), 30 sec basis. Plan channels you built are shown as built; the others as the optimiser suggests.', `<div class="tbl-scroll"><table class="tbl"><thead><tr><th rowspan="2">Channel</th><th colspan="2" class="num">Spend (LKR)</th><th colspan="3" class="num">GRPs (30 sec)</th><th colspan="3" class="num">CPRP (LKR)</th><th colspan="2" class="num">ROI at rate card</th></tr><tr><th class="num">Current</th><th class="num">Plan</th><th class="num">Current</th><th class="num">Plan</th><th class="num">Change</th><th class="num">Current</th><th class="num">Plan</th><th class="num">Change</th><th class="num">Current</th><th class="num">Plan</th></tr></thead><tbody>${chs.map((ch) => line(tt(ch), D.current.rows.filter((r) => r.channel === ch), pa.rows.filter((r) => r.channel === ch))).join('')}</tbody></table></div>`);
     $('#cm-how').innerHTML = HOW;
+    paintScenarios();
     C().bar({ id: 'cm-chart', labels: ['Current agency', 'Our plan'], valueFmt: (v) => fmt.num(v, 0), legend: false, datasets: [{ label: 'GRPs (30 sec)', data: [cur.ngrp, P.ngrp], backgroundColor: [C().PALETTE[1], C().PALETTE[0]] }] });
   }
 
@@ -692,10 +714,10 @@
   function chBuilder(kind, ch, out) {
     const e = ensure(kind, ch), isCur = kind === 'current', d = e.deal; let q = '';
     const old = $('#pt-ch-sheet'); if (old) old.remove();
-    const ov = document.createElement('div'); ov.className = 'sheet-back'; ov.id = 'pt-ch-sheet'; ov.style.zIndex = 70; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', `${tt(ch)}: ${KIND[kind]}`);
-    ov.innerHTML = `<div class="sheet pt-sheet"><div class="sheet-bar"><div class="grow"><h2>${esc(tt(ch))}: ${KIND[kind]}</h2><div class="muted small">${isCur ? 'Built from the LMRB. Enter the discount you estimate; the rest follows.' : 'Our rates, our programmes, and the bonus programmes the channel gives.'}</div></div><div class="row"><button class="btn" id="cb-reset" type="button">Start this channel again</button><button class="btn primary" id="cb-xl" type="button">Download this channel (Excel)</button><button class="btn" id="cb-xl30" type="button">30 sec version</button><button class="btn" id="cb-x" type="button">Done</button></div></div><div class="sheet-body"><div id="cb-body"></div></div></div>`;
+    const ov = document.createElement('div'); ov.className = 'sheet-back'; ov.id = 'pt-ch-sheet'; ov.style.zIndex = 70; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-labelledby', 'cb-title'); const opener = document.activeElement;
+    ov.innerHTML = `<div class="sheet pt-sheet"><div class="sheet-bar"><div class="grow"><h2 id="cb-title">${esc(tt(ch))}: ${KIND[kind]}</h2><div class="muted small">${isCur ? 'Built from the LMRB. Enter the discount you estimate; the rest follows.' : 'Our rates, our programmes, and the bonus programmes the channel gives.'}</div></div><div class="row"><button class="btn" id="cb-undo" type="button" disabled>Undo</button><button class="btn" id="cb-reset" type="button">Start this channel again</button><button class="btn primary" id="cb-xl" type="button">Download this channel (Excel)</button><button class="btn" id="cb-xl30" type="button">30 sec version</button><button class="btn" id="cb-x" type="button">Done</button></div></div><div class="sheet-body"><div id="cb-body"></div></div></div>`;
     document.body.appendChild(ov);
-    const close = () => { document.removeEventListener('keydown', onKey); ov.remove(); if (!isCur) { run(); return; } if (out && st.tab === 'build' && $('#pt-out')) build($('#pt-out')); };
+    const close = () => { document.removeEventListener('keydown', onKey); ov.remove(); if (opener && opener.focus && document.contains(opener)) opener.focus(); if (!isCur) { run(); return; } if (out && st.tab === 'build' && $('#pt-out')) build($('#pt-out')); };
     const onKey = (ev) => { if (ev.key === 'Escape' && !document.querySelector('.modal-back')) { ev.stopPropagation(); close(); } };
     document.addEventListener('keydown', onKey, true);
     $('#cb-x', ov).onclick = close; ov.addEventListener('mousedown', (ev) => { if (ev.target === ov) close(); });
@@ -703,6 +725,16 @@
     $('#cb-xl', ov).onclick = () => sendSpec(kind, specEval(kind, [ch]), $('#cb-xl', ov));
     $('#cb-reset', ov).onclick = () => { if (!confirm('Go back to the starting point of this channel? Your changes to its rows are lost.')) return; delete EVS(kind)[ch]; save(); const n = ensure(kind, ch); Object.assign(e, n); paint(); };
     const body = $('#cb-body', ov);
+    // undo: the state before every change is kept, newest last
+    const hist = []; let lastSnap = 0;
+    const state = () => JSON.stringify({ deal: e.deal, rows: e.rows, mode: e.mode });
+    const sync = () => { const u = $('#cb-undo', ov); if (u) u.disabled = !hist.length; };
+    const snap = () => { const j = state(); if (hist[hist.length - 1] !== j) { hist.push(j); if (hist.length > 40) hist.shift(); } sync(); };
+    const undo = () => { while (hist.length) { const j = hist.pop(); if (j !== state()) { const o = JSON.parse(j); Object.keys(d).forEach((k) => delete d[k]); Object.assign(d, o.deal); e.rows = o.rows; e.mode = o.mode;
+        if (!isCur) { const so = {}; ['investment', 'commercial_pct', 'prime_pct', 'discount_pct', 'bonus_pct'].forEach((k) => { if (numOf(d[k]) != null) so[k] = +d[k]; }); if (Object.keys(so).length) st.ours[ch] = so; else delete st.ours[ch]; }
+        save(); paint(); sync(); return; } } sync(); };
+    $('#cb-undo', ov).onclick = undo;
+    ov.addEventListener('keydown', (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z' && !ev.shiftKey && !(ev.target.type === 'text' || ev.target.type === 'search')) { ev.preventDefault(); undo(); } });
 
     const meter = (label, used, cap, note) => { const pct = cap > 0 ? Math.min((used / cap) * 100, 100) : 0, over = cap > 0 && used > cap * 1.005; return `<div class="pt-meter ${over ? 'over' : ''}"><div class="pt-m-h"><span>${label}</span><b>${n0(used)}${cap > 0 ? ' of ' + n0(cap) : ''}</b></div><div class="pt-m-b"><i style="width:${pct}%"></i></div><div class="sub">${over ? 'Over the budget by ' + n0(used - cap) + '. ' : cap > 0 ? n0(Math.max(0, cap - used)) + ' left. ' : ''}${note || ''}</div></div>`; };
     const top = () => {
@@ -734,7 +766,9 @@
         return `<tr data-row="${r.id}"><td>${r.kind === 'va' ? `<input class="bd-in" type="text" data-id="${r.id}" data-f="desc" value="${esc(r.desc)}" style="width:170px" aria-label="Sponsorship item">` : `<span class="pn"><b>${esc(r.desc)}</b><span class="sub">${esc(r.day || '')} ${esc(r.from || '')}${r.to ? '-' + esc(r.to) : ''}</span></span>`}</td><td class="num">${inp('dur', 44)}</td><td class="num">${inp('tvr', 54)}</td><td class="num">${inp('spots', 52)}</td><td class="num">${inp('card', 78)}</td>
           <td class="num" data-c="rate">${r.kind === 'bonus' ? '<span class="muted">free</span>' : derived ? n0((r.rate * (+r.dur || 30)) / 30) : inp('rate', 78)}</td><td class="num" data-c="value"></td><td class="num" data-c="cost"></td><td class="num" data-c="grp"></td><td class="num" data-c="cprp"></td><td><button class="btn sm ghost danger" type="button" data-rm="${r.id}" aria-label="Remove row">x</button></td></tr>`; }).join('') || '<tr><td colspan="11" class="muted">Nothing here yet.</td></tr>'}</tbody></table></div></div>`;
     const paintNums = () => {
-      e.rows.forEach((r) => { const x = calc(r), tr = body.querySelector(`tr[data-row="${r.id}"]`); if (!tr) return; tr.querySelector('[data-c=value]').textContent = n0(x.value); tr.querySelector('[data-c=cost]').textContent = n0(x.cost); tr.querySelector('[data-c=grp]').textContent = n1(x.grp); tr.querySelector('[data-c=cprp]').textContent = x.ngrp > 0 && r.kind !== 'bonus' ? n0(x.cost / x.ngrp) : '';
+      e.rows.forEach((r) => { const x = calc(r), tr = body.querySelector(`tr[data-row="${r.id}"]`); if (!tr) return; const dd = +r.dur || 30, why = (k, t) => { const c = tr.querySelector(`[data-c=${k}]`); if (c) c.title = t; };
+        why('value', `Rate card ${n0(r.card)} (30 sec) x ${n0(r.spots)} spots x ${n0(dd)}/30 = ${n0(x.value)}`); why('cost', r.kind === 'bonus' ? 'Bonus: free' : `Rate ${n0(r.rate)} (30 sec) x ${n0(r.spots)} spots x ${n0(dd)}/30 = ${n0(x.cost)}`); why('grp', `TVR ${n2(r.tvr)} x ${n0(r.spots)} spots = ${n1(x.grp)}`); why('cprp', `Cost ${n0(x.cost)} / NGRP ${n1(x.ngrp)} (TVR x spots x ${n0(dd)}/30)`);
+        tr.querySelector('[data-c=value]').textContent = n0(x.value); tr.querySelector('[data-c=cost]').textContent = n0(x.cost); tr.querySelector('[data-c=grp]').textContent = n1(x.grp); tr.querySelector('[data-c=cprp]').textContent = x.ngrp > 0 && r.kind !== 'bonus' ? n0(x.cost / x.ngrp) : '';
         const rc = tr.querySelector('[data-c=rate]'); if (rc && r.kind !== 'bonus') { const ri = rc.querySelector('input'); const rd = Math.round((r.rate * (+r.dur || 30)) / 30 * 100) / 100; if (!ri) rc.textContent = n0(rd); else if (document.activeElement !== ri) ri.value = rd; } });
       $$('tfoot[data-g]', body).forEach((f) => { const l = GROUPS_OF[f.dataset.g](); f.innerHTML = l.length ? grpFoot(l) : ''; });
       const t = $('#cb-top', body); if (t) t.innerHTML = top();
@@ -762,14 +796,14 @@
         ${picker()}${rowTbl('pt', 'Prime time programmes', pt)}${rowTbl('npt', 'Non prime time programmes', npt)}${rowTbl('va', 'Sponsorship items you add', e.rows.filter((r) => r.kind === 'va'), 'Paid items (billboards, tags, time checks). They are costed at the rate you give and count in all exposure ROI.')}${isCur ? '' : rowTbl('bonus', 'Bonus programmes', e.rows.filter((r) => r.kind === 'bonus'), 'Free extra programmes. They cost nothing and count at rate card value.')}`;
       paintNums();
     }
-    body.onchange = (ev) => { const t = ev.target; if (!t.classList.contains('cb-d')) return; if (t.value === '') delete d[t.dataset.f]; else d[t.dataset.f] = +t.value; if (!isCur) { const o = {}; ['investment', 'commercial_pct', 'prime_pct', 'discount_pct', 'bonus_pct'].forEach((k) => { if (numOf(d[k]) != null) o[k] = +d[k]; }); if (Object.keys(o).length) st.ours[ch] = o; else delete st.ours[ch]; } const was = e.eff_discount != null; applyRates(kind, ch); save(); if (isCur || (e.eff_discount != null) !== was) paint(); else paintNums(); };
+    body.onchange = (ev) => { const t = ev.target; if (!t.classList.contains('cb-d')) return; snap(); if (t.value === '') delete d[t.dataset.f]; else d[t.dataset.f] = +t.value; if (!isCur) { const o = {}; ['investment', 'commercial_pct', 'prime_pct', 'discount_pct', 'bonus_pct'].forEach((k) => { if (numOf(d[k]) != null) o[k] = +d[k]; }); if (Object.keys(o).length) st.ours[ch] = o; else delete st.ours[ch]; } const was = e.eff_discount != null; applyRates(kind, ch); save(); if (isCur || (e.eff_discount != null) !== was) paint(); else paintNums(); };
     body.oninput = (ev) => { const t = ev.target;
       if (t.id === 'cb-q') { q = t.value; const pos = t.selectionStart; const host = $('#cb-q', body).closest('.card'); const tmp = document.createElement('div'); tmp.innerHTML = picker(); host.replaceWith(tmp.firstElementChild); const nq = $('#cb-q', body); nq.focus(); nq.setSelectionRange(pos, pos); return; }
       if (t.id === 'cb-cur') { onlyCur = t.checked; const host = $('#cb-q', body).closest('.card'), tmp = document.createElement('div'); tmp.innerHTML = picker(); host.replaceWith(tmp.firstElementChild); return; }
-      if (!t.dataset || !t.dataset.id) return; const r = e.rows.find((x) => x.id === t.dataset.id); if (!r) return; r[t.dataset.f] = t.type === 'number' ? (t.value === '' ? 0 : t.dataset.conv ? (+t.value * 30) / (+r.dur || 30) : +t.value) : t.value;
+      if (!t.dataset || !t.dataset.id) return; if (Date.now() - lastSnap > 1000) snap(); lastSnap = Date.now(); const r = e.rows.find((x) => x.id === t.dataset.id); if (!r) return; r[t.dataset.f] = t.type === 'number' ? (t.value === '' ? 0 : t.dataset.conv ? (+t.value * 30) / (+r.dur || 30) : +t.value) : t.value;
       if (isCur && t.dataset.f === 'card') applyRates(kind, ch); save(); paintNums(); };
     body.onclick = (ev) => {
-      const g = (a) => ev.target.closest(`[${a}]`);
+      const g = (a) => ev.target.closest(`[${a}]`); if (ev.target.closest('button')) snap();
       const mb = g('data-m'); if (mb && isCur) { const T0 = tally(e.rows), to = mb.dataset.m; if (to !== modeOf(e)) { e.mode = to;
         if (to === 'discount' && numOf(d.est_discount_pct) == null && e.eff_discount != null) d.est_discount_pct = Math.round(e.eff_discount * 1000) / 10;
         if (to === 'investment' && !(numOf(d.investment) > 0)) { d.investment = Math.round(T0.cost); if (T0.vaCost > 0 && T0.cost > 0) d.commercial_pct = Math.round((T0.cc / T0.cost) * 1000) / 10; } applyRates(kind, ch); save(); paint(); } return; }
@@ -783,7 +817,7 @@
         if (!a.rows.length) { App.toast('No programme of this channel has a rate yet.', 'error'); return; }
         e.rows = e.rows.filter((r) => !isCom(r)).concat(a.rows.map((r) => ({ id: uid(), kind: 'com', band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.neg30, key: r.key }))); applyRates(kind, ch); save(); paint(); }
     };
-    paint();
+    paint(); const first = $('.cb-d', body) || $('#cb-x', ov); if (first) first.focus();
   }
 
   /* ---------------------------------------------------------------- 7 matches */
