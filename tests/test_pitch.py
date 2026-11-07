@@ -1,6 +1,8 @@
 """Client Pitch Evaluator: matching, 30 sec maths, ROI, plan and exports, against independent pandas calculations on the sample data."""
+import datetime as dt
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -276,15 +278,48 @@ def test_evaluation_workbook_formulas_calculate(data, tmp_path):
                     assert isinstance(v, (int, float)) and abs(v - c.value) <= 1e-6 * max(1, abs(c.value)), (ws.title, c.coordinate, c.value, v)
     assert n > 200
     assert sum(1 for ws in formulas for row in ws.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("=")) > 150          # real formulas, not pasted numbers
-    summ = {r[0].value: [x.value for x in r] for r in calc["Summary"].iter_rows(min_row=4) if r[0].value}
+    S = calc["Summary"]
+    hdr = {str(c.value).strip(): i for i, c in enumerate(S[2]) if c.value}
+    assert list(hdr)[:17] == ["Channel", "Total Investment", "Total Rate Card (all Expo)", "Com Only", "C ROI%", "ROI%", "Com Only GRPs", "Com Only NGRPs", "Com Only CPRP", "Com Only N CPRP", "Total GRPs", "Total NGRPs",
+                              "CPRP All Expo", "NCPRP - 30 Sec All Expo", "Total Number of Spots", "Total Number of V/A", "Total Exposures"]
+    summ = {}
+    for r in S.iter_rows(min_row=3):
+        if r[0].value:
+            summ[r[0].value] = [x.value for x in r]
+        if r[0].value == "TV ":
+            break                                                                                                  # below it comes the CPRP table, which repeats the channel names
     for c in meta["channels"]:
         row = summ[c["channel"]]
-        assert row[1] == pytest.approx(c["spend"]) and row[4] == pytest.approx(c["com_roi"]) and row[5] == pytest.approx(c["all_roi"])
-        assert row[16] == pytest.approx(c["com_spend"]) and row[7] == pytest.approx(c["ngrp"])
-    assert summ["TV"][1] == pytest.approx(sum(c["spend"] for c in meta["channels"]))
+        g = lambda name: row[hdr[name]]  # noqa: E731
+        assert g("Total Investment") == pytest.approx(c["spend"]) and g("C ROI%") == pytest.approx(c["com_roi"]) and g("ROI%") == pytest.approx(c["all_roi"])
+        assert g("Com Only NGRPs") == pytest.approx(c["ngrp"]) and g("Com Only GRPs") == pytest.approx(c["grp"]) and g("Commercial Cost") == pytest.approx(c["com_spend"])
+        assert g("Com Only CPRP") == pytest.approx(c["com_spend"] / c["grp"]) and g("Com Only N CPRP") == pytest.approx(c["cprp"])                       # cost per rating point, and on a 30 second basis
+        assert g("Total Exposures") == g("Total Number of Spots") + g("Total Number of V/A") == c["com_spots"] + c["va_spots"]
+    assert summ["TV "][hdr["Total Investment"]] == pytest.approx(sum(c["spend"] for c in meta["channels"]))
+    # under the summary: the CPRP of every channel, company only and all exposure
+    start = [i for i, r in enumerate(S.iter_rows(values_only=True), 1) if r[0] and str(r[0]).startswith("CPRP BY CHANNEL")][0]
+    head = [c.value for c in S[start + 1]][:7]
+    assert head == ["Channel", "Com Only CPRP", "Com Only NCPRP (30 sec)", "All Exposure CPRP", "All Exposure NCPRP (30 sec)", "Com Only GRPs", "All Exposure GRPs"]
+    cp = {r[0].value: [x.value for x in r] for r in S.iter_rows(min_row=start + 2, max_row=start + 1 + len(meta["channels"]) + 1) if r[0].value}
+    for c in meta["channels"]:
+        assert cp[c["channel"]][2] == pytest.approx(c["cprp"]) and cp[c["channel"]][1] == pytest.approx(c["com_spend"] / c["grp"]) and cp[c["channel"]][5] == pytest.approx(c["grp"])
+    assert "TV " in cp
     f = {r[0].value: r[1].value for r in calc["Formulas"].iter_rows(min_row=3, max_row=5)}
     assert f == {"Base seconds": 30, "SSCL rate": 0.025, "VAT rate": 0.18}
-    d = calc["DERANA"]
-    inv = [r for r in d.iter_rows() if r[0].value and str(r[0].value).startswith("ACTUAL INVESTMENT")][0][14].value
-    gt = [r for r in d.iter_rows() if r[0].value == "GRAND TOTAL"][0][14].value
+    # a channel sheet is laid out like the agency sheets: number of spots straight after DUR, rates per spot at the row's duration, real time cells, comma style money, plain number GRPs and TVR
+    d, dc = calc["DERANA"], cached["DERANA"]
+    assert [c.value for c in d[8]][2:17] == ["DESCRIPTION", "DAY", "TIME BELT", None, "DUR", "NUMBER OF SPOTS", "TVR", "GRP", "NGRP", "CPRP", "NCPRP", "RATE CARD RATE", "NEGOTIATED RATE", "TOTAL VALUE", "TOTAL COST"]
+    assert [c.value for c in d[2]][2:4] == ["CLIENT :", "SAMPATH BANK"] and [c.value for c in d[5]][2:4] == ["CHANNEL :", "DERANA"]
+    fm = formulas["DERANA"]
+    husmak = [r for r in range(9, d.max_row) if d.cell(r, 3).value == "HUSMAK LAGIN"][0]
+    assert fm.cell(husmak, 10).value == f"=I{husmak}*H{husmak}" and fm.cell(husmak, 16).value == f"=N{husmak}*H{husmak}" and fm.cell(husmak, 17).value == f"=O{husmak}*H{husmak}"
+    assert re.fullmatch(r"=\([0-9.]+/Formulas!\$B\$3\)\*G\d+", fm.cell(husmak, 14).value) and re.fullmatch(r"=\([0-9.]+/Formulas!\$B\$3\)\*G\d+", fm.cell(husmak, 15).value)      # rate per spot = 30 sec rate / 30 x DUR
+    nf = lambda col: fm.cell(husmak, col).number_format  # noqa: E731
+    assert nf(9) == "0.00" and nf(10) == "#,##0.00" and nf(11) == "#,##0.00"                                       # TVR and GRPs: Number
+    assert nf(12).startswith("_(* #,##0.00_)") and nf(13).startswith("_(* #,##0.00_)")                              # CPRP and NCPRP: Comma Style
+    assert nf(14).startswith("_(* #,##0_)") and nf(15).startswith("_(* #,##0_)") and nf(16).startswith("_(* #,##0_)") and nf(17).startswith("_(* #,##0_)")      # rates, value, cost: Comma Style
+    assert isinstance(dc.cell(husmak, 5).value, (dt.time, dt.datetime)) and nf(5) == "h:mm"                          # the time belt is a real time
+    assert S.cell(3, 2).number_format.startswith("_(* #,##0_)") and S.cell(3, 9).number_format.startswith("_(* #,##0.00_)") and S.cell(3, 7).number_format == "#,##0.00"
+    inv = [r for r in d.iter_rows() if r[2].value and str(r[2].value).startswith("ACTUAL INVESTMENT")][0][15].value
+    gt = [r for r in d.iter_rows() if r[2].value == "GRAND TOTAL"][0][15].value
     assert gt == pytest.approx(inv / 0.975 + inv / 0.975 * 0.18)                                           # the agency's tax method
