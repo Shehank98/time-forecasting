@@ -899,3 +899,6 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 .cb-split, .cb-panel { display: block; }
 .cbb-fix { flex: 1 1 100%; font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .cb-barin { padding: 8px 14px; gap: 6px 22px; } .cbb-left b { font-size: 24px; } .cbb-k > div { padding: 4px 10px; } .cbb-note, .cbb-fix { margin: 0; line-height: 1.2; }
+
+.cprp-help { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); } .cprp-help .ch-h { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; } .cprp-help .ch-l { margin-top: 6px; font-size: 13px; line-height: 1.5; } .cprp-help .ch-sw { margin: 6px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 6px; } .cprp-help .btn.sm { margin-left: 6px; }
+tr.cprp-up td:first-child { box-shadow: inset 3px 0 0 var(--bad, #dc2626); }
