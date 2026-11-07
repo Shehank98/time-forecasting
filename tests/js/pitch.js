@@ -2,7 +2,7 @@
 const { load, fileOf } = require('./load.js');
 const fs = require('fs'), path = require('path');
 const MR = load();
-vmLoad(path.join(__dirname, '../../app/static/js/engine/pitchalloc.js')); vmLoad(path.join(__dirname, '../../app/static/js/engine/pitchmatch.js')); vmLoad(path.join(__dirname, '../../app/static/js/engine/pitch.js'));
+vmLoad(path.join(__dirname, '../../app/static/js/engine/pitchalloc.js')); vmLoad(path.join(__dirname, '../../app/static/js/engine/pitchmatch.js')); vmLoad(path.join(__dirname, '../../app/static/js/engine/pitchbands.js')); vmLoad(path.join(__dirname, '../../app/static/js/engine/pitch.js'));
 function vmLoad(p) { require('vm').runInThisContext(fs.readFileSync(p, 'utf8'), { filename: p }); }
 (async () => {
   const [lf, tf, opts, cm] = process.argv.slice(2);

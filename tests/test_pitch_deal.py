@@ -261,3 +261,45 @@ def test_tvr_of_different_target_audiences_are_never_averaged(data, tmp_path):
     assert tv_a == pytest.approx(tv_b)                                         # the same numbers as a sheet that has only that audience
     w_tvr = {c["key"]: c["tvr"] for c in w["candidates"]}
     assert all(w_tvr[k] == pytest.approx(3 * tv_a[k], rel=1e-6) for k in tv_a if k in w_tvr)
+
+
+def test_time_bands_weekend_split_and_programme_list_and_shares(data):
+    """Bands per channel: prime / non prime weekday / non prime weekend, and a programme list (Prime A, Prime B, Non prime) like Hiru's."""
+    p, lm, tv = data
+    wk = run(p, {"month": "all", "bands": {"DERANA": {"preset": "pt_wk"}}})
+    band = {c["program"]: c["band"] for c in wk["candidates"] if c["channel"] == "DERANA"}
+    assert band["HUSMAK LAGIN"] == "PT" and band["DERANA ARUNA"] == "NPT_WD" and band["WEEKEND MOVIE"] == "NPT_WE"
+    hiru_list = [{"cat": "A", "name": "Hiru News", "days": "Monday to Sunday", "start": "19:30", "end": "20:00"}, {"cat": "B", "name": "Hiru Morning Show", "days": "Daily", "start": "06:30 am", "end": "08:00 am"}]
+    hb = run(p, {"month": "all", "bands": {"HIRU": {"preset": "abc", "list": hiru_list}}})
+    hband = {c["program"]: c["band"] for c in hb["candidates"] if c["channel"] == "HIRU"}
+    assert hband["HIRU NEWS"] == "A" and hband["HIRU MORNING"] == "B" and hband["HIRU MOVIE"] == "NP"      # a programme not in the list is non prime
+    assert {x["program"] for x in hb["bands"]["HIRU"]["uncategorised"]} == {"HIRU MOVIE"}
+    # shares: strict shares are limits, not targets
+    sh = {"HIRU": {"preset": "abc", "list": hiru_list, "shares": {"A": 20, "B": 40, "NP": 40}, "strict": True}}
+    st = run(p, {"month": "all", "bands": sh, "max_spots": 8})
+    budget = st["budgets"]["HIRU"]
+    spent = {}
+    for r in st["plan"]["rows"]:
+        if r["channel"] == "HIRU":
+            spent[r["band"]] = spent.get(r["band"], 0) + r["spend"]
+    assert spent.get("A", 0) <= 0.20 * budget + 1e-6 and spent.get("B", 0) <= 0.40 * budget + 1e-6 and spent.get("NP", 0) <= 0.40 * budget + 1e-6
+    assert st["band_shares"]["HIRU"] == {"A": 0.2, "B": 0.4, "NP": 0.4} and st["band_strict"]["HIRU"] is True
+
+
+def test_hiru_categorisation_list_effective_23_10_2026():
+    """The built-in Hiru list parses days and times the way the PDF writes them."""
+    out = subprocess.run(["node", "-e", """
+const fs = require('fs'), vm = require('vm'); const root = '%s/app/static/js/engine/';
+for (const f of ['pitchmatch.js', 'pitchbands.js']) vm.runInThisContext(fs.readFileSync(root + f, 'utf8'));
+const B = MR.pitchBands; const H = B.HIRU;
+const e = (program, start, days) => ({ program, start: start * 60, days, pt: false });
+const wd = [1,1,1,1,1,0,0], we = [0,0,0,0,0,1,1], sat = [0,0,0,0,0,1,0];
+const cfg = { preset: 'abc', list: H.rows };
+console.log(JSON.stringify({ rows: H.rows.length, days: B.parseDays('Monday to Thursday'), we: B.parseDays('Saturday & Sunday'), t1: B.parseTime('11.55 am'), t2: B.parseTime('09:55 pm'), t3: B.parseTime('12:30 am'),
+  news: B.classify(e('9.55 News', 21 * 60 + 55, wd), cfg).id, rpt: B.classify(e('Ron Soya - RPT', 11 * 60, wd), cfg).id, live: B.classify(e('Ron Soya', 20 * 60 + 30, wd), cfg).id, early: B.classify(e('Paththarey Wistharey', 6 * 60 + 30, we), cfg).id,
+  star: B.classify(e('Hiru Star - Season 05', 19 * 60 + 30, sat), cfg).id, movie: B.classify(e('Afternoon Movies', 12 * 60 + 30, wd), cfg).id, unknown: B.classify(e('Some New Show', 15 * 60, wd), cfg).listed }));
+""" % str(ROOT)], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    r = json.loads(out.stdout)
+    assert r["rows"] == 53 and r["days"] == [0, 1, 2, 3] and r["we"] == [5, 6] and r["t1"] == 715 and r["t2"] == 1315 and r["t3"] == 30
+    assert (r["news"], r["rpt"], r["live"], r["early"], r["star"], r["movie"]) == ("A", "NP", "A", "B", "A", "NP") and r["unknown"] is False

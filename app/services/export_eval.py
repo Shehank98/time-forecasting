@@ -169,12 +169,22 @@ def _channel_sheet(wb: Workbook, spec: dict, ch: dict, used: set[str]) -> dict:
         f = (t.hour * 60 + t.minute) / 1440
         return "PT" if prime[0] <= f < prime[1] else "NPT"
     key = lambda x: (_time(x.get("from")) or dt.time(23, 59), str(x.get("desc") or ""))        # noqa: E731
-    pt, npt = sorted([x for x in rows if band_of(x) == "PT"], key=key), sorted([x for x in rows if band_of(x) != "PT"], key=key)
-    for label, group, b in (("PRIME TIME", pt, "PT"), ("NON PRIME TIME", npt, "NPT")):
-        if group:
-            sub(label)
+    if any(x.get("group") for x in rows):                              # the channel's own bands (Prime A, Prime B, Non prime, weekday, weekend ...)
+        order: dict[str, float] = {}
+        for x in rows:
+            order.setdefault(str(x.get("group") or "OTHER"), _num(x.get("gorder"), 99))
+        for label in sorted(order, key=lambda g: (order[g], g)):
+            group = sorted([x for x in rows if str(x.get("group") or "OTHER") == label], key=key)
+            sub(label.upper())
             for x in group:
-                row_out(x, "com", band_of(x) or b)
+                row_out(x, "com", band_of(x))
+    else:
+        pt, npt = sorted([x for x in rows if band_of(x) == "PT"], key=key), sorted([x for x in rows if band_of(x) != "PT"], key=key)
+        for label, group, b in (("PRIME TIME", pt, "PT"), ("NON PRIME TIME", npt, "NPT")):
+            if group:
+                sub(label)
+                for x in group:
+                    row_out(x, "com", band_of(x) or b)
     r += 1
     if ch.get("bonus"):
         _bar(ws, r, 3, 18, GREY, "BONUS COMMERCIALS")

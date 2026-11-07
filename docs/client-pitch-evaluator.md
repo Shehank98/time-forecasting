@@ -108,7 +108,7 @@ The LMRB shows what each spot was *monitored* at, which is not always what was p
   - *Most GRPs*: cheapest CPRP first (CPRP = our 30 sec rate / TVR).
   - *Best ROI*: highest rate card value per rupee first.
   - *Balanced*: a mix of the two.
-- **Prime share**: if a prime % is given, that share of the budget is spent on prime programmes first and the rest on non prime, then **anything one side could not spend goes to the other side**. This means the prime share is a target, not a hard cap; the page shows the real split.
+- **Time bands** (per channel): prime / non prime, prime / non prime weekday / non prime weekend, or Prime A / Prime B / non prime from the channel's own programme list (Hiru). Each band has a share of the commercial money. A share is a **limit** by default (the optimiser never spends more than the share; the unspent money stays unspent), or a target when the limit box is unticked (what a band cannot spend moves to the others). Bonus can be switched off per band (Hiru: none on Prime A and B). Without bands, the older prime share % of the deal is a target as before.
 - **Our discount %** per channel changes our negotiated rate (see section 8).
 - **Bonus %**: the free extra a channel gives, as a share of the commercial rate card value (see section 11).
 - The tab is **one card per channel** (commercial budget, planned spend, spots, GRPs, CPRP, ROI, bonus). A card opens the channel window (same as *Our plan* in Build evaluation) where the deal numbers are typed and the programmes are filled or picked. Channels not opened show the optimiser's suggestion; built channels keep your rows, and the totals, the **Prime time and non prime time table** and the Comparison use them as built.

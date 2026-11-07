@@ -3,7 +3,7 @@
 const { load, fileOf } = require('./load.js');
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const MR = load();
-for (const f of ['pitchalloc.js', 'pitchmatch.js', 'pitch.js']) vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../../app/static/js/engine', f), 'utf8'));
+for (const f of ['pitchalloc.js', 'pitchmatch.js', 'pitchbands.js', 'pitch.js']) vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../../app/static/js/engine', f), 'utf8'));
 (async () => {
   const [lf, tf, opts] = process.argv.slice(2), o = JSON.parse(opts || '{}');
   const L = await MR.parseFile('lmrb', fileOf(lf)), V = await MR.parseFile('tv', fileOf(tf)), D = MR.pitchBuild(L, MR.allIdx(L), V, o), cur = D.current;

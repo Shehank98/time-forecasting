@@ -11,7 +11,7 @@
    * cands: [{key, channel, tvr, neg30, cap, ...}], budgets: {channel: LKR}, excluded: Set|array of keys the user switched off.
    * Returns {rows: [{...cand, spots, spend, grp}], channels: {channel: {budget, spend, left, spots, grp}}}
    */
-  function pitchAllocate(cands, budgets, excluded, objective, primeShare) {
+  function pitchAllocate(cands, budgets, excluded, objective, primeShare, strict) {
     const off = new Set(excluded || []), byCh = new Map();
     for (const c of cands) { if (!byCh.has(c.channel)) byCh.set(c.channel, []); byCh.get(c.channel).push(c); }
     const rows = [], channels = {};
@@ -33,7 +33,10 @@
         }
       };
       const share = primeShare && primeShare[ch];
-      if (share > 0 && share < 1) { buy(list.filter((c) => c.pt), budget * share); buy(list.filter((c) => !c.pt), budget * (1 - share)); buy(list, left); }      // what one side cannot spend goes to the other
+      if (share && typeof share === 'object') {                    // bands with their own shares of the budget (Prime A / B / non prime, weekday / weekend ...)
+        for (const id of Object.keys(share)) buy(list.filter((c) => c.band === id), budget * share[id]);
+        if (!(strict && strict[ch])) buy(list, left);              // not strict: what a band cannot spend goes to the others
+      } else if (share > 0 && share < 1) { buy(list.filter((c) => c.pt), budget * share); buy(list.filter((c) => !c.pt), budget * (1 - share)); buy(list, left); }      // what one side cannot spend goes to the other
       else buy(list, budget);
       let spend = 0, spots = 0, grp = 0; for (const r of order) { rows.push(r); spend += r.spend; spots += r.spots; grp += r.grp; }
       channels[ch] = { budget, spend, left: budget - spend, spots, grp };

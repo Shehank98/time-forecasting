@@ -217,11 +217,11 @@
 
   /** opts: see the README. L/lidx: LMRB table and rows, V: TVR table. */
   function pitchBuild(L, lidx, V, opts) {
-    const o = { pt_start: 19 * 3600, pt_end: 22.5 * 3600, min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, ratecard: [], deals: {}, plan_deals: {}, current_basis: 'lmrb', month: null, channels: [], daypart: 'all', excluded: [], ...opts };
+    const o = { bands: {}, pt_start: 19 * 3600, pt_end: 22.5 * 3600, min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, ratecard: [], deals: {}, plan_deals: {}, current_basis: 'lmrb', month: null, channels: [], daypart: 'all', excluded: [], ...opts };
     const dsAll = V.cols.data_set && V.dicts.data_set ? V.dicts.data_set : [], dsCount = new Map(); if (V.cols.data_set) for (let i = 0; i < V.n; i++) dsCount.set(V.cols.data_set[i], (dsCount.get(V.cols.data_set[i]) || 0) + 1);
     const dataSets = [...dsCount.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ name: dsAll[k], rows: n })), dataSet = dataSets.length > 1 ? (o.data_set && dataSets.some((x) => x.name === o.data_set) ? o.data_set : dataSets[0].name) : null;
     const cat = catalogue(V, dataSet);
-    cat.byKey.forEach((e) => { e.pt = isPT(e.start, o); });
+    cat.byKey.forEach((e) => { e.pt = isPT(e.start, o); const cfg = (o.bands || {})[e.channel] || null, b = MR.pitchBands.classify(e, cfg); e.band = b.id; e.band_name = b.name; e.band_listed = b.listed; if (cfg && cfg.preset === 'abc') e.pt = b.prime; });      // the channel's own bands: prime A / B and non prime count as prime and non prime
     const tvrChannels = [...cat.byCh.keys()].sort(), inTvr = new Set(tvrChannels);
     const chAvg = {};      // channel -> average TVR of its prime time and non prime airings in the TVR sheet
     cat.byKey.forEach((e) => { const a = (chAvg[e.channel] = chAvg[e.channel] || { pt: [0, 0], npt: [0, 0] }), b = e.pt ? a.pt : a.npt; b[0] += e.tvr_sum; b[1] += e.n; });
@@ -278,7 +278,7 @@
     }
     const rows = [...prog.values()].map((p) => {
       const e = p.e, card30 = rr.card(e), neg30 = rr.neg(e), avg30 = div(p.cost, p.eq30), grp = e.tvr * p.spots, ngrp = e.tvr * p.eq30;
-      return { key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, lmrb_program: p.lmrb, dur: p.dur, spots: p.spots, eq30: p.eq30, avg_dur: p.dur_sum / p.spots, cost: p.cost, avg_rate: div(p.cost, p.spots), card_rate: card30 > 0 ? (card30 * p.dur) / 30 : null, neg_rate: neg30 > 0 ? (neg30 * p.dur) / 30 : null, cost_lmrb: p.cost,
+      return { key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, band: e.band, band_name: e.band_name, lmrb_program: p.lmrb, dur: p.dur, spots: p.spots, eq30: p.eq30, avg_dur: p.dur_sum / p.spots, cost: p.cost, avg_rate: div(p.cost, p.spots), card_rate: card30 > 0 ? (card30 * p.dur) / 30 : null, neg_rate: neg30 > 0 ? (neg30 * p.dur) / 30 : null, cost_lmrb: p.cost,
         avg30, tvr: e.tvr, airings: e.n, grp, ngrp, cprp: div(p.cost, ngrp), card30, neg30, value: card30 > 0 ? card30 * p.eq30 : null, rated: card30 > 0, zero_tvr: !(e.tvr > 0),
         card_src: rr.source(e), card_prog: rr.row(e) ? rr.row(e).programme : null, card_eff: rr.row(e) ? rr.row(e).effective_from : null };
     }).sort((a, b) => b.cost - a.cost);
@@ -358,18 +358,19 @@
     else { cmp.spend = cmp.com_spend; cmp.roi = cmp.com_roi; }
     cmp.channels = [...planned].sort(); cmp.left_out = chNames.filter((c) => !planned.has(c));
     // our basket: same budget per channel, bought at our negotiated rates
-    const budgets = {}, primeShare = {};
+    const budgets = {}, primeShare = {}, bandShares = {}, bandStrict = {};
     for (const x of channels) if (planned.has(x.channel)) { const d = dealOf(x.channel), pd = planDealOf(x.channel); budgets[x.channel] = pd && pd.investment ? (pd.investment * pd.commercial_pct) / 100 : o.budget_basis === 'deal' && d && d.investment ? (d.investment * d.commercial_pct) / 100 : allBasis ? x.spend : x.com_spend;
-      const pp = pd && pd.prime_pct ? pd.prime_pct : d && d.prime_pct ? d.prime_pct : null; if (pp) primeShare[x.channel] = pp / 100; }
+      const pp = pd && pd.prime_pct ? pd.prime_pct : d && d.prime_pct ? d.prime_pct : null; if (pp) primeShare[x.channel] = pp / 100;
+      const cfg = (o.bands || {})[x.channel], sh = MR.pitchBands.shares(cfg); if (sh) { bandShares[x.channel] = sh; bandStrict[x.channel] = !!cfg.strict; delete primeShare[x.channel]; } }
     const cands = [];
     cat.byKey.forEach((e) => {
       if (!(e.channel in budgets) || !(e.tvr >= o.min_tvr) || !(e.tvr > 0)) return;
       if (o.daypart !== 'all' && (o.daypart === 'PT') !== e.pt) return;
       const neg30 = rr.neg(e); if (!(neg30 > 0)) return;
-      cands.push({ key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, tvr: e.tvr, card30: rr.card(e), neg30, cprp: neg30 / e.tvr, roi_ratio: rr.card(e) > 0 ? rr.card(e) / neg30 : null,
+      cands.push({ key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, band: e.band, band_name: e.band_name, tvr: e.tvr, card30: rr.card(e), neg30, cprp: neg30 / e.tvr, roi_ratio: rr.card(e) > 0 ? rr.card(e) / neg30 : null,
         per_month: e.per_month, cap: Math.max(1, Math.ceil(e.per_month * o.max_spots)) });
     });
-    const plan = MR.pitchAllocate(cands, budgets, o.excluded, o.objective, primeShare);
+    const plan = MR.pitchAllocate(cands, budgets, o.excluded, o.objective, { ...primeShare, ...bandShares }, bandStrict);
     const planTotals = MR.pitchPlanSummary(plan.rows, budgets);
     const planInputs = {};      // what was put into each channel, with the bonus the channel gives (a share of the commercial rate card value)
     for (const ch of Object.keys(budgets)) { const pd = planDealOf(ch), rv = plan.rows.filter((r) => r.channel === ch).reduce((a, r) => a + (r.card30 || 0) * r.spots, 0);
@@ -394,8 +395,8 @@
       skipped_channels: [...skipped.values()].sort((a, b) => b.spend - a.spend), no_medium: noMedium, candidates_without_rate: [...cat.byKey.values()].filter((e) => e.channel in budgets && e.tvr >= o.min_tvr && !(rr.neg(e) > 0)).length };
     return { empty: !rows.length && !sponsorship.length, data_sets: dataSets, data_set: dataSet, audit: { ...aud, merged_tvr_slots: cat.merged_slots }, advertiser: advWanted, advertisers: [...advSpend.entries()].sort((a, b) => b[1] - a[1]).map(([name, spend]) => ({ name, spend })), month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective, current_basis: o.current_basis },
       overview: { months: allMonths, rows: [...ov.entries()].map(([channel, m]) => ({ channel, months: allMonths.map((k) => m.get(k) || { com: 0, va: 0 }) })).sort((a, b) => b.months.reduce((s, x) => s + x.com + x.va, 0) - a.months.reduce((s, x) => s + x.com + x.va, 0)) },
-      matches: groups, slots: slotRows, catalogue: [...cat.byCh.entries()].reduce((m, [ch, list]) => { m[ch] = list.sort((a, b) => b.n - a.n).map((e) => ({ key: e.key, program: e.program, label: `${e.program} (${e.start_hm || 'no time'}, ${e.day_label})`, start: e.start_hm, end: e.end_hm, days: e.day_label, tvr: e.tvr, pt: e.pt, card30: rr.card(e), neg30: rr.neg(e) })); return m; }, {}),
-      current: { ...current, rows, sponsorship, channels, daypart }, candidates: cands, budgets, plan: { rows: plan.rows, channels: plan.channels, totals: planTotals }, rates: ratesRows, warnings, evidence, prime_share: primeShare, plan_inputs: planInputs,
+      matches: groups, slots: slotRows, catalogue: [...cat.byCh.entries()].reduce((m, [ch, list]) => { m[ch] = list.sort((a, b) => b.n - a.n).map((e) => ({ key: e.key, program: e.program, label: `${e.program} (${e.start_hm || 'no time'}, ${e.day_label})`, start: e.start_hm, end: e.end_hm, days: e.day_label, tvr: e.tvr, pt: e.pt, band: e.band, band_name: e.band_name, card30: rr.card(e), neg30: rr.neg(e) })); return m; }, {}),
+      current: { ...current, rows, sponsorship, channels, daypart }, candidates: cands, budgets, plan: { rows: plan.rows, channels: plan.channels, totals: planTotals }, rates: ratesRows, warnings, evidence, prime_share: primeShare, band_shares: bandShares, band_strict: bandStrict, bands: Object.fromEntries(tvrChannels.map((ch) => [ch, { set: MR.pitchBands.bandSet((o.bands || {})[ch]), preset: ((o.bands || {})[ch] || {}).preset || 'pt', uncategorised: (o.bands || {})[ch] && o.bands[ch].preset === 'abc' ? [...cat.byKey.values()].filter((e) => e.channel === ch && !e.band_listed).map((e) => ({ key: e.key, program: e.program, days: e.day_label, start: e.start_hm })) : [] }])), plan_inputs: planInputs,
       comparison: { ...MR.pitchCompare(cmp, planTotals), current: cmp, basis: allBasis ? 'all' : 'com' } };
   }
 
