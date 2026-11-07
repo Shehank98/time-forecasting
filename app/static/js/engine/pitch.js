@@ -202,7 +202,7 @@
 
   /** opts: see the README. L/lidx: LMRB table and rows, V: TVR table. */
   function pitchBuild(L, lidx, V, opts) {
-    const o = { pt_start: 19 * 3600, pt_end: 22.5 * 3600, min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, ratecard: [], month: null, channels: [], daypart: 'all', excluded: [], ...opts };
+    const o = { pt_start: 19 * 3600, pt_end: 22.5 * 3600, min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, ratecard: [], deals: {}, current_basis: 'lmrb', month: null, channels: [], daypart: 'all', excluded: [], ...opts };
     const cat = catalogue(V);
     cat.byKey.forEach((e) => { e.pt = isPT(e.start, o); });
     const tvrChannels = [...cat.byCh.keys()].sort(), inTvr = new Set(tvrChannels);
@@ -255,12 +255,41 @@
     }
     const rows = [...prog.values()].map((p) => {
       const e = p.e, card30 = rr.card(e), neg30 = rr.neg(e), avg30 = div(p.cost, p.eq30), grp = e.tvr * p.spots, ngrp = e.tvr * p.eq30;
-      return { key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, spots: p.spots, eq30: p.eq30, avg_dur: p.dur_sum / p.spots, cost: p.cost,
-        avg30, tvr: e.tvr, airings: e.n, grp, ngrp, cprp: div(p.cost, ngrp), card30, neg30, value: card30 > 0 ? card30 * p.eq30 : null, rated: card30 > 0, zero_tvr: !(e.tvr > 0) };
+      return { key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, spots: p.spots, eq30: p.eq30, avg_dur: p.dur_sum / p.spots, cost: p.cost, cost_lmrb: p.cost,
+        avg30, tvr: e.tvr, airings: e.n, grp, ngrp, cprp: div(p.cost, ngrp), card30, neg30, value: card30 > 0 ? card30 * p.eq30 : null, rated: card30 > 0, zero_tvr: !(e.tvr > 0),
+        card_src: rr.source(e), card_prog: rr.row(e) ? rr.row(e).programme : null, card_eff: rr.row(e) ? rr.row(e).effective_from : null };
     }).sort((a, b) => b.cost - a.cost);
     const monthsInView = month === 'all' ? Math.max(1, allMonths.length) : 1;
     const sponsorship = [...spon.values()].map((x) => { const a = chAvg[x.channel] || { pt_tvr: 0, npt_tvr: 0 }, tvr = (x.pt_spots * a.pt_tvr + x.npt_spots * a.npt_tvr) / x.spots;
-      return { ...x, spots_per_month: x.spots / monthsInView, avg_cost: x.spend / x.spots, avg_pt_tvr: a.pt_tvr, avg_npt_tvr: a.npt_tvr, tvr, grp: tvr * x.spots, ngrp: tvr * x.eq30, cprp: div(x.spend, tvr * x.eq30) }; }).sort((a, b) => b.spend - a.spend);
+      return { ...x, spots_per_month: x.spots / monthsInView, avg_cost: x.spend / x.spots, spend_lmrb: x.spend, avg_pt_tvr: a.pt_tvr, avg_npt_tvr: a.npt_tvr, tvr, grp: tvr * x.spots, ngrp: tvr * x.eq30, cprp: div(x.spend, tvr * x.eq30) }; }).sort((a, b) => b.spend - a.spend);
+
+    // ---- Deal and investment evidence. The agency's contract gives one investment per channel; a share of it (100%, 90%, 80%) buys the commercial spots, the rest
+    //      pays for the sponsorship / frequency items. Without the real investment the previous agency's spend is estimated from what the programmes cost at the channel's rate card:
+    //      spots x rack rate, commercial only. With it, the discount they really got is 1 - (commercial investment / that rack value).
+    const dealOf = (ch) => { const d = (o.deals || {})[ch]; return d && +d.investment > 0 ? { investment: +d.investment, commercial_pct: +d.commercial_pct > 0 ? Math.min(+d.commercial_pct, 100) : 100, prime_pct: +d.prime_pct > 0 ? Math.min(+d.prime_pct, 100) : null } : null; };
+    const evidence = [...new Set(rows.map((r) => r.channel))].map((ch) => {
+      const R = rows.filter((r) => r.channel === ch), rated = R.filter((r) => r.rated), sum = (xs, f) => xs.reduce((a, x) => a + f(x), 0), d = dealOf(ch);
+      const rack = sum(rated, (r) => r.value), lmrbCom = sum(R, (r) => r.cost_lmrb), ratedCost = sum(rated, (r) => r.cost_lmrb), unratedCost = lmrbCom - ratedCost;
+      const ptV = sum(rated.filter((r) => r.pt), (r) => r.value), nptV = rack - ptV, comInv = d ? (d.investment * d.commercial_pct) / 100 : null;
+      const coverage = lmrbCom > 0 ? (ratedCost / lmrbCom) * 100 : null, share = lmrbCom > 0 ? ratedCost / lmrbCom : 1;
+      const comInvRated = comInv == null ? null : comInv * share;                    // when some programmes have no rate, only their share of the investment is compared with the rack value
+      return { channel: ch, spots: sum(R, (r) => r.spots), eq30: sum(R, (r) => r.eq30), rack_value: rack, lmrb_cost: lmrbCom, lmrb_rated_cost: ratedCost, lmrb_unrated_cost: unratedCost, coverage_pct: coverage,
+        lmrb_pct_of_rack: rack > 0 ? (ratedCost / rack) * 100 : null, lmrb_discount_pct: rack > 0 ? (1 - ratedCost / rack) * 100 : null, unrated_programmes: R.length - rated.length,
+        pt_value: ptV, npt_value: nptV, pt_share_pct: rack > 0 ? (ptV / rack) * 100 : null, deal: d, commercial_investment: comInv, sponsorship_investment: d ? d.investment - comInv : null,
+        implied_discount_pct: comInvRated != null && rack > 0 ? (1 - comInvRated / rack) * 100 : null, implied_pays_pct: comInvRated != null && rack > 0 ? (comInvRated / rack) * 100 : null,
+        estimated_commercial_investment: rack + unratedCost, rows: R.map((r) => r.key) };
+    });
+    if (o.current_basis === 'actual') {           // the current buy at what was really paid: the investment is spread over the programmes in proportion to their rack value (one discount for the channel)
+      for (const ev of evidence) {
+        if (!ev.deal) continue;
+        const R = rows.filter((r) => r.channel === ev.channel), rated = R.filter((r) => r.rated), base = ev.commercial_investment - ev.lmrb_unrated_cost;
+        if (ev.rack_value > 0 && base > 0) { const k = base / ev.rack_value; rated.forEach((r) => { r.cost = r.value * k; }); }
+        else if (ev.lmrb_cost > 0) { const f = ev.commercial_investment / ev.lmrb_cost; R.forEach((r) => { r.cost = r.cost_lmrb * f; }); }
+        R.forEach((r) => { r.avg30 = div(r.cost, r.eq30); r.cprp = div(r.cost, r.ngrp); });
+        const S = sponsorship.filter((x) => x.channel === ev.channel), lm = S.reduce((a, x) => a + x.spend_lmrb, 0), f2 = lm > 0 ? ev.sponsorship_investment / lm : 0;
+        S.forEach((x) => { x.spend = x.spend_lmrb * f2; x.rated_spend *= f2; x.avg_cost = x.spend / x.spots; x.cprp = div(x.spend, x.ngrp); });
+      }
+    }
 
     // per channel (current evaluation, ROI)
     const sumRows = (rs) => {
@@ -298,7 +327,8 @@
     else { cmp.spend = cmp.com_spend; cmp.roi = cmp.com_roi; }
     cmp.channels = [...planned].sort(); cmp.left_out = chNames.filter((c) => !planned.has(c));
     // our basket: same budget per channel, bought at our negotiated rates
-    const budgets = {}; for (const x of channels) if (planned.has(x.channel)) budgets[x.channel] = allBasis ? x.spend : x.com_spend;
+    const budgets = {}, primeShare = {};
+    for (const x of channels) if (planned.has(x.channel)) { const d = dealOf(x.channel); budgets[x.channel] = o.budget_basis === 'deal' && d ? (d.investment * d.commercial_pct) / 100 : allBasis ? x.spend : x.com_spend; if (d && d.prime_pct) primeShare[x.channel] = d.prime_pct / 100; }
     const cands = [];
     cat.byKey.forEach((e) => {
       if (!(e.channel in budgets) || !(e.tvr >= o.min_tvr) || !(e.tvr > 0)) return;
@@ -307,7 +337,7 @@
       cands.push({ key: e.key, channel: e.channel, program: e.program, start: e.start_hm, end: e.end_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', pt: e.pt, tvr: e.tvr, card30: rr.card(e), neg30, cprp: neg30 / e.tvr, roi_ratio: rr.card(e) > 0 ? rr.card(e) / neg30 : null,
         per_month: e.per_month, cap: Math.max(1, Math.ceil(e.per_month * o.max_spots)) });
     });
-    const plan = MR.pitchAllocate(cands, budgets, o.excluded, o.objective);
+    const plan = MR.pitchAllocate(cands, budgets, o.excluded, o.objective, primeShare);
     const planTotals = MR.pitchPlanSummary(plan.rows, budgets);
 
     // rates table (every TVR programme on the evaluated channels, with what the current agency paid)
@@ -327,10 +357,10 @@
       missing_rate_programmes: missing.length, missing_rate_spend: missing.reduce((a, r) => a + r.cost, 0), missing_rate_list: missing.slice(0, 25).map((r) => ({ channel: r.channel, program: r.program, cost: r.cost })),
       zero_tvr_programmes: rows.filter((r) => r.zero_tvr).length, zero_tvr_rows: [...cat.byKey.values()].reduce((a, e) => a + e.zero, 0), low_confidence_matches: groups.filter((g) => g.level === 'Low' || g.level === 'Medium').length,
       skipped_channels: [...skipped.values()].sort((a, b) => b.spend - a.spend), no_medium: noMedium, candidates_without_rate: [...cat.byKey.values()].filter((e) => e.channel in budgets && e.tvr >= o.min_tvr && !(rr.neg(e) > 0)).length };
-    return { empty: !rows.length && !sponsorship.length, month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective },
+    return { empty: !rows.length && !sponsorship.length, month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective, current_basis: o.current_basis },
       overview: { months: allMonths, rows: [...ov.entries()].map(([channel, m]) => ({ channel, months: allMonths.map((k) => m.get(k) || { com: 0, va: 0 }) })).sort((a, b) => b.months.reduce((s, x) => s + x.com + x.va, 0) - a.months.reduce((s, x) => s + x.com + x.va, 0)) },
       matches: groups, slots: slotRows, catalogue: [...cat.byCh.entries()].reduce((m, [ch, list]) => { m[ch] = list.sort((a, b) => b.n - a.n).map((e) => ({ key: e.key, program: e.program, label: `${e.program} (${e.start_hm || 'no time'}, ${e.day_label})`, start: e.start_hm, end: e.end_hm, days: e.day_label, tvr: e.tvr, pt: e.pt, card30: rr.card(e), neg30: rr.neg(e) })); return m; }, {}),
-      current: { ...current, rows, sponsorship, channels, daypart }, candidates: cands, budgets, plan: { rows: plan.rows, channels: plan.channels, totals: planTotals }, rates: ratesRows, warnings,
+      current: { ...current, rows, sponsorship, channels, daypart }, candidates: cands, budgets, plan: { rows: plan.rows, channels: plan.channels, totals: planTotals }, rates: ratesRows, warnings, evidence, prime_share: primeShare,
       comparison: { ...MR.pitchCompare(cmp, planTotals), current: cmp, basis: allBasis ? 'all' : 'com' } };
   }
 

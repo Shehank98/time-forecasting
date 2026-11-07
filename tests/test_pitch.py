@@ -323,3 +323,49 @@ def test_evaluation_workbook_formulas_calculate(data, tmp_path):
     inv = [r for r in d.iter_rows() if r[2].value and str(r[2].value).startswith("ACTUAL INVESTMENT")][0][15].value
     gt = [r for r in d.iter_rows() if r[2].value == "GRAND TOTAL"][0][15].value
     assert gt == pytest.approx(inv / 0.975 + inv / 0.975 * 0.18)                                           # the agency's tax method
+
+
+@pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice is not installed")
+def test_deal_block_in_the_evaluation_workbook(data, tmp_path):
+    """The contract's investment, commercial share and prime split sit beside the channel sheet and are compared with what the spots add up to."""
+    import openpyxl
+    p, *_ = data
+    o = {"rates": {"channels": OPTS["rates"]["channels"]}, "deals": {"DERANA": {"investment": 20_000_000, "commercial_pct": 80, "prime_pct": 50}}}
+    proc = subprocess.run(["node", str(ROOT / "tests/js/pitch_xlsx.js"), str(p / "lm.csv"), str(p / "tv.csv"), json.dumps(o), str(tmp_path / "dl")], capture_output=True, text=True, timeout=240)
+    assert proc.returncode == 0, proc.stderr
+    subprocess.run(["soffice", "--headless", "--convert-to", "xlsx:Calc MS Excel 2007 XML", "--outdir", str(tmp_path / "calc"), str(tmp_path / "dl_nocache.xlsx")], capture_output=True, timeout=180)
+    cached, calc = openpyxl.load_workbook(tmp_path / "dl_cached.xlsx", data_only=True), openpyxl.load_workbook(tmp_path / "calc/dl_nocache.xlsx", data_only=True)
+    for ws in cached:
+        for row in ws.iter_rows():
+            for c in row:
+                if isinstance(c.value, (int, float)):
+                    v = calc[ws.title][c.coordinate].value
+                    assert isinstance(v, (int, float)) and abs(v - c.value) <= 1e-6 * max(1, abs(c.value)), (ws.title, c.coordinate, c.value, v)
+    d = calc["DERANA"]
+    side = [r for r in d.iter_rows() if r[19].value]                                                      # column T
+    k = [i for i, r in enumerate(side) if r[19].value == "PLANNED AGAINST BUDGET"][0]
+    lab = {}
+    for r in side[:k]:
+        lab.setdefault(str(r[19].value), r)                                                              # the budget block
+    assert lab["Investment (contract)"][22].value == 20_000_000
+    assert lab["Commercial benefits (share of the investment)"][21].value == pytest.approx(0.8) and lab["Commercial benefits (share of the investment)"][22].value == pytest.approx(16_000_000)
+    assert lab["Sponsorship / frequency items (the rest)"][22].value == pytest.approx(4_000_000)
+    assert lab["Prime time (of the commercial benefits)"][22].value == pytest.approx(8_000_000) and lab["Non prime time"][22].value == pytest.approx(8_000_000)
+    com = [r for r in d.iter_rows() if r[2].value == "COMMERCIAL VALUE"][0]
+    band = {"PT": 0.0, "NPT": 0.0}
+    for r in d.iter_rows(min_row=9):
+        if r[17].value in band:
+            band[r[17].value] += r[16].value or 0
+    assert sum(band.values()) == pytest.approx(com[16].value)
+    lines = {str(r[19].value): r for r in side[k + 1:]}
+    # "Planned against budget" lines: budget (V), planned (W), balance (X)
+    byname = {n: (lines[n][21].value, lines[n][22].value, lines[n][23].value) for n in ("Commercial benefits", "Prime time", "Non prime time", "Sponsorship / frequency items")}
+    assert byname["Commercial benefits"][1] == pytest.approx(com[16].value) and byname["Prime time"][1] == pytest.approx(band["PT"]) and byname["Non prime time"][1] == pytest.approx(band["NPT"])
+    assert all(b[2] == pytest.approx(b[0] - b[1]) for b in byname.values())
+    assert lines["Discount vs rate card (commercial)"][22].value == pytest.approx(1 - 16_000_000 / com[15].value)
+    S = calc["Summary"]
+    hdr = {str(c.value).strip(): i for i, c in enumerate(S[2]) if c.value}
+    row = [r for r in S.iter_rows(min_row=3) if r[0].value == "DERANA"][0]
+    assert row[hdr["Actual Investment"]].value == 20_000_000 and row[hdr["Commercial % of Investment"]].value == pytest.approx(0.8) and row[hdr["Discount vs Rate Card (Com)"]].value == pytest.approx(1 - 16_000_000 / com[15].value)
+    assert [r for r in S.iter_rows(min_row=3) if r[0].value == "SIRASA"][0][hdr["Actual Investment"]].value in (None, 0)           # no deal: blank
+    assert d.cell(8, 18).value == "BAND"

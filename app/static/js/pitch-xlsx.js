@@ -5,14 +5,14 @@
  *
  * Channel sheet columns (as in the agency sheets): C DESCRIPTION | D DAY | E-F TIME BELT | G DUR | H NUMBER OF SPOTS | I TVR | J GRP | K NGRP | L CPRP | M NCPRP |
  *   N RATE CARD RATE | O NEGOTIATED RATE | P TOTAL VALUE | Q TOTAL COST.   Rates are per spot at the row's duration (30 sec rate / 30 x DUR).
- * spec: {client, title, note, month, channels: [{name, basket: [row], sponsorship: [row]}]}
+ * spec: {client, title, note, month, prime: [startFraction, endFraction], channels: [{name, deal: {investment, commercial_pct, prime_pct}, basket: [row], sponsorship: [row]}]}
  * row:  {desc, day, from, to, dur, tvr, spots, card, rate}    card and rate are per 30 seconds; dur is the spot length in seconds; from/to are 'HH:MM'
  */
 (function (App) {
   const SET = { base: 'Formulas!$B$3', sscl: 'Formulas!$B$4', vat: 'Formulas!$B$5' };
   const ACC0 = '_(* #,##0_);_(* \\(#,##0\\);_(* "-"??_);_(@_)', ACC2 = '_(* #,##0.00_);_(* \\(#,##0.00\\);_(* "-"??_);_(@_)';      // Excel "Comma Style"
   const NUM2 = '#,##0.00', TVR = '0.00', INT = '0', PCT = '0%', HM = 'h:mm';                                                         // "Number" format for GRPs and TVR
-  const HEAD = ['DESCRIPTION', 'DAY', 'TIME BELT', '', 'DUR', 'NUMBER OF SPOTS', 'TVR', 'GRP', 'NGRP', 'CPRP', 'NCPRP', 'RATE CARD RATE', 'NEGOTIATED RATE', 'TOTAL VALUE', 'TOTAL COST'];
+  const HEAD = ['DESCRIPTION', 'DAY', 'TIME BELT', '', 'DUR', 'NUMBER OF SPOTS', 'TVR', 'GRP', 'NGRP', 'CPRP', 'NCPRP', 'RATE CARD RATE', 'NEGOTIATED RATE', 'TOTAL VALUE', 'TOTAL COST', 'BAND'];
   const safeName = (n, used) => { const b = String(n || 'Channel').replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 28) || 'Channel'; let x = b, i = 2; while (used.has(x.toLowerCase())) x = b.slice(0, 26) + ' ' + i++; used.add(x.toLowerCase()); return x; };
   const q = (n) => `'${String(n).replace(/'/g, "''")}'`;
   const secOf = (hm) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(hm || '')); return m ? (+m[1] * 3600 + +m[2] * 60) / 86400 : null; };
@@ -40,7 +40,8 @@
         nm(r, 12, div(rate, tvr), ACC2, `IFERROR(O${r}/I${r},0)`); nm(r, 13, div(rate, (tvr / S.base) * dur), ACC2, `IFERROR(O${r}/(I${r}/${SET.base}*G${r}),0)`);
         nm(r, 14, card, ACC0, `(${card30}/${SET.base})*G${r}`); nm(r, 15, rate, ACC0, `(${rate30}/${SET.base})*G${r}`);
         nm(r, 16, card * spots, ACC0, `N${r}*H${r}`); nm(r, 17, rate * spots, ACC0, `O${r}*H${r}`);
-        blocks[key].push({ r, grp, ngrp, spots, value: card * spots, cost: rate * spots }); r++;
+        let bandName = ''; if (key === 'com') { const f = secOf(x.from), pr = spec.prime || [19 / 24, 22.5 / 24]; bandName = x.band || (f == null ? '' : f >= pr[0] && f < pr[1] ? 'PT' : 'NPT'); if (bandName) txt(r, 18, bandName); }
+        blocks[key].push({ r, grp, ngrp, spots, value: card * spots, cost: rate * spots, bandName }); r++;
       };
       if ((ch.sponsorship || []).length) { txt(r, 3, 'SPONSORSHIP BENEFITS'); r++; ch.sponsorship.forEach((x) => rowOut(x, 'va')); r++; }
       txt(r, 3, 'COMMERCIAL BENEFITS'); r++; (ch.basket || []).forEach((x) => rowOut(x, 'com')); r++;
@@ -61,18 +62,39 @@
       const gt = r++; txt(gt, 3, 'GRAND TOTAL'); nm(gt, 16, gross + gross * S.vat, ACC0, `P${inv}/(1-${SET.sscl})+P${vt}`);
       const cr = r++; txt(cr, 3, 'COMMERCIAL ROI %'); nm(cr, 16, div(com.value, com.cost), PCT, `IFERROR(P${com.r}/Q${com.r},0)`);
       const ar = r++; txt(ar, 3, 'ALL EXPOSURE ROI %'); nm(ar, 16, div(all.value, all.cost), PCT, `IFERROR(P${all.r}/Q${all.r},0)`);
+      // Deal: the contract's investment, the share of it that buys commercial spots, the prime / non prime split, and what the spots add up to against each
+      let dealCells = null;
+      if (ch.deal && Number(ch.deal.investment) > 0) {
+        const inv0 = Number(ch.deal.investment), cp = (Number(ch.deal.commercial_pct) || 100) / 100, pp = Number(ch.deal.prime_pct) > 0 ? Number(ch.deal.prime_pct) / 100 : null, r0 = 10, c = 20;
+        const comBudget = inv0 * cp;
+        txt(r0, c, 'DEAL / COMMERCIAL BUDGET'); txt(r0, 22, 'Share'); txt(r0, 23, 'Budget');
+        txt(r0 + 1, c, 'Investment (contract)'); nm(r0 + 1, 23, inv0, ACC0);
+        txt(r0 + 2, c, 'Commercial benefits (share of the investment)'); nm(r0 + 2, 22, cp, PCT); nm(r0 + 2, 23, comBudget, ACC0, `W${r0 + 1}*V${r0 + 2}`);
+        txt(r0 + 3, c, 'Sponsorship / frequency items (the rest)'); nm(r0 + 3, 22, 1 - cp, PCT, `1-V${r0 + 2}`); nm(r0 + 3, 23, inv0 - comBudget, ACC0, `W${r0 + 1}-W${r0 + 2}`);
+        let k = r0 + 4;
+        if (pp != null) { txt(k, c, 'Prime time (of the commercial benefits)'); nm(k, 22, pp, PCT); nm(k, 23, comBudget * pp, ACC0, `W${r0 + 2}*V${k}`); txt(k + 1, c, 'Non prime time'); nm(k + 1, 22, 1 - pp, PCT, `1-V${k}`); nm(k + 1, 23, comBudget * (1 - pp), ACC0, `W${r0 + 2}-W${k}`); k += 2; }
+        k++; txt(k, c, 'PLANNED AGAINST BUDGET'); txt(k, 22, 'Budget'); txt(k, 23, 'Planned'); txt(k, 24, 'Balance'); k++;
+        const lineOut = (label, bud, budF, planned, planF) => { txt(k, c, label); nm(k, 22, bud, ACC0, budF); nm(k, 23, planned, ACC0, planF); nm(k, 24, bud - planned, ACC0, `V${k}-W${k}`); k++; };
+        const last0 = r - 1;
+        const bandCost = (b) => blocks.com.reduce((a, x) => a + ((x.bandName || '') === b ? x.cost : 0), 0);
+        lineOut('Commercial benefits', comBudget, `W${r0 + 2}`, com.cost, `Q${com.r}`);
+        if (pp != null) { lineOut('Prime time', comBudget * pp, `W${r0 + 4}`, bandCost('PT'), `SUMIF($R$9:$R$${last0},"PT",$Q$9:$Q$${last0})`); lineOut('Non prime time', comBudget * (1 - pp), `W${r0 + 5}`, bandCost('NPT'), `SUMIF($R$9:$R$${last0},"NPT",$Q$9:$Q$${last0})`); }
+        lineOut('Sponsorship / frequency items', inv0 - comBudget, `W${r0 + 3}`, va.cost, `Q${va.r}`);
+        txt(k, c, 'Discount vs rate card (commercial)'); nm(k, 23, 1 - div(comBudget, com.value), PCT, `IFERROR(1-W${r0 + 2}/P${com.r},0)`);
+        dealCells = { r0, k, comPct: r0 + 2, disc: k, invRow: r0 + 1, comBudget, invVal: inv0, cpVal: cp };
+      }
       r++; txt(r++, 3, '*Rate card rate = the 30 second rate card rate / 30 x DUR, for one spot. Negotiated rate = our (or the agency\'s paid) 30 second rate / 30 x DUR.');
       txt(r, 3, '*TOTAL VALUE = rate card rate x spots. TOTAL COST = negotiated rate x spots. ROI = TOTAL VALUE / TOTAL COST. Change any rate, TVR, DUR or number of spots and the sheet recalculates.');
-      ws['!ref'] = `A1:Q${r}`;
-      ws['!cols'] = [{ wch: 4 }, { wch: 4 }, { wch: 40 }, { wch: 14 }, { wch: 7 }, { wch: 7 }, { wch: 6 }, { wch: 11 }, { wch: 9 }, { wch: 11 }, { wch: 11 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
-      X.utils.book_append_sheet(wb, ws, name); sheets.push({ name, com, va, all, inv, cr, ar });
+      ws['!ref'] = `A1:X${Math.max(r, dealCells ? dealCells.k + 1 : 0)}`;
+      ws['!cols'] = [{ wch: 4 }, { wch: 4 }, { wch: 40 }, { wch: 14 }, { wch: 7 }, { wch: 7 }, { wch: 6 }, { wch: 11 }, { wch: 9 }, { wch: 11 }, { wch: 11 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 7 }, { wch: 16 }, { wch: 6 }, { wch: 3 }, { wch: 44 }, { wch: 3 }, { wch: 9 }, { wch: 16 }, { wch: 16 }];
+      X.utils.book_append_sheet(wb, ws, name); sheets.push({ name, com, va, all, inv, cr, ar, deal: dealCells });
     }
 
     // Summary: the agency's summary table, then the CPRP of every channel
     const ws = {}, at = (r, c) => E({ r: r - 1, c: c - 1 });
     const T = (r, c, v) => { ws[at(r, c)] = { t: 's', v: String(v) }; }, N = (r, c, v, z, fx) => { ws[at(r, c)] = { t: 'n', v: Number.isFinite(v) ? v : 0, ...(z ? { z } : {}), ...(fx ? { f: fx } : {}) }; };
     const H = ['Channel', 'Total Investment', 'Total Rate Card (all Expo)', 'Com Only', 'C ROI%', 'ROI%', 'Com Only GRPs', 'Com Only NGRPs', 'Com Only CPRP', 'Com Only N CPRP', 'Total GRPs', 'Total NGRPs', 'CPRP All Expo', 'NCPRP - 30 Sec All Expo', 'Total Number of Spots ', 'Total Number of V/A', 'Total Exposures '];
-    H.forEach((h, i) => T(2, 1 + i, h)); T(2, 19, 'Discount %'); T(2, 20, 'Bonus %'); T(2, 22, 'Commercial Cost'); T(2, 23, 'Sponsorship Cost');
+    H.forEach((h, i) => T(2, 1 + i, h)); T(2, 19, 'Discount %'); T(2, 20, 'Bonus %'); T(2, 22, 'Commercial Cost'); T(2, 23, 'Sponsorship Cost'); T(2, 25, 'Actual Investment'); T(2, 26, 'Commercial % of Investment'); T(2, 27, 'Discount vs Rate Card (Com)');
     T(1, 1, `${spec.title || 'EVALUATION'}  |  ${spec.client || ''}  |  ${spec.month || ''}`);
     let row = 3; const tot = { inv: 0, val: 0, com: 0, cg: 0, cn: 0, ag: 0, an: 0, sp: 0, vs: 0, cc: 0, vc: 0, vav: 0 };
     sheets.forEach((s) => {
@@ -84,6 +106,7 @@
       N(row, 15, s.com.spots, INT, `${R}H${s.com.r}`); N(row, 16, s.va.spots, INT, `${R}H${s.va.r}`); N(row, 17, s.com.spots + s.va.spots, INT, `SUM(O${row}:P${row})`);
       N(row, 19, 1 - div(s.com.cost, s.com.value), PCT, `IFERROR(1-V${row}/D${row},0)`); N(row, 20, div(s.va.value, s.com.value), PCT, `IFERROR(${R}P${s.va.r}/D${row},0)`);
       N(row, 22, s.com.cost, ACC0, `${R}Q${s.com.r}`); N(row, 23, s.va.cost, ACC0, `${R}Q${s.va.r}`);
+      if (s.deal) { N(row, 25, s.deal.invVal, ACC0, `${R}W${s.deal.invRow}`); N(row, 26, s.deal.cpVal, PCT, `${R}V${s.deal.comPct}`); N(row, 27, 1 - div(s.deal.comBudget, s.com.value), PCT, `${R}W${s.deal.disc}`); }
       tot.inv += s.all.cost; tot.val += s.all.value; tot.com += s.com.value; tot.cg += s.com.grp; tot.cn += s.com.ngrp; tot.ag += s.all.grp; tot.an += s.all.ngrp; tot.sp += s.com.spots; tot.vs += s.va.spots; tot.cc += s.com.cost; tot.vc += s.va.cost; tot.vav += s.va.value; row++;
     });
     const first = 3, last = row - 1, sm = (c) => `SUM(${c}${first}:${c}${last})`, tvRow = row;
@@ -107,7 +130,7 @@
       void cp0;
     }
     T(row + 2, 1, 'CPRP = cost / GRPs. NCPRP = cost / NGRPs (every spot turned into 30 second equivalents). Com Only = commercial spots; All Exposure adds the sponsorship items. ROI = rate card value / cost. Tax is not in the investment.');
-    ws['!ref'] = `A1:W${row + 2}`; ws['!cols'] = [{ wch: 22 }, ...H.slice(1).map((h) => ({ wch: Math.max(20, h.length + 3) })), { wch: 3 }, { wch: 12 }, { wch: 12 }, { wch: 3 }, { wch: 18 }, { wch: 18 }];
+    ws['!ref'] = `A1:AB${row + 2}`; ws['!cols'] = [{ wch: 22 }, ...H.slice(1).map((h) => ({ wch: Math.max(20, h.length + 3) })), { wch: 3 }, { wch: 12 }, { wch: 12 }, { wch: 3 }, { wch: 18 }, { wch: 18 }];
     X.utils.book_append_sheet(wb, ws, 'Summary'); wb.SheetNames.unshift(wb.SheetNames.pop());
 
     // Formulas sheet: settings read by every channel sheet + the formula of each column
@@ -118,7 +141,8 @@
       ['NCPRP', 'IFERROR(O12/(I12/Formulas!B3*G12),0)', 'Negotiated rate of one spot / (TVR / 30 x DUR): cost per rating point on a 30 second basis'], ['RATE CARD RATE', '(30 sec rate / Formulas!B3) * G12', 'Rate card rate of one spot of this length'], ['NEGOTIATED RATE', '(30 sec rate / Formulas!B3) * G12', 'Negotiated (or paid) rate of one spot of this length'],
       ['TOTAL VALUE', 'N12*H12', 'Rate card rate x spots'], ['TOTAL COST', 'O12*H12', 'Negotiated rate x spots'], ['COMMERCIAL VALUE / ALL EXPOSURE VALUE', 'SUM of the rows', 'Commercial rows only / commercial + sponsorship rows; CPRP = total cost / total GRP'],
       ['COMMERCIAL ROI %', 'COMMERCIAL VALUE (col P) / COMMERCIAL VALUE (col Q)', 'Rate card value of the commercial spots / what they cost'], ['ALL EXPOSURE ROI %', 'ALL EXPOSURE VALUE (col P) / ALL EXPOSURE VALUE (col Q)', 'Rate card value of commercial + sponsorship items / what they cost'],
-      ['SSCL / VAT', 'Investment / (1 - SSCL) x rate', 'The investment is 100% without taxes, grossed up for SSCL; VAT is on the grossed-up amount'], ['Discount % (Summary)', '1 - commercial cost / commercial rate card value', 'How far below the rate card the commercial spots were bought'],
+      ['SSCL / VAT', 'Investment / (1 - SSCL) x rate', 'The investment is 100% without taxes, grossed up for SSCL; VAT is on the grossed-up amount'], ['DEAL / COMMERCIAL BUDGET (channel sheet, columns T to X)', 'Investment x commercial share; prime share of that', 'The contract: an investment, the share of it that buys commercial spots (100%, 90%, 80%), the rest for sponsorship / frequency items; the budget is compared with what the spots add up to'],
+      ['Discount vs rate card (deal)', '1 - commercial budget / commercial rate card value', 'What the contract really gave: the commercial part of the investment against the same spots at the rack rate'], ['Discount % (Summary)', '1 - commercial cost / commercial rate card value', 'How far below the rate card the commercial spots were bought'],
       ['Bonus % (Summary)', 'sponsorship rate card value / commercial rate card value', 'Extra exposure from the sponsorship items on top of the commercial spots'], ['TVR', 'typed', 'Average of the programme in the TVR sheet (all uploaded months)']];
     const fx = X.utils.aoa_to_sheet(fs); fx['!cols'] = [{ wch: 34 }, { wch: 56 }, { wch: 96 }]; fx.B3.z = '0'; fx.B4.z = '0.0%'; fx.B5.z = '0.0%';
     X.utils.book_append_sheet(wb, fx, 'Formulas');

@@ -20,17 +20,17 @@
   const tip = (k) => (GLOSS[k] ? App.help(GLOSS[k][0], GLOSS[k][1], { howLabel: 'What it is' }) : '');
   const kpi = (l, v, s, g) => `<div class="kpi"><div class="k-lbl">${esc(l)} ${g ? tip(g) : ''}</div><div class="k-val">${v}</div>${s ? `<div class="k-sub">${s}</div>` : ''}</div>`;
   const KEY = () => 'pitch:' + App.clientId();
-  const DEF = () => ({ month: null, channels: [], daypart: 'all', tab: 'overview', settings: { pt_start: '19:00', pt_end: '22:30', min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, match_min: 45 },
-    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', builder: { rows: [] }, learned: {} });
+  const DEF = () => ({ month: null, channels: [], daypart: 'all', tab: 'overview', settings: { pt_start: '19:00', pt_end: '22:30', min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, match_min: 45, current_basis: 'lmrb' },
+    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', builder: { rows: [] }, learned: {}, deals: {} });
   let st = DEF(), D = null, root = null, status = null, seq = 0, tabTables = {}, RC = { entries: [], channels: [] };
   const load = () => { try { const v = App.store.get(KEY(), null); st = { ...DEF(), ...(v || {}), settings: { ...DEF().settings, ...((v || {}).settings || {}) } }; } catch (e) { st = DEF(); } };
   const save = () => { try { App.store.set(KEY(), st); } catch (e) { /* storage blocked */ } };
   const sec = (hm) => { const [h, m] = String(hm).split(':').map(Number); return (h || 0) * 3600 + (m || 0) * 60; };
   const opts = () => ({ month: st.month, channels: st.channels, daypart: st.daypart, pt_start: sec(st.settings.pt_start), pt_end: sec(st.settings.pt_end), min_tvr: +st.settings.min_tvr, max_spots: +st.settings.max_spots,
-    budget_basis: st.settings.budget_basis, objective: st.settings.objective, ratecard: RC.entries, use_card_nego: st.settings.use_card_nego !== false, match_min: +st.settings.match_min || 45, learned: st.learned, mappings: st.mappings, rates: st.rates, nego: st.nego, excluded: st.excluded });
+    budget_basis: st.settings.budget_basis, objective: st.settings.objective, ratecard: RC.entries, use_card_nego: st.settings.use_card_nego !== false, match_min: +st.settings.match_min || 45, learned: st.learned, deals: st.deals, current_basis: st.settings.current_basis, mappings: st.mappings, rates: st.rates, nego: st.nego, excluded: st.excluded });
   const loadXlsx = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((ok, no) => { const s = document.createElement('script'); s.src = '/js/vendor/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => no(new Error('The Excel library could not load.')); document.head.appendChild(s); }));
   const SHEET = { lmrb: 'LMRB sheet', tv: 'TVR sheet' };
-  const TABS = [['overview', 'Spend overview'], ['basket', 'Current basket'], ['daypart', 'Daypart view'], ['plan', 'Our recommended basket'], ['build', 'Build evaluation'], ['compare', 'Comparison'], ['export', 'Export'], ['matches', 'Review matches'], ['rates', 'Rates and negotiation']];
+  const TABS = [['overview', 'Spend overview'], ['basket', 'Current basket'], ['invest', 'Investment and discount'], ['daypart', 'Daypart view'], ['plan', 'Our recommended basket'], ['build', 'Build evaluation'], ['compare', 'Comparison'], ['export', 'Export'], ['matches', 'Review matches'], ['rates', 'Rates and negotiation']];
 
   /* ================================================================ shell */
   function shell() {
@@ -206,10 +206,11 @@
       <div class="field"><label>Minimum TVR for our plan</label><input id="se-tvr" type="number" min="0" step="0.1" value="${esc(s.min_tvr)}"></div><div class="field"><label>Most spots per episode in our plan</label><input id="se-ms" type="number" min="1" step="1" value="${esc(s.max_spots)}"></div>
       <div class="field"><label class="row" style="gap:6px"><input type="checkbox" id="se-cn" ${s.use_card_nego !== false ? 'checked' : ''}> Use the negotiated rates stored in the rate card</label><div class="small muted">A programme or channel rule you set yourself always wins. Without it, the rate card's discount or special rate is used, then the default rule.</div></div>
       <div class="field"><label for="se-mm">Lowest match score accepted automatically: <b id="se-mmv">${esc(s.match_min || 45)}</b>%</label><input id="se-mm" type="range" min="20" max="90" step="5" value="${esc(s.match_min || 45)}"><div class="small muted">Lower = more aggressive: weaker matches are accepted (and marked Low to check). Every row still lists its best suggestions.</div></div>
-      <div class="field"><label>Our plan is compared with</label><select id="se-b"><option value="com" ${s.budget_basis === 'com' ? 'selected' : ''}>Programme basket only (commercial spots)</option><option value="all" ${s.budget_basis === 'all' ? 'selected' : ''}>All exposure (commercial + sponsorship items)</option></select></div></div>
+      <div class="field"><label>Our plan is compared with</label><select id="se-b"><option value="com" ${s.budget_basis === 'com' ? 'selected' : ''}>Programme basket only (commercial spots)</option><option value="all" ${s.budget_basis === 'all' ? 'selected' : ''}>All exposure (commercial + sponsorship items)</option><option value="deal" ${s.budget_basis === 'deal' ? 'selected' : ''}>The investment I entered x its commercial share (Investment and discount tab)</option></select></div>
+      <div class="field"><label>The current buy is costed at</label><select id="se-cb"><option value="lmrb" ${s.current_basis !== 'actual' ? 'selected' : ''}>The cost in the LMRB sheet</option><option value="actual" ${s.current_basis === 'actual' ? 'selected' : ''}>The actual investment I entered (spread by rate card value)</option></select></div></div>
       <p class="small muted">Budget per channel = what the current agency spent on that channel (same basis as the choice above). Tax (VAT, SSCL) is not included anywhere.</p><div class="row" style="margin-top:10px"><button class="btn primary" id="se-go" type="button">Save</button></div>`);
     $('#se-mm', m).oninput = (e) => { $('#se-mmv', m).textContent = e.target.value; };
-    $('#se-go', m).onclick = () => { Object.assign(st.settings, { pt_start: $('#se-p0', m).value || '19:00', pt_end: $('#se-p1', m).value || '22:30', min_tvr: +$('#se-tvr', m).value || 0, max_spots: Math.max(1, +$('#se-ms', m).value || 1), budget_basis: $('#se-b', m).value, use_card_nego: $('#se-cn', m).checked, match_min: +$('#se-mm', m).value || 45 }); save(); m.close(); run(); };
+    $('#se-go', m).onclick = () => { Object.assign(st.settings, { pt_start: $('#se-p0', m).value || '19:00', pt_end: $('#se-p1', m).value || '22:30', min_tvr: +$('#se-tvr', m).value || 0, max_spots: Math.max(1, +$('#se-ms', m).value || 1), budget_basis: $('#se-b', m).value, use_card_nego: $('#se-cn', m).checked, match_min: +$('#se-mm', m).value || 45, current_basis: $('#se-cb', m).value }); save(); m.close(); run(); };
   }
 
   /* ================================================================ run */
@@ -235,7 +236,7 @@
   function render() {
     const out = $('#pt-out'); if (!D) return; tabTables = {};
     if (D.empty) { out.innerHTML = App.emptyState('No TV spots for this choice', 'Pick another month or clear the channel and prime / non prime filters.'); return; }
-    ({ overview, basket, daypart, plan, build, compare, export: exportTab, matches, rates })[st.tab](out);
+    ({ overview, basket, invest, daypart, plan, build, compare, export: exportTab, matches, rates })[st.tab](out);
   }
   const table = (id, el, cfg) => { const d = document.createElement('div'); d.id = id; el.appendChild(d); tabTables[id] = App.tables.create(d, { pageSize: 25, ...cfg }); return tabTables[id]; };
   const card = (title, sub, inner, extra = '') => `<div class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>${title}</h3>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${extra}</div>${inner}</div>`;
@@ -278,6 +279,36 @@
     table('bk-c', $('#bk-c'), { csv: 'pitch_sponsorship', defaultSort: { key: 'spend', desc: true }, empty: 'No sponsorship items in this view.', rows: cur.sponsorship.map((s) => ({ ...s, ch: tt(s.channel) })),
       columns: [{ key: 'ch', label: 'Channel' }, { key: 'theme', label: 'Sponsorship item' }, { key: 'spots', label: 'Total spots', num: true, fmt: n0 }, { key: 'spots_per_month', label: 'Spots per month', num: true, fmt: n1 }, { key: 'avg_cost', label: 'Average cost per spot', num: true, fmt: n0 }, { key: 'spend', label: 'Spend (LKR)', num: true, fmt: n0 },
         { key: 'avg_pt_tvr', label: 'Channel avg prime TVR', num: true, fmt: n2 }, { key: 'avg_npt_tvr', label: 'Channel avg non prime TVR', num: true, fmt: n2 }, { key: 'tvr', label: 'Average TVR delivered', num: true, fmt: n2 }, { key: 'grp', label: 'GRPs', num: true, fmt: n1 }, { key: 'cprp', label: 'CPRP', num: true, fmt: n0 }] });
+  }
+
+  /* ---------------------------------------------------------------- investment and discount */
+  function invest(out) {
+    const ev = D.evidence || [], deals = st.deals, actual = st.settings.current_basis === 'actual';
+    const sum = (k) => ev.reduce((a, e) => a + (e[k] || 0), 0), entered = ev.filter((e) => e.deal), rackEntered = entered.reduce((a, e) => a + e.rack_value, 0), comInv = entered.reduce((a, e) => a + e.commercial_investment * (e.lmrb_cost > 0 ? e.lmrb_rated_cost / e.lmrb_cost : 1), 0);
+    const inp = (ch, f, v, w = 110, ph = '') => `<input class="rt-in dl-in" type="number" min="0" step="any" data-ch="${esc(ch)}" data-f="${f}" value="${v == null || v === '' ? '' : esc(v)}" placeholder="${ph}" style="width:${w}px" aria-label="${f} for ${esc(ch)}">`;
+    out.innerHTML = `<div class="kpis">${kpi('Estimated at rate card', fmt.lkrc(sum('rack_value')), 'commercial spots x the channel\'s rack rate')}${kpi('Cost in the LMRB sheet', fmt.lkrc(sum('lmrb_rated_cost')), 'same programmes, as monitored')}
+        ${kpi('Investment entered', entered.length ? fmt.lkrc(entered.reduce((a, e) => a + e.deal.investment, 0)) : 'none yet', entered.length ? `${entered.length} channel${entered.length === 1 ? '' : 's'}` : 'type it below')}${kpi('Real discount (entered channels)', entered.length && rackEntered > 0 ? pc((1 - comInv / rackEntered) * 100) : 'n/a', 'commercial investment vs rack value')}</div>
+      <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Investment and discount</h3><div class="sub">The LMRB sheet shows what each spot was <b>monitored</b> at, which is not always what was paid. So the previous agency's spend on a channel is first <b>estimated at the channel's rate card</b>: for every programme they bought, spots x duration / 30 x the rack rate, commercial spots only. If you know the real investment (from the contract), type it: a share of it buys the commercial spots (100%, 90% or 80%) and the rest pays for the frequency and sponsorship items; the discount they really got follows. The tables under it show the programmes behind every number.</div></div></div>
+        <div class="tbl-scroll"><table class="tbl ex-tbl" id="dl-t"><thead><tr><th>Channel</th><th class="num">Spots</th><th class="num">Estimated at rate card</th><th class="num">Programmes without a rate</th><th class="num">Cost in the LMRB sheet</th><th class="num">LMRB cost as % of rack</th>
+          <th class="num">Actual investment (LKR)</th><th class="num">Commercial share %</th><th class="num">Prime share of it %</th><th class="num">Commercial investment</th><th class="num">Real discount vs rack</th><th class="num">Pays % of rack</th></tr></thead><tbody>
+        ${ev.map((e) => { const d = deals[e.channel] || {}; return `<tr><td><b>${esc(tt(e.channel))}</b></td><td class="num">${n0(e.spots)}</td><td class="num"><b>${n0(e.rack_value)}</b></td><td class="num">${e.unrated_programmes ? `<span class="badge" title="These programmes have no rate card rate, so they are not in the estimate">${e.unrated_programmes} (${pc(100 - (e.coverage_pct == null ? 100 : e.coverage_pct))} of the cost)</span>` : '0'}</td>
+          <td class="num">${n0(e.lmrb_cost)}</td><td class="num">${pc(e.lmrb_pct_of_rack)}</td><td class="num">${inp(e.channel, 'investment', d.investment, 130, 'type it')}</td><td class="num">${inp(e.channel, 'commercial_pct', d.commercial_pct, 70, '100')}</td><td class="num">${inp(e.channel, 'prime_pct', d.prime_pct, 70, 'any')}</td>
+          <td class="num">${e.deal ? n0(e.commercial_investment) : '<span class="muted">n/a</span>'}</td><td class="num">${e.implied_discount_pct == null ? '<span class="muted">enter the investment</span>' : `<b>${pc(e.implied_discount_pct)}</b>`}</td><td class="num">${pc(e.implied_pays_pct)}</td></tr>`; }).join('') || '<tr><td colspan="12" class="muted">No programmes with a rate in this view.</td></tr>'}</tbody></table></div>
+        <div class="muted small" style="margin-top:8px">Real discount = 1 - (actual investment x commercial share) / estimated at rate card. When some programmes have no rate, only their share of the investment is compared, and the table says so. Prime share is how much of the commercial money goes to prime time (the contract's 50% / 50%); our plan follows it when the budget is taken from this investment. ${actual ? '<b>The current buy is costed at the actual investment (Settings).</b>' : 'In Settings the current buy can be costed at the actual investment instead of the LMRB cost.'}</div></div>
+      <div id="dl-ev" style="margin-top:16px"></div>`;
+    $('#dl-t').onchange = (e) => {
+      const t = e.target; if (!t.dataset || !t.dataset.ch) return; const ch = t.dataset.ch, d = (deals[ch] = deals[ch] || {});
+      if (t.value === '') delete d[t.dataset.f]; else d[t.dataset.f] = +t.value;
+      if (!(d.investment > 0)) delete deals[ch]; save(); run();
+    };
+    $('#dl-ev').innerHTML = ev.map((e) => {
+      const rows = D.current.rows.filter((r) => r.channel === e.channel).sort((a, b) => (b.value || 0) - (a.value || 0)), pt = e.pt_share_pct, dp = e.deal && e.deal.prime_pct;
+      return `<details class="card" style="margin-bottom:12px" ${ev.length === 1 ? 'open' : ''}><summary><b>${esc(tt(e.channel))}</b>: ${n0(rows.length)} programmes, ${n0(e.spots)} spots, <b>${fmt.lkrc(e.rack_value)}</b> at rate card${e.implied_discount_pct == null ? '' : `, discount <b>${pc(e.implied_discount_pct)}</b>`}. Prime time is ${pc(pt)} of the rack value${dp ? ` (the deal says ${pc(dp)})` : ''}.</summary>
+        <div class="tbl-scroll" style="margin-top:8px"><table class="tbl"><thead><tr><th>Programme (TVR name)</th><th>Days</th><th>Starts</th><th>Daypart</th><th class="num">Spots</th><th class="num">30 sec eq.</th><th class="num">Rack rate (30 sec)</th><th>Rate from</th><th class="num">Value at rack</th><th class="num">Share of channel</th><th class="num">LMRB cost</th><th class="num">LMRB as % of rack</th></tr></thead><tbody>
+        ${rows.map((r) => `<tr class="${r.rated ? '' : 'worst'}"><td>${esc(tt(r.program))}</td><td>${esc(r.days)}</td><td>${esc(r.start)}</td><td>${esc(r.daypart)}</td><td class="num">${n0(r.spots)}</td><td class="num">${n1(r.eq30)}</td><td class="num">${r.rated ? n0(r.card30) : '<b>no rate</b>'}</td>
+          <td class="small">${r.card_src ? `${esc(r.card_src)}${r.card_prog ? ` <span class="muted">${esc(tt(r.card_prog))}${r.card_eff ? ' ' + esc(r.card_eff) : ''}</span>` : ''}` : '<span class="muted">not in the estimate</span>'}</td><td class="num">${r.rated ? n0(r.value) : ''}</td><td class="num">${r.rated && e.rack_value > 0 ? pc((r.value / e.rack_value) * 100) : ''}</td><td class="num">${n0(r.cost_lmrb)}</td><td class="num">${r.rated ? pc((r.cost_lmrb / r.value) * 100) : ''}</td></tr>`).join('')}</tbody>
+        <tfoot><tr class="ex-tot"><td colspan="4">Total</td><td class="num">${n0(e.spots)}</td><td class="num">${n1(e.eq30)}</td><td></td><td></td><td class="num">${n0(e.rack_value)}</td><td></td><td class="num">${n0(e.lmrb_cost)}</td><td class="num">${pc(e.lmrb_pct_of_rack)}</td></tr></tfoot></table></div></details>`;
+    }).join('');
   }
 
   /* ---------------------------------------------------------------- 3 daypart */
@@ -374,20 +405,21 @@
 
   /* ---------------------------------------------------------------- evaluation workbooks (agency format, with formulas) */
   const clientName = () => (App.shell.client() || {}).name || '';
+  const primeWindow = () => [sec(st.settings.pt_start) / 86400, sec(st.settings.pt_end) / 86400];
   function specCurrent() {
     const cur = D.current, order = cur.channels.map((c) => c.channel), by = (list, ch) => list.filter((x) => x.channel === ch);
-    return { client: clientName(), title: 'CURRENT AGENCY BUY: EVALUATION', month: D.month === 'all' ? 'All months' : D.month, channels: order.map((ch) => ({ name: tt(ch),
-      basket: by(cur.rows, ch).map((r) => ({ desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: r.avg_dur, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.avg30 || 0 })),
+    return { client: clientName(), title: 'CURRENT AGENCY BUY: EVALUATION', month: D.month === 'all' ? 'All months' : D.month, prime: primeWindow(), channels: order.map((ch) => ({ name: tt(ch), deal: st.deals[ch],
+      basket: by(cur.rows, ch).map((r) => ({ band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: r.avg_dur, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.avg30 || 0 })),
       sponsorship: by(cur.sponsorship, ch).map((x) => ({ desc: x.theme, day: '', from: '', to: '', dur: (x.eq30 * 30) / x.spots, tvr: x.tvr, spots: x.spots, card: x.value > 0 ? x.value / x.eq30 : 0, rate: x.spend / x.eq30 })) })) };
   }
   function specPlan() {
     const { a } = planNumbers(), order = [...new Set(a.rows.map((r) => r.channel))];
-    return { client: clientName(), title: 'OUR PLAN: EVALUATION', month: D.month === 'all' ? 'All months' : D.month, channels: order.map((ch) => ({ name: tt(ch), sponsorship: [],
-      basket: a.rows.filter((r) => r.channel === ch).map((r) => ({ desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.neg30 || 0 })) })) };
+    return { client: clientName(), title: 'OUR PLAN: EVALUATION', month: D.month === 'all' ? 'All months' : D.month, prime: primeWindow(), channels: order.map((ch) => ({ name: tt(ch), deal: st.deals[ch], sponsorship: [],
+      basket: a.rows.filter((r) => r.channel === ch).map((r) => ({ band: r.pt ? 'PT' : 'NPT', desc: tt(r.program), day: r.days, from: r.start, to: r.end, dur: 30, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.neg30 || 0 })) })) };
   }
   function specBuilt() {
     const rows = st.builder.rows, order = [...new Set(rows.map((r) => r.ch))];
-    return { client: clientName(), title: 'BUILT EVALUATION', month: D.month === 'all' ? 'All months' : D.month, channels: order.map((ch) => ({ name: tt(ch),
+    return { client: clientName(), title: 'BUILT EVALUATION', month: D.month === 'all' ? 'All months' : D.month, prime: primeWindow(), channels: order.map((ch) => ({ name: tt(ch), deal: st.deals[ch],
       basket: rows.filter((r) => r.ch === ch && r.kind !== 'va').map((r) => ({ desc: r.desc, day: r.day, from: r.from, to: r.to, dur: r.dur, tvr: r.tvr, spots: r.spots, card: r.card, rate: r.rate })),
       sponsorship: rows.filter((r) => r.ch === ch && r.kind === 'va').map((r) => ({ desc: r.desc, day: r.day, from: r.from, to: r.to, dur: r.dur, tvr: r.tvr, spots: r.spots, card: r.card, rate: r.rate })) })) };
   }

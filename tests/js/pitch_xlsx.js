@@ -10,8 +10,8 @@ vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../../app/static/js/pi
 (async () => {
   const [lf, tf, opts, out] = process.argv.slice(2);
   const L = await MR.parseFile('lmrb', fileOf(lf)), V = await MR.parseFile('tv', fileOf(tf)), D = MR.pitchBuild(L, MR.allIdx(L), V, JSON.parse(opts || '{}')), cur = D.current;
-  const spec = { client: 'Sampath Bank', title: 'CURRENT AGENCY BUY: EVALUATION', month: D.month, channels: cur.channels.map((c) => ({ name: c.channel,
-    basket: cur.rows.filter((r) => r.channel === c.channel).map((r) => ({ desc: r.program, day: r.days, from: r.start, to: r.end, dur: r.avg_dur, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.avg30 || 0 })),
+  const spec = { client: 'Sampath Bank', title: 'CURRENT AGENCY BUY: EVALUATION', month: D.month, prime: [19 / 24, 22.5 / 24], channels: cur.channels.map((c) => ({ name: c.channel, deal: ((JSON.parse(opts || '{}').deals) || {})[c.channel],
+    basket: cur.rows.filter((r) => r.channel === c.channel).map((r) => ({ band: r.pt ? 'PT' : 'NPT', desc: r.program, day: r.days, from: r.start, to: r.end, dur: r.avg_dur, tvr: r.tvr, spots: r.spots, card: r.card30 || 0, rate: r.avg30 || 0 })),
     sponsorship: cur.sponsorship.filter((x) => x.channel === c.channel).map((x) => ({ desc: x.theme, day: '', from: '', to: '', dur: (x.eq30 * 30) / x.spots, tvr: x.tvr, spots: x.spots, card: x.value > 0 ? x.value / x.eq30 : 0, rate: x.spend / x.eq30 })) })) };
   const X = globalThis.XLSX, wb = globalThis.App.pitchXlsx.build(X, spec);
   const save = (name) => fs.writeFileSync(name, X.write(wb, { bookType: 'xlsx', type: 'buffer' }));
