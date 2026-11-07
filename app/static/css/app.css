@@ -882,3 +882,7 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 @media (max-width: 1100px) { .cb-split { grid-template-columns: 1fr; } .cb-split > #cb-panel { position: static; } .cb-panel { max-height: none; } }
 .pt-sheet .sheet-body { overflow-x: clip; }
 .pt-sheet #pt-out, .pt-sheet #cb-body { contain: paint; }
+
+.bp-cur { margin: 10px 0; padding: 10px; border: 1px dashed var(--border-strong); border-radius: 12px; } .bp-ch { display: flex; justify-content: space-between; align-items: center; gap: 8px; } .bp-ch h5 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.bp-ct { width: 100%; font-size: 12.5px; border-collapse: collapse; margin-top: 6px; } .bp-ct th { font-weight: 600; color: var(--muted); text-align: right; padding: 2px 4px; } .bp-ct td { padding: 3px 4px; border-top: 1px solid var(--border); }
+.bd-card .bd-cmp { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 8px; }

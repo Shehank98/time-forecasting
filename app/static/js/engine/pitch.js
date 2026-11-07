@@ -34,9 +34,10 @@
   const monthOf = (() => { const memo = new Map(); return (d) => { let v = memo.get(d); if (!v) { v = isoFromDay(d).slice(0, 7); memo.set(d, v); } return v; }; })();
 
   /** TVR programmes: one entry per channel + programme + start time (rounded to 15 minutes), TVR averaged over every airing in the sheet. */
-  function catalogue(V) {
+  function catalogue(V, dataSet) {
     const C = V.cols, byKey = new Map(), months = new Set();
     for (let i = 0; i < V.n; i++) {
+      if (dataSet && C.data_set && V.dicts.data_set[C.data_set[i]] !== dataSet) continue;      // one target audience only: TVRs of different audiences must never be averaged together
       const ch = V.dicts.channel[C.channel[i]], pr = V.dicts.program[C.program[i]], st = C.start[i] >= 0 ? Math.round(C.start[i] / 900) * 900 : -1, key = `${ch}|${pr}|${hm(st)}`;
       let e = byKey.get(key);
       if (!e) byKey.set(key, (e = { key, channel: ch, program: pr, start: st, end: C.end[i], n: 0, tvr_sum: 0, zero: 0, days: Array(7).fill(0), months: new Set() }));
@@ -217,7 +218,9 @@
   /** opts: see the README. L/lidx: LMRB table and rows, V: TVR table. */
   function pitchBuild(L, lidx, V, opts) {
     const o = { pt_start: 19 * 3600, pt_end: 22.5 * 3600, min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, ratecard: [], deals: {}, plan_deals: {}, current_basis: 'lmrb', month: null, channels: [], daypart: 'all', excluded: [], ...opts };
-    const cat = catalogue(V);
+    const dsAll = V.cols.data_set && V.dicts.data_set ? V.dicts.data_set : [], dsCount = new Map(); if (V.cols.data_set) for (let i = 0; i < V.n; i++) dsCount.set(V.cols.data_set[i], (dsCount.get(V.cols.data_set[i]) || 0) + 1);
+    const dataSets = [...dsCount.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ name: dsAll[k], rows: n })), dataSet = dataSets.length > 1 ? (o.data_set && dataSets.some((x) => x.name === o.data_set) ? o.data_set : dataSets[0].name) : null;
+    const cat = catalogue(V, dataSet);
     cat.byKey.forEach((e) => { e.pt = isPT(e.start, o); });
     const tvrChannels = [...cat.byCh.keys()].sort(), inTvr = new Set(tvrChannels);
     const chAvg = {};      // channel -> average TVR of its prime time and non prime airings in the TVR sheet
@@ -389,7 +392,7 @@
       missing_rate_programmes: missing.length, missing_rate_spend: missing.reduce((a, r) => a + r.cost, 0), missing_rate_list: missing.slice(0, 25).map((r) => ({ channel: r.channel, program: r.program, cost: r.cost })),
       zero_tvr_programmes: rows.filter((r) => r.zero_tvr).length, zero_tvr_rows: [...cat.byKey.values()].reduce((a, e) => a + e.zero, 0), low_confidence_matches: groups.filter((g) => g.level === 'Low' || g.level === 'Medium').length,
       skipped_channels: [...skipped.values()].sort((a, b) => b.spend - a.spend), no_medium: noMedium, candidates_without_rate: [...cat.byKey.values()].filter((e) => e.channel in budgets && e.tvr >= o.min_tvr && !(rr.neg(e) > 0)).length };
-    return { empty: !rows.length && !sponsorship.length, audit: { ...aud, merged_tvr_slots: cat.merged_slots }, advertiser: advWanted, advertisers: [...advSpend.entries()].sort((a, b) => b[1] - a[1]).map(([name, spend]) => ({ name, spend })), month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective, current_basis: o.current_basis },
+    return { empty: !rows.length && !sponsorship.length, data_sets: dataSets, data_set: dataSet, audit: { ...aud, merged_tvr_slots: cat.merged_slots }, advertiser: advWanted, advertisers: [...advSpend.entries()].sort((a, b) => b[1] - a[1]).map(([name, spend]) => ({ name, spend })), month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective, current_basis: o.current_basis },
       overview: { months: allMonths, rows: [...ov.entries()].map(([channel, m]) => ({ channel, months: allMonths.map((k) => m.get(k) || { com: 0, va: 0 }) })).sort((a, b) => b.months.reduce((s, x) => s + x.com + x.va, 0) - a.months.reduce((s, x) => s + x.com + x.va, 0)) },
       matches: groups, slots: slotRows, catalogue: [...cat.byCh.entries()].reduce((m, [ch, list]) => { m[ch] = list.sort((a, b) => b.n - a.n).map((e) => ({ key: e.key, program: e.program, label: `${e.program} (${e.start_hm || 'no time'}, ${e.day_label})`, start: e.start_hm, end: e.end_hm, days: e.day_label, tvr: e.tvr, pt: e.pt, card30: rr.card(e), neg30: rr.neg(e) })); return m; }, {}),
       current: { ...current, rows, sponsorship, channels, daypart }, candidates: cands, budgets, plan: { rows: plan.rows, channels: plan.channels, totals: planTotals }, rates: ratesRows, warnings, evidence, prime_share: primeShare, plan_inputs: planInputs,

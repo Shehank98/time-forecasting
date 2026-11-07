@@ -237,3 +237,27 @@ def test_same_programme_at_slightly_different_times_is_one_programme(data, tmp_p
     assert len(hus) == 1                                                       # one programme, not two slots
     allrows = t2[t2["Program"] == "HUSMAK LAGIN"]
     assert hus[0]["tvr"] == pytest.approx(allrows["TVR"].mean(), rel=1e-6)    # averaged over every airing
+
+
+def test_tvr_of_different_target_audiences_are_never_averaged(data, tmp_path):
+    """A TVR sheet with two data sets (target audiences): one is used at a time, the average is of that audience only."""
+    p, lm, tv = data
+    t2 = tv.copy()
+    t2["Data Set"] = "All 4+"
+    other = tv.copy()
+    other["Data Set"] = "Women 25-44"
+    other["TVR"] = other["TVR"] * 3
+    both = pd.concat([t2, other], ignore_index=True)
+    both.to_csv(tmp_path / "tv_ds.csv", index=False)
+    def go(ds):
+        out = subprocess.run(["node", str(ROOT / "tests/js/pitch.js"), str(p / "lm.csv"), str(tmp_path / "tv_ds.csv"), json.dumps({**BASE, "month": "all", **({"data_set": ds} if ds else {})})], capture_output=True, text=True, timeout=240)
+        assert out.returncode == 0, out.stderr
+        return json.loads(out.stdout)
+    a, w = go("All 4+"), go("Women 25-44")
+    assert {x["name"] for x in a["data_sets"]} == {"All 4+", "Women 25-44"} and a["data_set"] == "All 4+" and w["data_set"] == "Women 25-44"
+    base = run(p, {"month": "all"})
+    tv_a = {c["key"]: c["tvr"] for c in a["candidates"]}
+    tv_b = {c["key"]: c["tvr"] for c in base["candidates"]}
+    assert tv_a == pytest.approx(tv_b)                                         # the same numbers as a sheet that has only that audience
+    w_tvr = {c["key"]: c["tvr"] for c in w["candidates"]}
+    assert all(w_tvr[k] == pytest.approx(3 * tv_a[k], rel=1e-6) for k in tv_a if k in w_tvr)

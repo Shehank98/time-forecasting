@@ -21,12 +21,12 @@
   const kpi = (l, v, s, g) => `<div class="kpi"><div class="k-lbl">${esc(l)} ${g ? tip(g) : ''}</div><div class="k-val">${v}</div>${s ? `<div class="k-sub">${s}</div>` : ''}</div>`;
   const KEY = () => 'pitch:' + App.clientId();
   const DEF = () => ({ month: null, channels: [], daypart: 'all', tab: 'overview', settings: { pt_start: '19:00', pt_end: '22:30', min_tvr: 1, max_spots: 2, budget_basis: 'com', objective: 'grp', use_card_nego: true, match_min: 45, current_basis: 'actual' },
-    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', evals: { current: {}, plan: {} }, scenarios: [], advertiser: undefined, ours: {}, build_kind: 'current', learned: {}, deals: {} });
+    rates: { programmes: {}, channels: {} }, nego: { default: { mode: 'none', value: 0 }, channels: {}, programmes: {} }, mappings: {}, excluded: [], rates_file: '', only_buy: true, only_missing: false, match_filter: 'review', evals: { current: {}, plan: {} }, data_set: '', scenarios: [], advertiser: undefined, ours: {}, build_kind: 'current', learned: {}, deals: {} });
   let st = DEF(), D = null, root = null, status = null, seq = 0, tabTables = {}, RC = { entries: [], channels: [] };
   const load = () => { try { const v = App.store.get(KEY(), null); st = { ...DEF(), ...(v || {}), settings: { ...DEF().settings, ...((v || {}).settings || {}) } }; } catch (e) { st = DEF(); } };
   const save = () => { try { App.store.set(KEY(), st); } catch (e) { /* storage blocked */ } };
   const sec = (hm) => { const [h, m] = String(hm).split(':').map(Number); return (h || 0) * 3600 + (m || 0) * 60; };
-  const opts = () => ({ advertiser: st.advertiser || '', month: st.month, channels: st.channels, daypart: st.daypart, pt_start: sec(st.settings.pt_start), pt_end: sec(st.settings.pt_end), min_tvr: +st.settings.min_tvr, max_spots: +st.settings.max_spots,
+  const opts = () => ({ data_set: st.data_set || '', advertiser: st.advertiser || '', month: st.month, channels: st.channels, daypart: st.daypart, pt_start: sec(st.settings.pt_start), pt_end: sec(st.settings.pt_end), min_tvr: +st.settings.min_tvr, max_spots: +st.settings.max_spots,
     budget_basis: st.settings.budget_basis, objective: st.settings.objective, ratecard: RC.entries, use_card_nego: st.settings.use_card_nego !== false, match_min: +st.settings.match_min || 45, learned: st.learned, deals: st.deals, plan_deals: st.ours, current_basis: st.settings.current_basis, mappings: st.mappings, rates: st.rates, nego: st.nego, excluded: st.excluded });
   const loadXlsx = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((ok, no) => { const s = document.createElement('script'); s.src = '/js/vendor/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => no(new Error('The Excel library could not load.')); document.head.appendChild(s); }));
   const SHEET = { lmrb: 'LMRB sheet', tv: 'TVR sheet' };
@@ -266,14 +266,15 @@
 
   /* ================================================================ filters */
   function filters() {
-    const chs = (D && D.tvr_channels) || [], months = (D && D.months) || [], cur = D ? D.month : null, advs = (D && D.advertisers) || [];
-    $('#pt-filters').innerHTML = `<div class="pt-bar"><div class="field"><label for="pf-a">Advertiser</label><select id="pf-a" style="max-width:240px"><option value="">All advertisers</option>${advs.map((a) => `<option value="${esc(a.name)}" ${a.name === st.advertiser ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label for="pf-m">Month</label><select id="pf-m"><option value="all" ${cur === 'all' ? 'selected' : ''}>All months</option>${months.slice().reverse().map((m) => `<option ${m === cur ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
+    const chs = (D && D.tvr_channels) || [], months = (D && D.months) || [], cur = D ? D.month : null, advs = (D && D.advertisers) || [], dss = (D && D.data_sets) || [];
+    $('#pt-filters').innerHTML = `<div class="pt-bar"><div class="field"><label for="pf-a">Advertiser</label><select id="pf-a" style="max-width:240px"><option value="">All advertisers</option>${advs.map((a) => `<option value="${esc(a.name)}" ${a.name === st.advertiser ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>${dss.length > 1 ? `<div class="field"><label for="pf-ds">Target audience (TVR data set)</label><select id="pf-ds" style="max-width:220px">${dss.map((x) => `<option value="${esc(x.name)}" ${x.name === D.data_set ? 'selected' : ''}>${esc(x.name)} (${fmt.num(x.rows)} rows)</option>`).join('')}</select></div>` : ''}<div class="field"><label for="pf-m">Month</label><select id="pf-m"><option value="all" ${cur === 'all' ? 'selected' : ''}>All months</option>${months.slice().reverse().map((m) => `<option ${m === cur ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
       <div data-ms="pch"></div><div class="field"><label>Prime / non prime ${tip('PT')}</label><div class="seg" id="pf-dp">${[['all', 'All'], ['PT', 'Prime'], ['NPT', 'Non prime']].map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${st.daypart === k}">${l}</button>`).join('')}</div></div>
       <div class="field"><label>&nbsp;</label><button class="btn" type="button" id="pf-set">Settings</button></div></div>
       <div class="muted small" style="margin-top:6px">Client: <b>${esc(((App.shell.client() || {}).name) || 'none selected')}</b>. Change the client in the left menu: each client keeps its own files, rates and match fixes. Pick the <b>advertiser</b> to focus on: the current buy, the budgets and both evaluations are built from that advertiser's LMRB rows only. Only channels in the TVR sheet are evaluated.</div>`;
     const again = App.debounce(() => { save(); run(); }, 250);
     const m = App.filters.multi({ key: 'channels', label: 'Channel' }, chs, st, again); m.dataset.ms = 'pch'; $('[data-ms="pch"]').replaceWith(m);
     $('#pf-a').onchange = (e) => { st.advertiser = e.target.value; st.evals = { current: {}, plan: {} }; save(); run(); };
+    if ($('#pf-ds')) $('#pf-ds').onchange = (e) => { st.data_set = e.target.value; st.evals = { current: {}, plan: {} }; save(); run(); };
     $('#pf-m').onchange = (e) => { st.month = e.target.value; save(); run(); };
     $$('#pf-dp button').forEach((b) => { b.onclick = () => { st.daypart = b.dataset.k; save(); run(); }; });
     $('#pf-set').onclick = settingsDialog;
@@ -372,9 +373,9 @@
     $$('#bk-cards .bd-card', out).forEach((b) => { b.onclick = () => basketWindow(b.dataset.ch); });
   }
   /** One channel of the current buy: its programme basket (prime, non prime) and its sponsorship items. Read only. */
-  function basketWindow(ch) {
-    const f = chFacts(ch), { c, ev } = f, old = $('#pt-ch-sheet'); if (old) old.remove(); const opener = document.activeElement;
-    const ov = document.createElement('div'); ov.className = 'sheet-back'; ov.id = 'pt-ch-sheet'; ov.style.zIndex = 70; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-labelledby', 'cb-title');
+  function basketWindow(ch, stacked) {
+    const f = chFacts(ch), { c, ev } = f, sid = stacked ? 'pt-ch-sheet2' : 'pt-ch-sheet', old = $('#' + sid); if (old) old.remove(); const opener = document.activeElement;
+    const ov = document.createElement('div'); ov.className = 'sheet-back'; ov.id = sid; ov.style.zIndex = stacked ? 75 : 70; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-labelledby', 'cb-title');
     const cprps = f.rows.map((r) => r.cprp).filter((v) => v > 0).sort((x, y) => x - y), cut = cprps.length ? cprps[Math.floor(cprps.length * 0.8)] : Infinity;
     const line = (r) => `<tr class="${r.cprp >= cut ? 'worst' : ''}"><td><span class="pn"><b>${esc(tt(r.program))}</b><span class="sub">${esc(r.days)} ${esc(r.start)}${r.lmrb_program && r.lmrb_program.toLowerCase() !== String(r.program).toLowerCase() ? ` · LMRB: ${esc(r.lmrb_program)}` : ''}</span></span></td><td class="num">${n0(r.dur)}s</td><td class="num">${n0(r.spots)}</td><td class="num">${n2(r.tvr)}</td><td class="num">${n1(r.grp)}</td><td class="num">${r.card_rate ? n0(r.card_rate) : '<span class="muted">no rate</span>'}</td><td class="num">${r.neg_rate ? n0(r.neg_rate) : ''}</td><td class="num">${n0(r.avg_rate)}</td><td class="num">${n0(r.cost)}</td><td class="num">${r.rated && f.rack > 0 ? pc((r.value / f.rack) * 100) : ''}</td><td class="num">${n0(r.cprp)}</td></tr>`;
     const tot = (rows) => { const sp = rows.reduce((x, r) => x + r.spots, 0), cost = rows.reduce((x, r) => x + r.cost, 0), ng = rows.reduce((x, r) => x + r.ngrp, 0), vl = rows.reduce((x, r) => x + (r.rated ? r.value : 0), 0);
@@ -447,6 +448,12 @@
     const a = { rows, channels }, totals = window.MR.pitchPlanSummary(rows, D.budgets), cmp = { ...window.MR.pitchCompare(D.comparison.current, totals), current: D.comparison.current };
     return { a, totals, cmp };
   }
+  /** On a plan card: how the current agency did on the same channel. */
+  function curLine(ch, ngrp, spend) {
+    const f = chFacts(ch), cs = f.rows.reduce((x, r) => x + r.cost, 0), cg = f.rows.reduce((x, r) => x + r.ngrp, 0); if (!(cg > 0)) return '';
+    const cp = cs / cg, mp = ngrp > 0 ? spend / ngrp : null, d = mp != null ? (mp / cp - 1) * 100 : null;
+    return `<span class="bd-cmp"><span class="muted small">Current agency: ${n0(f.programmes)} programmes · ${n0(f.spots)} spots · CPRP ${n0(cp)}</span>${d == null ? '' : `<span class="${d <= 0 ? 'good-t' : 'bad-t'} small"><b>${d > 0 ? '+' : ''}${fmt.num(d, 1)}%</b> CPRP vs current</span>`}</span>`;
+  }
   /** Our recommended basket: one card per channel, each built in its own window. */
   function plan(out) {
     const s = st.settings, S = EVS('plan'), chs = Object.keys(D.budgets), pin = D.plan_inputs || {};
@@ -466,7 +473,7 @@
       const e = S[ch] && S[ch].rows.length ? S[ch] : null, rows = a.rows.filter((r) => r.channel === ch), spend = rows.reduce((x, r) => x + r.spend, 0), ngrp = rows.reduce((x, r) => x + (r.grp || r.tvr * r.spots), 0), value = rows.reduce((x, r) => x + (r.card30 || 0) * r.spots, 0), spots = rows.reduce((x, r) => x + r.spots, 0);
       const T = e ? tally(e.rows) : null, bonus = T && T.bonusSpots;
       return `<button class="bd-card ${e ? 'built' : ''}" type="button" data-ch="${esc(ch)}"><span class="bd-h"><b>${esc(tt(ch))}</b><span class="badge ${e ? 'good' : ''}">${e ? 'built by you' : 'suggested'}</span></span>
-        <span class="bd-g"><span>Commercial budget</span><b>${n0((pin[ch] || {}).commercial_budget || D.budgets[ch])}</b><span>Planned spend</span><b>${n0(spend)}</b><span>Spots (30 sec)</span><b>${n0(spots)}</b><span>GRPs</span><b>${n1(ngrp)}</b><span>CPRP</span><b>${ngrp > 0 ? n0(spend / ngrp) : 'n/a'}</b><span>ROI</span><b>${xr(spend > 0 ? value / spend : null)}</b>${bonus ? `<span>Bonus</span><b>${n0(bonus)} spots</b>` : ''}</span><span class="sc-go">${e ? 'Edit' : 'Build'} &rarr;</span></button>`;
+        <span class="bd-g"><span>Commercial budget</span><b>${n0((pin[ch] || {}).commercial_budget || D.budgets[ch])}</b><span>Planned spend</span><b>${n0(spend)}</b><span>Spots (30 sec)</span><b>${n0(spots)}</b><span>GRPs</span><b>${n1(ngrp)}</b><span>CPRP</span><b>${ngrp > 0 ? n0(spend / ngrp) : 'n/a'}</b><span>ROI</span><b>${xr(spend > 0 ? value / spend : null)}</b>${bonus ? `<span>Bonus</span><b>${n0(bonus)} spots</b>` : ''}</span>${curLine(ch, ngrp, spend)}<span class="sc-go">${e ? 'Edit' : 'Build'} &rarr;</span></button>`;
     }).join('') || '<div class="muted">No channel has a rate yet. Add rates in Rates and negotiation.</div>';
     $$('#pl-cards .bd-card').forEach((b) => { b.onclick = () => chBuilder('plan', b.dataset.ch, out); });
     // prime and non prime of the plan, by channel
@@ -735,7 +742,7 @@
     ov.innerHTML = `<div class="sheet pt-sheet"><div class="sheet-bar"><div class="grow"><h2 id="cb-title">${esc(tt(ch))}: ${KIND[kind]}</h2><div class="muted small">${isCur ? 'Built from the LMRB. Enter the discount you estimate; the rest follows.' : 'Our rates, our programmes, and the bonus programmes the channel gives.'}</div></div><div class="row"><button class="btn" id="cb-undo" type="button" disabled>Undo</button><button class="btn" id="cb-reset" type="button">Start this channel again</button><button class="btn primary" id="cb-xl" type="button">Download this channel (Excel)</button><button class="btn" id="cb-xl30" type="button">30 sec version</button><button class="btn" id="cb-x" type="button">Done</button></div></div><div class="sheet-body"><div id="cb-body"></div></div></div>`;
     document.body.appendChild(ov);
     const close = () => { document.removeEventListener('keydown', onKey); ov.remove(); if (opener && opener.focus && document.contains(opener)) opener.focus(); if (!isCur) { run(); return; } if (out && st.tab === 'build' && $('#pt-out')) build($('#pt-out')); };
-    const onKey = (ev) => { if (ev.key === 'Escape' && !document.querySelector('.modal-back')) { ev.stopPropagation(); close(); } };
+    const onKey = (ev) => { if (ev.key === 'Escape' && !document.querySelector('.modal-back') && !document.querySelector('#pt-ch-sheet2')) { ev.stopPropagation(); close(); } };
     document.addEventListener('keydown', onKey, true);
     $('#cb-x', ov).onclick = close; ov.addEventListener('mousedown', (ev) => { if (ev.target === ov) close(); });
     $('#cb-xl30', ov).onclick = () => sendSpec(kind, specEval(kind, [ch]), $('#cb-xl30', ov), true);
@@ -822,6 +829,15 @@
     }
     /** My basket: what is selected, what is left of the investment, always in view next to the programme list. */
     let flash = null;
+    /** The current agency on this channel, against my basket: spend, GRPs, CPRP, ROI (programmes only). */
+    const curBox = () => {
+      const f = chFacts(ch), cr = f.rows, cs = cr.reduce((x, r) => x + r.cost, 0), cg = cr.reduce((x, r) => x + r.ngrp, 0), cv = cr.filter((r) => r.rated).reduce((x, r) => x + r.value, 0), cc = cr.filter((r) => r.rated).reduce((x, r) => x + r.cost, 0);
+      const mine = e.rows.filter(isCom), ms = mine.reduce((x, r) => x + calc(r).cost, 0), mg = mine.reduce((x, r) => x + calc(r).ngrp, 0), mv = mine.filter((r) => +r.card > 0).reduce((x, r) => x + calc(r).value, 0), mc = mine.filter((r) => +r.card > 0).reduce((x, r) => x + calc(r).cost, 0);
+      const cp = cg > 0 ? cs / cg : null, mp = mg > 0 ? ms / mg : null, cro = cc > 0 ? cv / cc : null, mro = mc > 0 ? mv / mc : null, ch2 = (a, b, low) => (a > 0 && b != null && b > 0 ? `<span class="${(low ? b < a : b > a) ? 'good-t' : 'bad-t'}">${b > a ? '+' : ''}${fmt.num((b / a - 1) * 100, 1)}%</span>` : '');
+      return `<div class="bp-cur"><div class="bp-ch"><h5>Current agency on this channel</h5><button type="button" class="btn sm" data-seecur="1">See their basket</button></div>
+        <div class="muted small">${n0(f.programmes)} programmes · ${n0(f.spots)} spots · ${f.rack > 0 ? fmt.lkrc(f.rack) + ' at rate card' : 'no rate'}${f.disc != null ? ` · discount ${pc(f.disc)}` : ''}</div>
+        <table class="bp-ct"><thead><tr><th></th><th class="num">Current</th><th class="num">Mine</th><th class="num">Change</th></tr></thead><tbody><tr><td>Spend</td><td class="num">${n0(cs)}</td><td class="num">${n0(ms)}</td><td class="num">${ch2(cs, ms, true)}</td></tr><tr><td>GRPs</td><td class="num">${n1(cg)}</td><td class="num">${n1(mg)}</td><td class="num">${ch2(cg, mg, false)}</td></tr><tr><td>CPRP</td><td class="num">${n0(cp)}</td><td class="num">${n0(mp)}</td><td class="num">${ch2(cp, mp, true)}</td></tr><tr><td>ROI</td><td class="num">${xr(cro)}</td><td class="num">${xr(mro)}</td><td class="num">${ch2(cro, mro, false)}</td></tr></tbody></table></div>`;
+    };
     const panel = () => {
       const T = tally(e.rows), cb = comBudget(d), inv = numOf(d.investment), left = cb != null ? cb - T.cc : null, over = left != null && left < -0.5, pct = cb > 0 ? Math.min((T.cc / cb) * 100, 100) : 0, pp = numOf(d.prime_pct), bp = numOf(d.bonus_pct);
       const mini = (label, used, cap) => { const pc2 = cap > 0 ? Math.min((used / cap) * 100, 100) : 0, ov = cap > 0 && used > cap * 1.005; return `<div class="bp-m ${ov ? 'over' : ''}"><div class="bp-mh"><span>${label}</span><b>${n0(used)}${cap > 0 ? ' / ' + n0(cap) : ''}</b></div><div class="pt-m-b"><i style="width:${pc2}%"></i></div></div>`; };
@@ -832,6 +848,7 @@
       return `<aside class="cb-panel" aria-label="My basket"><div class="bp-head"><h4>My basket</h4><span class="muted small">${n0(T.spots)} spots · ${n0(com.length)} programme${com.length === 1 ? '' : 's'}</span></div>
         <div class="bp-left ${over ? 'over' : ''}">${cb == null ? '<span>Type the investment to see what is left</span><b>—</b>' : `<span>${over ? 'Over the budget by' : 'Left of the commercial budget'}</span><b>${fmt.lkrc(Math.abs(left))}</b>`}${cb != null ? `<div class="pt-m-b"><i style="width:${pct}%"></i></div><div class="sub">Spent ${n0(T.cc)} of ${n0(cb)}${inv != null ? ` · investment ${n0(inv)} (${pc(numOf(d.commercial_pct) || 100)} commercial)` : ''}</div>` : ''}</div>
         ${cb != null && pp ? mini('Prime time', T.ptCost, (cb * pp) / 100) : ''}${inv != null && (numOf(d.commercial_pct) || 100) < 100 ? mini('Sponsorship items', T.vaCost, inv - cb) : ''}${bp ? mini('Bonus (at rate card value)', T.bonusValue, bonusAllowed(e)) : ''}
+        ${curBox()}
         <div class="bp-t"><div><span>GRPs</span><b>${n1(T.ngrp)}</b></div><div><span>CPRP</span><b>${n0(T.ngrp > 0 ? T.cost / T.ngrp : null)}</b></div><div><span>ROI</span><b>${xr(T.cc > 0 ? T.cv / T.cc : null)}</b></div></div>
         ${com.length || e.rows.length ? `${grp('Prime time', com.filter((r) => r.band === 'PT'))}${grp('Non prime time', com.filter((r) => r.band !== 'PT'))}${grp('Sponsorship items', e.rows.filter((r) => r.kind === 'va'))}${grp('Bonus (free)', e.rows.filter((r) => r.kind === 'bonus'))}` : '<p class="muted small" style="margin:12px 0 0">Nothing selected yet. Add programmes from the list, or fill with the optimiser.</p>'}</aside>`;
     };
@@ -856,6 +873,7 @@
       const mb = g('data-m'); if (mb && isCur) { const T0 = tally(e.rows), to = mb.dataset.m; if (to !== modeOf(e)) { e.mode = to;
         if (to === 'discount' && numOf(d.est_discount_pct) == null && e.eff_discount != null) d.est_discount_pct = Math.round(e.eff_discount * 1000) / 10;
         if (to === 'investment' && !(numOf(d.investment) > 0)) { d.investment = Math.round(T0.cost); if (T0.vaCost > 0 && T0.cost > 0) d.commercial_pct = Math.round((T0.cc / T0.cost) * 1000) / 10; } applyRates(kind, ch); save(); paint(); } return; }
+      if (g('data-seecur')) { basketWindow(ch, true); return; }
       const sb = g('data-step'); if (sb) { const r = e.rows.find((x) => x.id === sb.dataset.sid); if (r) { r.spots = Math.max(0, (+r.spots || 0) + (+sb.dataset.step)); save(); const inp = body.querySelector(`input[data-id="${r.id}"][data-f="spots"]`); if (inp) inp.value = r.spots; const sc = body.querySelector(`[data-sc="${r.id}"]`); if (sc) sc.textContent = n0(r.spots); paintNums(); } return; }
       let b = g('data-rm'); if (b) { e.rows = e.rows.filter((x) => x.id !== b.dataset.rm); save(); applyRates(kind, ch); paint(); return; }
       b = g('data-add'); if (b) { const c = (D.catalogue[ch] || []).find((x) => x.key === b.dataset.add); if (c) { const ex = e.rows.find((r) => r.key === c.key && isCom(r)); if (ex) { ex.spots = (+ex.spots || 0) + 1; flash = ex.id; } else { const nr = catRow('com', c, c.neg30 || c.card30 || 0); e.rows.push(nr); flash = nr.id; } applyRates(kind, ch); save(); paint(); } return; }
