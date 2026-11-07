@@ -862,3 +862,7 @@ body.side-collapsed .brand-mini, :root[data-skin="paper"] .brand-mini { display:
 
 .pt-ready .rd.next { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); } .pt-ready .rd.warn .rd-i { font-size: 11px; }
 #pt-ch-sheet [data-c] { cursor: help; }
+
+.pk-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+.pk { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.pk-h { display: flex; justify-content: space-between; gap: 6px; align-items: start; } .pk-g { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 12.5px; } .pk-g span { color: var(--muted); } .pk-s { font-size: 12.5px; color: var(--accent); }
