@@ -155,7 +155,16 @@
   async function refreshRC() { try { RC = await App.api.get('/api/ratecards/current'); } catch (e) { RC = { entries: [], channels: [] }; } }
   function importRateCardDialog() {
     const m = App.modal('Import the agency rate card', `<p class="small muted">Choose the rate card workbook (.xlsx): one tab per channel with Programme, Day/s, Start, End and Rack Rate 30 Sec (a 10 sec rate is multiplied by 3). In the Negosiated Rate column a formula such as rack x 27% is saved as a discount rate (73% off); a typed number is saved as a special rate for that programme. Tabs with a date in their title ("Effective: 2026.08.07") keep it; a new date adds a version, the same date replaces it.</p>
-      <div class="grid g2"><div class="field"><label for="rc-eff">Effective date for tabs that do not give one</label><input id="rc-eff" type="date" value="${new Date().toISOString().slice(0, 10)}"></div><div class="field"><label for="rc-file">Workbook</label><input id="rc-file" type="file" accept=".xlsx"></div></div><div id="rc-out" style="margin-top:10px"></div>`);
+      <div class="grid g2"><div class="field"><label for="rc-eff">Effective date for tabs that do not give one</label><input id="rc-eff" type="date" value="${new Date().toISOString().slice(0, 10)}"></div><div class="field"><label for="rc-file">Workbook</label><input id="rc-file" type="file" accept=".xlsx"></div></div><div class="row" style="margin-top:8px;gap:8px;align-items:center"><button class="btn" type="button" id="rc-itn">Add the ITN rate card (page 1 of 3, as printed)</button><span class="small muted">The printed card has no date: the date above is used. The 30 sec rack rate is used; short spots (5 and 10 sec) cost more per second on the printed card than the 30 sec rate scaled down.</span></div><div id="rc-out" style="margin-top:10px"></div>`);
+    $('#rc-itn', m).onclick = async () => {
+      const out = $('#rc-out', m); out.innerHTML = App.skeleton(1);
+      try {
+        const r = await fetch(`/api/ratecards/import-builtin?name=itn&effective=${encodeURIComponent($('#rc-eff', m).value || '')}`, { method: 'POST', headers: { 'X-Requested-With': 'fetch' } });
+        const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'The import failed.');
+        out.innerHTML = `<div class="banner good"><span>${fmt.num(j.rows)} ITN programme rates imported (effective ${esc(j.imported[0].effective_from)}).</span></div>`;
+        await refreshRC(); sources(); run();
+      } catch (err) { out.innerHTML = `<div class="banner bad"><span>${esc(err.message)}</span></div>`; }
+    };
     $('#rc-file', m).onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return; const out = $('#rc-out', m); out.innerHTML = App.skeleton(1);
       try {

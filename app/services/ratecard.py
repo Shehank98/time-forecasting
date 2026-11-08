@@ -24,6 +24,21 @@ DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 MONTHS = {m: i + 1 for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
 
 
+BUILTIN = {"itn": "rate_card_ITN.xlsx"}           # rate cards shipped with the app (scripts/make_itn_rate_card.py builds the ITN one from the printed card)
+
+
+def builtin_bytes(name: str) -> tuple[bytes, str]:
+    """(workbook bytes, file name) of a bundled rate card."""
+    from pathlib import Path
+    fn = BUILTIN.get(name.lower())
+    if not fn:
+        raise RateCardError("There is no bundled rate card with that name.")
+    path = Path(__file__).resolve().parent.parent / "static" / "sample" / fn
+    if not path.exists():
+        raise RateCardError("The bundled rate card file is missing.")
+    return path.read_bytes(), fn
+
+
 class RateCardError(ValueError):
     """A problem with the uploaded workbook that the user can fix."""
 

@@ -170,3 +170,21 @@ def test_pitch_engine_uses_the_stored_rates(admin, tmp_path):
     cur = {(x["channel"], x["program"]): x for x in r["current"]["rows"]}
     assert cur[("DERANA", "HUSMAK LAGIN")]["card30"] == 910000 and cur[("DERANA", "HUSMAK LAGIN")]["value"] == pytest.approx(910000 * cur[("DERANA", "HUSMAK LAGIN")]["eq30"])
     assert any(c["program"] == "HUSMAK LAGIN" and c["neg30"] == pytest.approx(245700) for c in r["candidates"])
+
+
+def test_itn_rate_card_is_bundled_and_imports(admin):
+    """The ITN rate card (page 1 of 3, as printed) reads as 31 programme rates on the ITN channel and can be added with one call."""
+    content, name = ratecard.builtin_bytes("itn")
+    parsed = ratecard.parse_workbook(content, "2026-11-01")
+    ch = parsed["channels"][0]
+    assert ch["channel"] == "ITN" and len(ch["rows"]) == 31 and not parsed["warnings"]
+    by = {(r["programme"], r["days"]): r for r in ch["rows"]}
+    pt = by[("Prime Time Teledrama", "Mon - Sun")]
+    assert pt["rack30"] == 275000 and pt["rack10"] == 110000 and pt["start_sec"] == 19.5 * 3600 and pt["day_mask"] == "1111111"
+    assert by[("Kopi Kade Teledrama", "Sunday")]["day_mask"] == "0000001" and by[("Weekday Press", "Mon-Fri")]["rack30"] == 20000
+    assert by[("Other Programme (Prime B)", "Mon - Sun")]["end_sec"] == 0                    # printed "12.00 pm", read as midnight
+    r = admin.post("/api/ratecards/import-builtin", params={"name": "itn", "effective": "2026-11-01"})
+    assert r.status_code == 200 and r.json()["rows"] == 31
+    itn = [e for e in admin.get("/api/ratecards/current").json()["entries"] if e["channel"] == "ITN"]
+    assert len(itn) == 31 and sum(e["rack30"] for e in itn) == sum(x["rack30"] for x in ch["rows"])
+    assert admin.post("/api/ratecards/import-builtin", params={"name": "nope"}).status_code == 422

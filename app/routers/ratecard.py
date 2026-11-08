@@ -50,6 +50,23 @@ async def import_workbook(request: Request, filename: str = "rate card.xlsx", ef
     return {"imported": done, "warnings": parsed["warnings"] + [w for d in done for w in d["warnings"]], "rows": sum(d["rows"] for d in done)}
 
 
+@router.post("/api/ratecards/import-builtin")
+def import_builtin(name: str = "itn", effective: str | None = None, user: auth.User = Depends(admin_user)) -> dict:
+    """Import a rate card that ships with the app (for example the ITN card). The printed card has no date, so `effective` says from when it counts."""
+    if effective:
+        try:
+            dt.date.fromisoformat(effective)
+        except ValueError:
+            raise HTTPException(422, "effective must be a date like 2026-09-01.") from None
+    try:
+        content, fn = ratecard.builtin_bytes(name)
+        parsed = ratecard.parse_workbook(content, effective)
+    except ratecard.RateCardError as e:
+        raise HTTPException(422, str(e)) from None
+    done = ratecard.store(parsed, fn, user.id)
+    return {"imported": done, "warnings": parsed["warnings"] + [w for d in done for w in d["warnings"]], "rows": sum(d["rows"] for d in done)}
+
+
 @router.delete("/api/ratecards")
 def delete_version(channel: str, effective_from: str, user: auth.User = Depends(admin_user)) -> dict:
     n = ratecard.delete_version(channel, effective_from)
