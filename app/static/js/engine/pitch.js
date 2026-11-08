@@ -324,8 +324,8 @@
 
     // per channel (current evaluation, ROI)
     const sumRows = (rs) => {
-      const t = { spots: 0, eq30: 0, cost: 0, ngrp: 0, grp: 0, rated_cost: 0, value: 0, tvr_w: 0, tvr_n: 0 };
-      for (const r of rs) { t.spots += r.spots; t.eq30 += r.eq30; t.cost += r.cost; t.ngrp += r.ngrp; t.grp += r.grp; t.tvr_w += r.tvr * r.spots; t.tvr_n += r.spots; if (r.rated) { t.rated_cost += r.cost; t.value += r.value; } }
+      const t = { spots: 0, eq30: 0, cost: 0, ngrp: 0, grp: 0, rated_cost: 0, value: 0, tvr_w: 0, tvr_n: 0, rated_eq30: 0, rated_ngrp: 0 };
+      for (const r of rs) { t.spots += r.spots; t.eq30 += r.eq30; t.cost += r.cost; t.ngrp += r.ngrp; t.grp += r.grp; t.tvr_w += r.tvr * r.spots; t.tvr_n += r.spots; if (r.rated) { t.rated_cost += r.cost; t.value += r.value; t.rated_eq30 += r.eq30; t.rated_ngrp += r.ngrp; } }
       return t;
     };
     const chNames = [...new Set([...rows.map((r) => r.channel), ...sponsorship.map((s) => s.channel)])];
@@ -339,7 +339,7 @@
     const tot = channels.reduce((a, x) => a + x.spend, 0); channels.forEach((x) => { x.share_pct = tot > 0 ? (x.spend / tot) * 100 : null; });
 
     // prime / non prime
-    const dp = (rs) => { const t = sumRows(rs); return { spend: t.cost, spots: t.spots, eq30: t.eq30, ngrp: t.ngrp, tvr: div(t.tvr_w, t.tvr_n), avg30: div(t.cost, t.eq30), cprp: div(t.cost, t.ngrp) }; };
+    const dp = (rs) => { const t = sumRows(rs); return { spend: t.cost, spots: t.spots, eq30: t.eq30, ngrp: t.ngrp, tvr: div(t.tvr_w, t.tvr_n), avg30: div(t.cost, t.eq30), cprp: div(t.cost, t.ngrp), avg30_card: div(t.value, t.rated_eq30), cprp_card: div(t.value, t.rated_ngrp), rated_pct: t.cost > 0 ? (t.rated_cost / t.cost) * 100 : null, rack_value: t.value }; };
     const PT = rows.filter((r) => r.pt), NPT = rows.filter((r) => !r.pt);
     const daypart = { prime: dp(PT), non_prime: dp(NPT), by_channel: chNames.map((ch) => ({ channel: ch, prime: dp(PT.filter((r) => r.channel === ch)), non_prime: dp(NPT.filter((r) => r.channel === ch)) })) };
     const totalsFor = (set) => {

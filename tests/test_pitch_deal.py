@@ -303,3 +303,22 @@ console.log(JSON.stringify({ rows: H.rows.length, days: B.parseDays('Monday to T
     r = json.loads(out.stdout)
     assert r["rows"] == 53 and r["days"] == [0, 1, 2, 3] and r["we"] == [5, 6] and r["t1"] == 715 and r["t2"] == 1315 and r["t3"] == 30
     assert (r["news"], r["rpt"], r["live"], r["early"], r["star"], r["movie"]) == ("A", "NP", "A", "B", "A", "NP") and r["unknown"] is False
+
+
+def test_daypart_shows_the_rate_card_rate_next_to_the_monitored_rate(data):
+    """Prime / non prime by channel: monitored rate = LMRB cost / 30 sec equivalents; rate card rate = rack value / 30 sec equivalents of the rated rows."""
+    p, lm, tv = data
+    r = run(p, {"month": "all"})
+    rows = r["current"]["rows"]
+    for c in r["current"]["daypart"]["by_channel"]:
+        for side, flag in (("prime", True), ("non_prime", False)):
+            x = c[side]
+            rs = [q for q in rows if q["channel"] == c["channel"] and q["pt"] == flag]
+            if not rs:
+                continue
+            assert x["avg30"] == pytest.approx(sum(q["cost"] for q in rs) / sum(q["eq30"] for q in rs))
+            rated = [q for q in rs if q["rated"]]
+            assert x["avg30_card"] == pytest.approx(sum(q["value"] for q in rated) / sum(q["eq30"] for q in rated))
+            assert x["cprp_card"] == pytest.approx(sum(q["value"] for q in rated) / sum(q["ngrp"] for q in rated))
+    der = [c for c in r["current"]["daypart"]["by_channel"] if c["channel"] == "DERANA"][0]
+    assert der["prime"]["avg30_card"] == pytest.approx(900000) and der["non_prime"]["avg30_card"] == pytest.approx(250000)      # the channel's card rates typed in the test
