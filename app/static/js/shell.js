@@ -36,13 +36,23 @@
   }
 
   /* ---------------- animated loader ---------------- */
+  const LOADERS = { orbit: 'Orbit', ring: 'Ring', bars: 'Bars', dots: 'Dots', radar: 'Radar', pulse: 'Pulse', line: 'Line' };
   const loader = {
-    el: null, t0: 0, n: 0,
+    el: null, t0: 0, n: 0, styles: LOADERS,
+    /** The animation the agency chose (Admin, Branding). Kept in this browser so the first loader of a page is already right. */
+    style() { let s = 'orbit'; try { s = localStorage.getItem('loader_style') || 'orbit'; } catch (e) { /* storage blocked */ } return LOADERS[s] ? s : 'orbit'; },
+    setStyle(s) { if (LOADERS[s]) { try { localStorage.setItem('loader_style', s); } catch (e) { /* storage blocked */ } } },
+    core(style) {
+      return { orbit: '<div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div><div class="orb"></div><div class="scan"></div>',
+        ring: '<div class="l-ring"></div>', bars: '<div class="l-bars"><i></i><i></i><i></i><i></i><i></i></div>', dots: '<div class="l-dots"><i></i><i></i><i></i></div>',
+        radar: '<div class="l-radar"><i class="sweep"></i><i class="blip b1"></i><i class="blip b2"></i><i class="blip b3"></i></div>', pulse: '<div class="l-pulse"><i></i><i></i><i></i></div>', line: '<div class="l-line"><i></i></div>' }[style];
+    },
     show(title = 'Initialising', sub = '') {
       loader.n += 1;
       if (!loader.el) {
-        loader.el = document.createElement('div'); loader.el.className = 'loader'; loader.el.setAttribute('role', 'status'); loader.el.setAttribute('aria-live', 'polite');
-        loader.el.innerHTML = `<div><div class="core"><div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div><div class="orb"></div><div class="scan"></div></div>
+        const style = loader.style();
+        loader.el = document.createElement('div'); loader.el.className = 'loader s-' + style; loader.el.setAttribute('role', 'status'); loader.el.setAttribute('aria-live', 'polite');
+        loader.el.innerHTML = `<div><div class="core">${loader.core(style)}</div>
           <div class="txt"><span data-t></span><small data-s></small></div><div class="bar indet"><i></i></div></div>`;
         document.body.appendChild(loader.el);
         requestAnimationFrame(() => loader.el && loader.el.classList.add('on'));
@@ -99,7 +109,7 @@
       if (!side) { side = document.createElement('aside'); side.id = 'sidebar'; document.querySelector('.layout').prepend(side); }
       side.className = 'sidebar';
       side.setAttribute('aria-label', 'Main navigation');
-      const b = me.branding;
+      const b = me.branding; if (b && b.loader) loader.setStyle(b.loader);
       const mark = '<img src="/img/logo.png" alt="Ogilvy Orbit Forecasting" class="brand-wordmark"><img src="/img/mark.png" alt="" class="brand-mini">';
       const link = (href, key, icon, label) => `<a href="${href}" title="${label}" ${active === key ? 'aria-current="page"' : ''}>${svg(icon)}<span class="txt">${label}</span></a>`;
       side.innerHTML = `

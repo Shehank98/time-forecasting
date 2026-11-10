@@ -191,3 +191,14 @@ def test_client_delete_needs_exact_name():
     assert c.delete(f"/api/clients/{cid}", params={"confirm": name}).json()["deleted"]
     from app.services import repo
     assert repo.list_forecasts(cid) == []
+
+
+def test_admin_chooses_the_loading_animation():
+    """The loading animation is an agency setting: everyone gets it with their profile, only a known style is accepted."""
+    from helpers import login
+    c = login()
+    assert c.get("/api/auth/me").json()["branding"]["loader"] in ("orbit", "ring", "bars", "dots", "radar", "pulse", "line")
+    r = c.put("/api/branding", json={"loader": "radar"})
+    assert r.status_code == 200 and r.json()["loader"] == "radar" and c.get("/api/auth/me").json()["branding"]["loader"] == "radar"
+    assert c.put("/api/branding", json={"loader": "spinner-of-doom"}).status_code == 422
+    assert c.put("/api/branding", json={"loader": "orbit"}).status_code == 200

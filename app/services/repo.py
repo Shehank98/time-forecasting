@@ -198,7 +198,8 @@ def delete_report(client_id: int, rid: int) -> None:
 
 
 # ---------------------------------------------------------------- agency branding
-DEFAULT_BRANDING = {"agency_name": "Media Radar", "primary_color": "#4F46E5", "report_footer": "Confidential. Prepared for the named client only.",
+LOADERS = ("orbit", "ring", "bars", "dots", "radar", "pulse", "line")      # loading animations an admin can choose from (app.css: .loader.s-<name>)
+DEFAULT_BRANDING = {"loader": "orbit", "agency_name": "Media Radar", "primary_color": "#4F46E5", "report_footer": "Confidential. Prepared for the named client only.",
                     "disclaimer": "Forecasts are probabilistic estimates based on historical data and are not guarantees of future results."}
 
 
@@ -220,6 +221,8 @@ def set_branding(values: dict) -> None:
         if k in values and values[k] is not None:
             cur[k] = str(values[k])[:500]
     cur["primary_color"] = _color(cur["primary_color"])
+    if cur.get("loader") not in LOADERS:
+        raise ValueError("That loading animation does not exist. Choose one of: " + ", ".join(LOADERS) + ".")
     _upsert_setting("branding", json.dumps(cur), keep_blob=True)
 
 

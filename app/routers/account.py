@@ -75,7 +75,7 @@ def logout(request: Request, response: Response) -> dict:
 def me(user: auth.User = Depends(current_user)) -> dict:
     b = repo.get_branding()
     return {"user": {**user.__dict__, "is_admin": user.is_admin}, "clients": repo.list_clients(user),
-            "branding": {k: b[k] for k in ("agency_name", "primary_color", "has_logo")}}
+            "branding": {k: b[k] for k in ("agency_name", "primary_color", "has_logo", "loader")}}
 
 
 @router.post("/api/auth/password")

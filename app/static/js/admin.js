@@ -93,11 +93,15 @@
       <div class="field" style="margin-top:10px"><label for="b-logo">Agency logo (PNG or JPEG, under 512 KB)</label>${logoInput('b-logo')}${b.has_logo ? '<img src="/api/branding/logo" alt="Current logo" style="max-height:48px;margin-top:8px">' : ''}</div>
       <div class="field" style="margin-top:10px"><label for="b-foot">Report footer</label><input type="text" id="b-foot" value="${esc(b.report_footer)}"></div>
       <div class="field" style="margin-top:10px"><label for="b-disc">Forecast disclaimer</label><textarea id="b-disc" rows="3" style="font-family:inherit">${esc(b.disclaimer)}</textarea></div>
+      <div class="field" style="margin-top:14px"><label>Loading animation (everyone sees the one you choose)</label><div class="ld-pick" role="radiogroup" aria-label="Loading animation">${Object.entries(App.loader.styles).map(([k, l]) => `<label class="ld-opt"><input type="radio" name="b-loader" value="${k}" ${(b.loader || 'orbit') === k ? 'checked' : ''}><span class="ld-prev loader on s-${k}"><span class="core">${App.loader.core(k)}</span></span><span class="ld-name">${l}</span></label>`).join('')}</div>
+        <div class="row" style="margin-top:6px"><button class="btn sm" type="button" id="b-try">Preview the selected one full screen</button></div></div>
       <div class="row" style="margin-top:12px"><button class="btn primary" type="submit">Save branding</button></div></form>`;
+    $('#b-try').onclick = () => { const k = (document.querySelector('input[name=b-loader]:checked') || {}).value || 'orbit', keep = App.loader.style(); App.loader.setStyle(k); App.loader.show('Loading', 'This is how it looks'); let p = 0; const t = setInterval(() => { p += 0.12; App.loader.progress(Math.min(1, p)); if (p >= 1) { clearInterval(t); App.loader.hide(300); App.loader.setStyle(keep); } }, 260); };
     $('#b-form').onsubmit = async (e) => {
       e.preventDefault();
       try {
-        await App.api.put('/api/branding', { agency_name: $('#b-name').value, primary_color: $('#b-color').value, report_footer: $('#b-foot').value, disclaimer: $('#b-disc').value });
+        const ld = (document.querySelector('input[name=b-loader]:checked') || {}).value || 'orbit';
+        await App.api.put('/api/branding', { agency_name: $('#b-name').value, primary_color: $('#b-color').value, report_footer: $('#b-foot').value, disclaimer: $('#b-disc').value, loader: ld }); App.loader.setStyle(ld);
         await uploadLogo('/api/branding/logo', $('#b-logo').files[0]);
         App.toast('Branding saved', 'ok'); brand();
       } catch (x) { App.toast(x.message, 'error'); }
