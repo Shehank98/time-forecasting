@@ -322,3 +322,26 @@ def test_daypart_shows_the_rate_card_rate_next_to_the_monitored_rate(data):
             assert x["cprp_card"] == pytest.approx(sum(q["value"] for q in rated) / sum(q["ngrp"] for q in rated))
     der = [c for c in r["current"]["daypart"]["by_channel"] if c["channel"] == "DERANA"][0]
     assert der["prime"]["avg30_card"] == pytest.approx(900000) and der["non_prime"]["avg30_card"] == pytest.approx(250000)      # the channel's card rates typed in the test
+
+
+def test_client_analysis_covers_every_channel_the_client_buys(data):
+    """The LMRB alone says where the client spends: channels without TVR (and radio) are in the analysis, with spend, spots and programmes, but no ratings."""
+    p, lm, tv = data
+    r = run(p, {"month": "all"})
+    cl = r["client"]
+    names = {(c["medium"], c["channel"]): c for c in cl["channels"]}
+    assert ("TV", "ITN") in names and not names[("TV", "ITN")]["has_tvr"] and names[("TV", "DERANA")]["has_tvr"]
+    assert any(c["medium"].lower().startswith("radio") for c in cl["channels"])
+    assert cl["total_spend"] == pytest.approx(lm["Cost"].sum())                       # every row of the sheet, all media
+    itn = lm[lm["Channel"] == "TV - ITN"]
+    assert names[("TV", "ITN")]["spend"] == pytest.approx(itn["Cost"].sum()) and names[("TV", "ITN")]["spots"] == len(itn)
+    b = cl["lmrb_only"]["TV|ITN"]
+    assert sum(x["spots"] for x in b["rows"]) + sum(x["spots"] for x in b["sponsorship"]) == len(itn)
+    assert sum(x["cost"] for x in b["rows"]) + sum(x["spend"] for x in b["sponsorship"]) == pytest.approx(itn["Cost"].sum())
+    assert all(x["dur"] in set(itn["Dur"]) for x in b["rows"]) and "TV|DERANA" not in cl["lmrb_only"]
+    assert cl["tvr_spend"] == pytest.approx(lm[lm["Channel"].isin(CHAN)]["Cost"].sum())
+    ov = {(x["medium"], x["channel"]): x for x in r["overview"]["rows"]}
+    assert ("TV", "ITN") in ov and ov[("TV", "ITN")]["has_tvr"] is False
+    one = run(p, {"month": "2026-09"})
+    sep = lm[(lm["Mn"] == 9)]
+    assert one["client"]["total_spend"] == pytest.approx(sep["Cost"].sum())

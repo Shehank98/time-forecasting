@@ -241,12 +241,34 @@
     const groups = matchGroups(L, tvRows, cat, o), slotRows = groups.slots, gmap = new Map(groups.map((g) => [g.key, g]));
     const rr = rateResolver(o);
 
-    // overview: spend by channel and month, commercial and sponsorship
-    const ov = new Map();
-    for (const i of tvRows) {
-      const ch = L.dicts.channel[LC.channel[i]], m = monthOf(LC.date[i]); let r = ov.get(ch); if (!r) ov.set(ch, (r = new Map()));
-      const a = r.get(m) || { com: 0, va: 0 }; if (LC.theme[i] >= 0 && sponsor[LC.theme[i]]) a.va += LC.cost[i]; else a.com += LC.cost[i]; r.set(m, a);
+    // The client's whole buy, from the LMRB alone: every channel of every medium, with or without TVR.
+    // Ratings (TVR, GRP, CPRP) exist only for channels in the TVR sheet; spend, spots, programmes and sponsorship are known for all of them.
+    const ov = new Map(), cl = new Map(), lo = new Map(), cMonths = new Set();
+    const selM = (i) => month === 'all' || monthOf(LC.date[i]) === month;
+    for (let k = 0; k < lidx.length; k++) {
+      const i = lidx[k]; if (adv && advWanted && L.dicts.advertiser[adv[i]] !== advWanted) continue;
+      const medium = med ? (L.dicts.medium[med[i]] || 'TV') : 'TV', ch = L.dicts.channel[LC.channel[i]], key = `${medium}|${ch}`, m = monthOf(LC.date[i]), cost = LC.cost[i];
+      const isVa = LC.theme[i] >= 0 && sponsor[LC.theme[i]], hasTvr = medium === 'TV' && inTvr.has(ch);
+      cMonths.add(m); let r = ov.get(key); if (!r) ov.set(key, (r = { medium, channel: ch, has_tvr: hasTvr, m: new Map() }));
+      const a = r.m.get(m) || { com: 0, va: 0 }; if (isVa) a.va += cost; else a.com += cost; r.m.set(m, a);
+      if (!selM(i)) continue;
+      const dur = Number.isFinite(LC.dur[i]) && LC.dur[i] > 0 ? LC.dur[i] : 30, eq = dur / 30, pr = L.dicts.program[LC.program[i]];
+      let c = cl.get(key); if (!c) cl.set(key, (c = { medium, channel: ch, has_tvr: hasTvr, spend: 0, spots: 0, com_spend: 0, va_spend: 0, com_spots: 0, va_spots: 0, com_eq30: 0, progs: new Set() }));
+      c.spend += cost; c.spots++; if (isVa) { c.va_spend += cost; c.va_spots++; } else { c.com_spend += cost; c.com_spots++; c.com_eq30 += eq; c.progs.add(pr); }
+      if (hasTvr) continue;                                  // channels with TVR get their basket from the matched programmes below
+      let b = lo.get(key); if (!b) lo.set(key, (b = { medium, channel: ch, prog: new Map(), spon: new Map() }));
+      if (isVa) { const th = L.dicts.theme[LC.theme[i]]; let x = b.spon.get(th); if (!x) b.spon.set(th, (x = { theme: th, spots: 0, spend: 0, durs: new Map() })); x.spots++; x.spend += cost; const dd = x.durs.get(dur) || { dur, spots: 0, spend: 0 }; dd.spots++; dd.spend += cost; x.durs.set(dur, dd); continue; }
+      const pk = `${pr}|${dur}`; let x = b.prog.get(pk); if (!x) b.prog.set(pk, (x = { program: pr, dur, spots: 0, eq30: 0, cost: 0, days: Array(7).fill(0), starts: new Map() }));
+      x.spots++; x.eq30 += eq; x.cost += cost; x.days[dowMon(LC.date[i])]++; const ps = LC.prog_sec[i] >= 0 ? LC.prog_sec[i] : LC.advt_sec[i]; if (ps >= 0) { const q = Math.round(ps / 900) * 900; x.starts.set(q, (x.starts.get(q) || 0) + 1); }
     }
+    const clientMonths = [...cMonths].sort(), clTotal = [...cl.values()].reduce((x, c) => x + c.spend, 0);
+    const clientChannels = [...cl.values()].map((c) => ({ medium: c.medium, channel: c.channel, has_tvr: c.has_tvr, spend: c.spend, spots: c.spots, com_spend: c.com_spend, va_spend: c.va_spend, com_spots: c.com_spots, va_spots: c.va_spots,
+      programmes: c.progs.size, avg30: div(c.com_spend, c.com_eq30), share_pct: clTotal > 0 ? (c.spend / clTotal) * 100 : null })).sort((x, y) => y.spend - x.spend);
+    const lmrbOnly = {};
+    lo.forEach((b) => { const top = (mp) => { let best = -1, n = 0; mp.forEach((v, k2) => { if (v > n) { n = v; best = k2; } }); return best; };
+      lmrbOnly[`${b.medium}|${b.channel}`] = { medium: b.medium, channel: b.channel,
+        rows: [...b.prog.values()].map((x) => { const st = top(x.starts); return { program: x.program, dur: x.dur, spots: x.spots, eq30: x.eq30, cost: x.cost, avg_rate: div(x.cost, x.spots), avg30: div(x.cost, x.eq30), start: st >= 0 ? hm(st) : '', days: dayLabel(x.days), pt: st >= 0 ? isPT(st, o) : false }; }).sort((x, y) => y.cost - x.cost),
+        sponsorship: [...b.spon.values()].map((x) => ({ theme: x.theme, spots: x.spots, spend: x.spend, avg_cost: div(x.spend, x.spots), durs: [...x.durs.values()].sort((p2, q2) => q2.spots - p2.spots) })).sort((x, y) => y.spend - x.spend) }; });
 
     // current buy for the chosen month: one pass, aggregated per TVR programme
     const sel = (i) => month === 'all' || monthOf(LC.date[i]) === month;
@@ -394,7 +416,8 @@
       zero_tvr_programmes: rows.filter((r) => r.zero_tvr).length, zero_tvr_rows: [...cat.byKey.values()].reduce((a, e) => a + e.zero, 0), low_confidence_matches: groups.filter((g) => g.level === 'Low' || g.level === 'Medium').length,
       skipped_channels: [...skipped.values()].sort((a, b) => b.spend - a.spend), no_medium: noMedium, candidates_without_rate: [...cat.byKey.values()].filter((e) => e.channel in budgets && e.tvr >= o.min_tvr && !(rr.neg(e) > 0)).length };
     return { empty: !rows.length && !sponsorship.length, data_sets: dataSets, data_set: dataSet, audit: { ...aud, merged_tvr_slots: cat.merged_slots }, advertiser: advWanted, advertisers: [...advSpend.entries()].sort((a, b) => b[1] - a[1]).map(([name, spend]) => ({ name, spend })), month, months: allMonths, tvr_months: cat.months, tvr_channels: tvrChannels, settings: { pt_start: o.pt_start, pt_end: o.pt_end, min_tvr: o.min_tvr, max_spots: o.max_spots, budget_basis: o.budget_basis, objective: o.objective, current_basis: o.current_basis },
-      overview: { months: allMonths, rows: [...ov.entries()].map(([channel, m]) => ({ channel, months: allMonths.map((k) => m.get(k) || { com: 0, va: 0 }) })).sort((a, b) => b.months.reduce((s, x) => s + x.com + x.va, 0) - a.months.reduce((s, x) => s + x.com + x.va, 0)) },
+      overview: { months: clientMonths, rows: [...ov.values()].map((r) => ({ channel: r.channel, medium: r.medium, has_tvr: r.has_tvr, months: clientMonths.map((k) => r.m.get(k) || { com: 0, va: 0 }) })).sort((a, b) => b.months.reduce((s, x) => s + x.com + x.va, 0) - a.months.reduce((s, x) => s + x.com + x.va, 0)) },
+      client: { channels: clientChannels, total_spend: clTotal, tvr_spend: clientChannels.filter((c) => c.has_tvr).reduce((x, c) => x + c.spend, 0), lmrb_only: lmrbOnly },
       matches: groups, slots: slotRows, catalogue: [...cat.byCh.entries()].reduce((m, [ch, list]) => { m[ch] = list.sort((a, b) => b.n - a.n).map((e) => ({ key: e.key, program: e.program, label: `${e.program} (${e.start_hm || 'no time'}, ${e.day_label})`, start: e.start_hm, end: e.end_hm, days: e.day_label, tvr: e.tvr, pt: e.pt, band: e.band, band_name: e.band_name, card30: rr.card(e), neg30: rr.neg(e) })); return m; }, {}),
       current: { ...current, rows, sponsorship, channels, daypart }, candidates: cands, budgets, plan: { rows: plan.rows, channels: plan.channels, totals: planTotals }, rates: ratesRows, warnings, evidence, prime_share: primeShare, band_shares: bandShares, band_strict: bandStrict, bands: Object.fromEntries(tvrChannels.map((ch) => [ch, { set: MR.pitchBands.bandSet((o.bands || {})[ch]), preset: ((o.bands || {})[ch] || {}).preset || 'pt', uncategorised: (o.bands || {})[ch] && o.bands[ch].preset === 'abc' ? [...cat.byKey.values()].filter((e) => e.channel === ch && !e.band_listed).map((e) => ({ key: e.key, program: e.program, days: e.day_label, start: e.start_hm })) : [] }])), plan_inputs: planInputs,
       comparison: { ...MR.pitchCompare(cmp, planTotals), current: cmp, basis: allBasis ? 'all' : 'com' } };
