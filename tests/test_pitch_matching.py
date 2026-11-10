@@ -133,3 +133,41 @@ def test_every_slot_gets_ranked_suggestions(base, tmp_path):
         assert len(s["suggestions"]) <= 5 and all(0 <= x["confidence"] <= 100 for x in s["suggestions"])
         if s["tvr_key"] and not s["approved"]:
             assert s["suggestions"] and s["suggestions"][0]["key"] == s["tvr_key"]
+
+
+def test_a_spot_is_matched_to_the_airing_on_its_own_date_and_time(base, tmp_path):
+    """Exact evidence: the TVR sheet has the channel on that date and the ad time falls inside one airing. The name does not have to look alike."""
+    lm, tv = base
+    odd = edit(lm, "Husmak Lagin", Program="Client Special Slot")              # a name nothing like the TVR programme, same dates and ad times
+    r = run(tmp_path, odd, tv)
+    m = [x for x in r["matches"] if x["lmrb_program"] == "CLIENT SPECIAL SLOT"][0]
+    assert m["tvr_program"] == "HUSMAK LAGIN" and m["method"] == "same date and time" and m["exact_spots"] == m["spots"] and m["safe"] and m["confidence"] == 100
+    w = r["warnings"]
+    assert w["exact_spots"] <= w["dated_spots"] <= w["matched_spots_total"] and w["exact_spots"] > 0.9 * w["matched_spots_total"]
+
+
+def test_strict_matching_counts_only_what_is_certain_until_you_approve(base, tmp_path):
+    """Strict: a look-alike name on dates the TVR sheet does not cover is shown for approval and left out of the numbers; approving it brings it in. Nothing is lost."""
+    lm, tv = base
+    far = lm.copy()
+    m = far["Program"] == "Husmak Lagin"
+    far.loc[m, "Program"] = "Husmaka Lagina Special"
+    far.loc[m, "Yr"] = 2026
+    far.loc[m, "Mn"] = 10                                                       # October: the TVR sheet stops in September
+    far.loc[m, "Advt_time"] = "03:10:00"
+    far.loc[m, "Prog_time"] = "03:00"
+    loose = run(tmp_path, far, tv, {"month": "all"})
+    strict = run(tmp_path, far, tv, {"month": "all", "match_strict": True})
+    gl = [x for x in loose["matches"] if x["lmrb_program"].startswith("HUSMAKA")][0]
+    gs = [x for x in strict["matches"] if x["lmrb_program"].startswith("HUSMAKA")][0]
+    assert gl["tvr_program"] == "HUSMAK LAGIN" and gl["counted"] and not gl["safe"] and gl["exact_spots"] == 0
+    assert gs["waiting"] and not gs["counted"] and gs["tvr_key"] is None and gs["proposed_program"] == "HUSMAK LAGIN"
+    ws = strict["warnings"]
+    assert ws["waiting_programmes"] == 1 and 0 < ws["waiting_spend"] <= gs["spend"] + 1e-6           # the programme's sponsorship items need no match and stay counted
+    total = lambda r: sum(x["cost"] for x in r["current"]["rows"]) + sum(x["spend"] for x in r["current"]["sponsorship"]) + r["warnings"]["unmatched_spend"] + r["warnings"]["waiting_spend"]
+    assert total(strict) == pytest.approx(strict["audit"]["view_spend"]) and total(loose) == pytest.approx(loose["audit"]["view_spend"])
+    assert strict["current"]["spots"] == loose["current"]["spots"] - ws["waiting_spots"]
+    sl = slot_of(strict, "HUSMAKA LAGINA SPECIAL")
+    assert sl["waiting"] and sl["tvr_program"] == "HUSMAK LAGIN"                # still offered for approval
+    ok = run(tmp_path, far, tv, {"month": "all", "match_strict": True, "mappings": {"SLOT|" + sl["key"]: sl["tvr_key"]}})
+    assert ok["warnings"]["waiting_programmes"] == 0 and ok["current"]["spots"] == loose["current"]["spots"]

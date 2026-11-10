@@ -35,14 +35,17 @@
 
   /** TVR programmes: one entry per channel + programme + start time (rounded to 15 minutes), TVR averaged over every airing in the sheet. */
   function catalogue(V, dataSet) {
-    const C = V.cols, byKey = new Map(), months = new Set();
+    const C = V.cols, byKey = new Map(), months = new Set(), air = new Map();
     for (let i = 0; i < V.n; i++) {
       if (dataSet && C.data_set && V.dicts.data_set[C.data_set[i]] !== dataSet) continue;      // one target audience only: TVRs of different audiences must never be averaged together
       const ch = V.dicts.channel[C.channel[i]], pr = V.dicts.program[C.program[i]], st = C.start[i] >= 0 ? Math.round(C.start[i] / 900) * 900 : -1, key = `${ch}|${pr}|${hm(st)}`;
       let e = byKey.get(key);
       if (!e) byKey.set(key, (e = { key, channel: ch, program: pr, start: st, end: C.end[i], n: 0, tvr_sum: 0, zero: 0, days: Array(7).fill(0), months: new Set() }));
       const t = C.tvr[i]; e.n++; e.tvr_sum += t; if (!(t > 0)) e.zero++; e.days[dowMon(C.date[i])]++; const m = monthOf(C.date[i]); e.months.add(m); months.add(m);
+      if (C.start[i] >= 0) { let en = C.end[i]; if (!(en >= 0)) en = C.start[i] + (C.duration && Number.isFinite(C.duration[i]) && C.duration[i] > 0 ? C.duration[i] * 60 : 1800); if (en <= C.start[i]) en += 86400;
+        const ak = `${ch}|${C.date[i]}`; let arr = air.get(ak); if (!arr) air.set(ak, (arr = [])); arr.push([C.start[i], en, key]); }
     }
+    air.forEach((arr) => arr.sort((a, b) => a[0] - b[0]));
     // The same programme listed at slightly different times or days (13:30 and 13:15, "Fri" and "Tue Fri") is one programme: merge slots of the same name that start within 30 minutes of each other and share a day.
     const alias = new Map(), same = new Map();
     for (const e of byKey.values()) { const k = `${e.channel}|${e.program}`; if (!same.has(k)) same.set(k, []); same.get(k).push(e); }
@@ -61,7 +64,7 @@
       e.tvr = e.tvr_sum / e.n; e.per_month = e.n / Math.max(1, e.months.size); e.day_label = dayLabel(e.days); e.start_hm = hm(e.start); e.end_hm = hm(e.end); e.pt = null;
       if (!byCh.has(e.channel)) byCh.set(e.channel, []); byCh.get(e.channel).push(e);
     }
-    return { byKey, byCh, months: [...months].sort(), merged_slots: alias.size };
+    return { byKey, byCh, months: [...months].sort(), merged_slots: alias.size, air };
   }
   const isPT = (start, o) => start >= 0 && start >= o.pt_start && start < o.pt_end;
 
@@ -75,13 +78,18 @@
     const C = L.cols, groups = new Map(), P = MR.pitchPrep, NS = MR.pitchNameScorePrepared;
     for (const i of rows) {
       const ch = L.dicts.channel[C.channel[i]], name = L.dicts.program[C.program[i]], gk = `${ch}|${name}`;
-      let g = groups.get(gk); if (!g) groups.set(gk, (g = { key: gk, channel: ch, lmrb_program: name, prep: P(name), spots: 0, spend: 0, votes: new Map(), slotted: 0, starts: new Map(), days: Array(7).fill(0) }));
+      let g = groups.get(gk); if (!g) groups.set(gk, (g = { key: gk, channel: ch, lmrb_program: name, prep: P(name), spots: 0, spend: 0, votes: new Map(), slotted: 0, starts: new Map(), days: Array(7).fill(0), exact: new Map(), exactN: 0, dated: 0 }));
       g.spots++; g.spend += C.cost[i];
       const dow = dowMon(C.date[i]), ps = C.prog_sec[i], at = C.advt_sec[i]; g.days[dow]++;
       if (ps >= 0) { const b = Math.round(ps / 900) * 900; g.starts.set(b, (g.starts.get(b) || 0) + 1); }
       const list = cat.byCh.get(ch); if (!list) continue;
       let best = null;
-      if (ps >= 0) { let bd = 901; for (const e of list) { if (e.start < 0 || e.days[dow] === 0) continue; const d = Math.abs(e.start - ps); if (d < bd || (d === bd && best && e.n > best.n)) { bd = d; best = e; } } }
+      // exact: the TVR sheet has this channel on this very date, and the ad time (or the programme time) falls inside one airing
+      const airs = cat.air && cat.air.get(`${ch}|${C.date[i]}`);
+      if (airs) { g.dated++; let hit = null; const t0 = at;                 // only the time the ad really aired counts as exact; the programme time in the LMRB can be the start of a belt
+        if (t0 >= 0) { for (let q = airs.length - 1; q >= 0; q--) { if (airs[q][0] <= t0) { if (t0 < airs[q][1]) hit = airs[q]; break; } } }
+        const ee = hit ? cat.byKey.get(hit[2]) : null; if (ee) { g.exact.set(ee.key, (g.exact.get(ee.key) || 0) + 1); g.exactN++; best = ee; } }
+      if (!best && ps >= 0) { let bd = 901; for (const e of list) { if (e.start < 0 || e.days[dow] === 0) continue; const d = Math.abs(e.start - ps); if (d < bd || (d === bd && best && e.n > best.n)) { bd = d; best = e; } } }
       if (!best && at >= 0) {
         for (const e of list) {
           if (e.start < 0 || e.days[dow] === 0) continue;
@@ -97,8 +105,8 @@
       let st = -1, bn = 0; g.starts.forEach((n, b) => { if (n > bn) { bn = n; st = b; } });
       const sk = st >= 0 ? `${g.channel}|${hm(st)}|${dayLabel(g.days)}` : `${g.channel}|name|${g.lmrb_program}`;
       g.slot = sk;
-      let sl = slots.get(sk); if (!sl) slots.set(sk, (sl = { key: sk, channel: g.channel, startSec: st, start: st >= 0 ? hm(st) : '', days: st >= 0 ? dayLabel(g.days) : '', dayCount: Array(7).fill(0), members: [], votes: new Map(), spots: 0, spend: 0 }));
-      sl.members.push(g); sl.spots += g.spots; sl.spend += g.spend; g.votes.forEach((v, k) => sl.votes.set(k, (sl.votes.get(k) || 0) + v)); g.days.forEach((n, d) => { sl.dayCount[d] += n; });
+      let sl = slots.get(sk); if (!sl) slots.set(sk, (sl = { key: sk, channel: g.channel, startSec: st, start: st >= 0 ? hm(st) : '', days: st >= 0 ? dayLabel(g.days) : '', dayCount: Array(7).fill(0), members: [], votes: new Map(), spots: 0, spend: 0, exact: new Map(), exactN: 0, dated: 0 }));
+      sl.members.push(g); sl.spots += g.spots; sl.spend += g.spend; sl.exactN += g.exactN; sl.dated += g.dated; g.exact.forEach((v, k) => sl.exact.set(k, (sl.exact.get(k) || 0) + v)); g.votes.forEach((v, k) => sl.votes.set(k, (sl.votes.get(k) || 0) + v)); g.days.forEach((n, d) => { sl.dayCount[d] += n; });
     }
     const mp = o.mappings || {}, minConf = (Number.isFinite(+o.match_min) ? +o.match_min : 45) / 100;
     // what you approved before: a name approved for a programme is that programme wherever it turns up
@@ -132,43 +140,55 @@
       if (share >= 0.5) parts.push(`${Math.round(share * 100)}% of the spots run in its slot`); else if (prox >= 0.55) parts.push(`starts ${Math.round(dlt / 60)} min from it`); else if (T > 0.2) parts.push('close in time');
       if (learnedHit) parts.push(`you approved "${bestName}" for it before`); else if (N >= 0.5 && !(kind && N === 0.5)) parts.push(`name ${Math.round(N * 100)}%`); if (kind && !learnedHit) parts.push('same kind of programme');
       const method = learnedHit ? 'your earlier approval' : [T >= 0.5 ? 'time slot' : T > 0.2 ? 'near in time' : '', N >= 0.5 && !(kind && N === 0.5) ? 'name' : '', kind ? 'same kind' : ''].filter(Boolean).join(' + ') || 'weak match';
-      return { e, conf, T, N, method: multi && T >= 0.5 && N < 0.5 ? 'same time slot' : method, reason: parts.join(', ') };
+      return { e, conf, T, N, clash, method: multi && T >= 0.5 && N < 0.5 ? 'same time slot' : method, reason: parts.join(', ') };
     }
     function rank(ctx, list) { return list.map((e) => scoreOne(ctx, e)).sort((a, b) => b.conf - a.conf || b.T - a.T || b.e.n - a.e.n); }
     const level = (c) => (c >= 75 ? 'High' : c >= 50 ? 'Medium' : 'Low');
+    const strict = !!o.match_strict;
+    /** The programme most of a set's spots really aired in (same channel, same date, ad time inside the airing). */
+    const exactOf = (x) => { let k = null, n = 0; x.exact.forEach((v, key) => { if (v > n) { n = v; k = key; } }); return k && x.spots ? { e: cat.byKey.get(k), n, share: n / x.spots } : null; };
+    const isSafe = (t) => !!t && (t.method === 'your earlier approval' || (t.N >= 0.9 && t.T >= 0.5));
     const slotOut = new Map();
     for (const sl of slots.values()) {
       const manual = mp['SLOT|' + sl.key], list = cat.byCh.get(sl.channel) || [], ranked = rank(sl, list), top = ranked[0];
-      let entry = null, conf = 0, method = 'none', reason = '';
+      let entry = null, conf = 0, method = 'none', reason = '', safe = false;
       if (manual === '-') method = 'ignored';
       else if (manual && cat.byKey.has(manual)) { entry = cat.byKey.get(manual); conf = 100; method = 'manual'; reason = 'you chose it'; }
-      else if (top && top.conf >= minConf) { entry = top.e; conf = Math.round(top.conf * 100); method = top.method; reason = top.reason; }
-      slotOut.set(sl.key, { entry, conf, method, reason, level: !entry ? 'None' : level(conf), manual: !!manual && manual !== '-' ? true : manual === '-',
+      else { const ex = exactOf(sl), exs = ex && ex.e ? scoreOne(sl, ex.e) : null;
+        if (ex && ex.e && ex.share >= 0.6 && !(exs.clash && exs.N < 0.6)) { entry = ex.e; conf = Math.round(ex.share * 100); method = 'same date and time'; reason = `${ex.n} of ${sl.spots} spots aired inside it on the same date`; safe = ex.share >= 0.8; }
+        else if (top && top.conf >= minConf) { entry = top.e; conf = Math.round(top.conf * 100); method = top.method; reason = top.reason; safe = isSafe(top); } }
+      if (manual && manual !== '-' && entry) safe = true;
+      slotOut.set(sl.key, { entry, conf, method, reason, safe, exact_spots: sl.exactN, dated_spots: sl.dated, level: !entry ? 'None' : level(conf), manual: !!manual && manual !== '-' ? true : manual === '-',
         suggestions: ranked.filter((x) => x.conf >= 0.25).slice(0, 5).map((x) => ({ key: x.e.key, program: x.e.program, start: x.e.start_hm, days: x.e.day_label, confidence: Math.round(x.conf * 100), reason: x.reason })) });
     }
     const out = [];
     for (const g of groups.values()) {
       const list = cat.byCh.get(g.channel) || [], manual = mp[g.key], sl = slotOut.get(g.slot);
-      let entry = null, conf = 0, method = 'none', reason = '';
+      let entry = null, conf = 0, method = 'none', reason = '', safe = false;
       if (manual === '-') method = 'ignored';
-      else if (manual && cat.byKey.has(manual)) { entry = cat.byKey.get(manual); conf = 100; method = 'manual'; reason = 'you chose it'; }
+      else if (manual && cat.byKey.has(manual)) { entry = cat.byKey.get(manual); conf = 100; method = 'manual'; reason = 'you chose it'; safe = true; }
       else if (sl.method === 'ignored') method = 'ignored';
-      else if (sl.entry) { entry = sl.entry; conf = sl.conf; method = sl.method; reason = sl.reason; }
+      else if (sl.entry) { entry = sl.entry; conf = sl.conf; method = sl.method; reason = sl.reason; safe = sl.safe; }
       else {                                       // the slot found nothing: this name on its own, by its own time and name
         const top = rank({ members: [g], votes: g.votes, spots: g.spots, startSec: [...g.starts.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0])[0] ?? -1, dayCount: g.days }, list)[0];
-        if (top && top.conf >= minConf) { entry = top.e; conf = Math.round(top.conf * 100); method = top.method; reason = top.reason; }
+        const gctx = { members: [g], votes: g.votes, spots: g.spots, startSec: [...g.starts.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0])[0] ?? -1, dayCount: g.days }, ex = exactOf(g), exs = ex && ex.e ? scoreOne(gctx, ex.e) : null;
+        if (ex && ex.e && ex.share >= 0.6 && !(exs.clash && exs.N < 0.6)) { entry = ex.e; conf = Math.round(ex.share * 100); method = 'same date and time'; reason = `${ex.n} of ${g.spots} spots aired inside it on the same date`; safe = ex.share >= 0.8; }
+        else if (top && top.conf >= minConf) { entry = top.e; conf = Math.round(top.conf * 100); method = top.method; reason = top.reason; safe = isSafe(top); }
       }
-      out.push({ key: g.key, slot: g.slot, channel: g.channel, lmrb_program: g.lmrb_program, spots: g.spots, spend: g.spend, tvr_key: entry ? entry.key : null, tvr_program: entry ? entry.program : null,
+      const counted = !!entry && (!strict || safe);                // strict: a guess is shown for your approval, it is not counted
+      out.push({ key: g.key, slot: g.slot, channel: g.channel, lmrb_program: g.lmrb_program, spots: g.spots, spend: g.spend, exact_spots: g.exactN, dated_spots: g.dated, safe, counted, waiting: !!entry && !counted, proposed_key: entry ? entry.key : null, proposed_program: entry ? entry.program : null,
+        tvr_key: counted ? entry.key : null, tvr_program: entry ? entry.program : null,
         tvr_start: entry ? entry.start_hm : null, tvr_days: entry ? entry.day_label : null, confidence: conf, method, reason, level: !entry ? 'None' : level(conf) });
     }
     const byGroup = new Map(out.map((m) => [m.slot, m]));
     const slotRows = [...slots.values()].map((sl) => { const r = slotOut.get(sl.key);
       // a slot that found nothing as a whole but whose names each found a programme: show what the names found
       let e = r.entry, conf = r.conf, method = r.method, reason = r.reason, lv = r.level;
-      if (!e && r.method !== 'ignored') { const own = out.filter((m) => m.slot === sl.key && m.tvr_key).sort((a, b) => b.spend - a.spend)[0]; if (own) { e = cat.byKey.get(own.tvr_key); conf = own.confidence; method = own.method; reason = own.reason; lv = own.level; } }
+      if (!e && r.method !== 'ignored') { const own = out.filter((m) => m.slot === sl.key && m.proposed_key).sort((a, b) => b.spend - a.spend)[0]; if (own) { e = cat.byKey.get(own.proposed_key); conf = own.confidence; method = own.method; reason = own.reason; lv = own.level; } }
       return { key: sl.key, channel: sl.channel, start: sl.start, days: sl.days, n_names: sl.members.length, spots: sl.spots, spend: sl.spend,
         names: sl.members.slice().sort((a, b) => b.spend - a.spend).slice(0, 60).map((g) => ({ name: g.lmrb_program, spots: g.spots, spend: g.spend })),
-        tvr_key: e ? e.key : null, tvr_program: e ? e.program : null, tvr_start: e ? e.start_hm : null, tvr_days: e ? e.day_label : null, confidence: conf, level: lv, method, reason, suggestions: r.suggestions, approved: r.manual === true, ignored: r.method === 'ignored' }; })
+        tvr_key: e ? e.key : null, tvr_program: e ? e.program : null, tvr_start: e ? e.start_hm : null, tvr_days: e ? e.day_label : null, confidence: conf, level: lv, method, reason, suggestions: r.suggestions, approved: r.manual === true, ignored: r.method === 'ignored', safe: !!r.safe, exact_spots: r.exact_spots || 0, dated_spots: r.dated_spots || 0,
+        waiting: out.some((m) => m.slot === sl.key && m.waiting) }; })
       .sort((a, b) => b.spend - a.spend);
     void byGroup;
     out.sort((a, b) => b.spend - a.spend); out.slots = slotRows;
@@ -291,7 +311,7 @@
         const dd = s.durs.get(dur) || { dur, spots: 0, eq30: 0, spend: 0, value: 0 }; dd.spots++; dd.eq30 += eq; dd.spend += cost; if (c30 > 0) dd.value += c30 * eq; s.durs.set(dur, dd);      // every real duration of the item (10, 5 ...), not an average
         continue;
       }
-      if (!e) { const u = unmatched.get(g ? g.key : ch) || { channel: ch, lmrb_program: g ? g.lmrb_program : '', spots: 0, spend: 0, ignored: g && g.method === 'ignored' }; u.spots++; u.spend += cost; unmatched.set(g ? g.key : ch, u); continue; }
+      if (!e) { const u = unmatched.get(g ? g.key : ch) || { channel: ch, lmrb_program: g ? g.lmrb_program : '', spots: 0, spend: 0, ignored: g && g.method === 'ignored', waiting: !!(g && g.waiting) }; u.spots++; u.spend += cost; unmatched.set(g ? g.key : ch, u); continue; }
       if (o.daypart !== 'all' && (o.daypart === 'PT') !== e.pt) continue;
       const pk = `${e.key}|${g.lmrb_program}|${dur}`;      // one row per LMRB programme and duration, so the spot count is the one in the sheet
       let p = prog.get(pk);
@@ -409,8 +429,10 @@
         saving_vs_paid_pct: paid.get(e.key) > 0 && neg30 > 0 ? (1 - neg30 / paid.get(e.key)) * 100 : null });
     });
 
-    const unm = [...unmatched.values()].filter((u) => !u.ignored), missing = rows.filter((r) => !r.rated);
+    const unm = [...unmatched.values()].filter((u) => !u.ignored && !u.waiting), missing = rows.filter((r) => !r.rated);
     const warnings = {
+      waiting_programmes: [...unmatched.values()].filter((u) => u.waiting).length, waiting_spend: [...unmatched.values()].filter((u) => u.waiting).reduce((a, u) => a + u.spend, 0), waiting_spots: [...unmatched.values()].filter((u) => u.waiting).reduce((a, u) => a + u.spots, 0), match_strict: !!o.match_strict,
+      exact_spots: groups.reduce((a, g) => a + (g.exact_spots || 0), 0), dated_spots: groups.reduce((a, g) => a + (g.dated_spots || 0), 0), matched_spots_total: groups.reduce((a, g) => a + g.spots, 0),
       unmatched_programmes: unm.length, unmatched_spend: unm.reduce((a, u) => a + u.spend, 0), unmatched_list: unm.sort((a, b) => b.spend - a.spend).slice(0, 25),
       missing_rate_programmes: missing.length, missing_rate_spend: missing.reduce((a, r) => a + r.cost, 0), missing_rate_list: missing.slice(0, 25).map((r) => ({ channel: r.channel, program: r.program, cost: r.cost })),
       zero_tvr_programmes: rows.filter((r) => r.zero_tvr).length, zero_tvr_rows: [...cat.byKey.values()].reduce((a, e) => a + e.zero, 0), low_confidence_matches: groups.filter((g) => g.level === 'Low' || g.level === 'Medium').length,
