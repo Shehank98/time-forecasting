@@ -931,3 +931,17 @@ tr.cprp-up td:first-child { box-shadow: inset 3px 0 0 var(--bad, #dc2626); }
 .g-tbl .sub { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; }
 input.gi { width: 74px; text-align: right; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: inherit; font-weight: 700; } input.gi:focus { outline: 2px solid var(--accent); } input.gi:disabled { opacity: .35; }
 .g-det { margin-top: 14px; border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; } .g-det > summary { cursor: pointer; font-weight: 700; }
+
+/* less on screen: sources in one line, small section cards, tighter spacing */
+.src-det > summary { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; cursor: pointer; list-style: none; padding: 2px 0; } .src-det > summary::-webkit-details-marker { display: none; }
+.src-det .src-t { font-family: var(--display); font-weight: 700; } .src-det .src-s { flex: 1; font-size: 13px; } .ok-t { color: var(--good, #16a34a); font-weight: 800; }
+#pt-src.card { padding: 10px 16px; } #pt-filters.card { padding: 10px 16px; }
+#pt-tabs .sec-title { margin: 14px 0 6px; } #pt-tabs .sec-title .muted { display: none; }
+#pt-tabs .section-cards, #pt-tabs .section-cards.wide { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+#pt-tabs .section-cards .tab.scard { padding: 12px 14px; gap: 6px; flex-direction: row; flex-wrap: wrap; align-items: center; border-radius: 14px; }
+#pt-tabs .scard .sc-d, #pt-tabs .scard .sc-go { display: none; } #pt-tabs .scard .sc-ic { width: 30px; height: 30px; border-radius: 9px; } #pt-tabs .scard .sc-ic svg { width: 16px; height: 16px; } #pt-tabs .scard .sc-t { font-size: 14px; }
+#pt-tabs .scard .sc-stat { flex: 1 1 100%; font-size: 12px; padding: 2px 8px; min-height: 0; }
+#pt-filters .pt-bar { gap: 8px 14px; align-items: end; flex-wrap: wrap; } #pt-filters .field { min-width: 0; } #pt-filters .field label { font-size: 11px; } #pt-filters select { padding: 6px 10px; }
+#pf-dp { flex-wrap: nowrap; white-space: nowrap; } #pf-dp button { padding: 6px 12px; } #pt-filters #pf-set { padding: 6px 14px; }
+.pt-ready { gap: 6px; } .pt-ready .rd { padding: 3px 10px 3px 6px; font-size: 12px; } .pt-ready .rd.ok .rd-v { display: none; } .pt-ready .rd-i { width: 18px; height: 18px; font-size: 11px; }
+#pt-ready .small { margin-top: 6px !important; }
