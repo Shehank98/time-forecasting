@@ -952,3 +952,9 @@ input.gi { width: 74px; text-align: right; padding: 6px 8px; border-radius: 8px;
 .bd-card:hover, .bd-card:focus-visible { transform: none; }
 .bd-card .bd-l { font-size: 13px; font-weight: 600; } .bd-card .bd-l2 { font-size: 12px; color: var(--muted); }
 .bd-card .sc-go { display: none; }
+
+/* competitor playbook: salary days and next moves */
+.mv-list { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; } .mv-list li { line-height: 1.45; }
+.mv-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.mv-card { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: grid; gap: 4px; background: var(--surface-2); }
+.mv-card .mv-h { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-family: var(--display); }

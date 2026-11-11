@@ -153,7 +153,7 @@
     <div class="fc-key-note">Every number marked FORECAST is an estimate of the next ${M ? 'months' : 'days'} based on your own history. It can be wrong.</div></details></div>`;
 
   /* ---------------- sub-views (one question per view) ---------------- */
-  const SV = { tvr: 'progrates', market: 'war' };
+  const SV = { tvr: 'progrates', market: 'moves' };
   const svNav = (kind, items) => `<div class="sv-nav" role="tablist" aria-label="Choose a view">${items.map(([id, label, q]) => `<button type="button" class="sv-btn" role="tab" data-svb="${id}" aria-pressed="${SV[kind] === id}"><b>${esc(label)}</b><small>${esc(q)}</small></button>`).join('')}</div>`;
   const svHide = (kind, id) => (SV[kind] === id ? '' : ' hidden');
   function wireSv(p, kind) {
@@ -355,6 +355,55 @@
     };
     host.addEventListener('click', (e) => { const b = e.target.closest('[data-pr]'); if (b) open(+b.dataset.pr); });
     if (rows[0]) open(rows[0].i);
+  }
+  /** Salary days and next moves: how the market and each rival spend through the month, how each runs campaigns, and what each is likely to do next. */
+  async function movesTab(p, filters, opts, pc) {
+    const host = p.querySelector('#mv-body'); if (!host) return;
+    let d;
+    try { d = await App.data.marketPlay({ filters, options: { product_group: opts.product_group, my_brand: opts.my_brand, today: MR.dayFromIso(App.anchor.todayIso()) } }); }
+    catch (e) { host.innerHTML = App.emptyState('The competitor playbook could not run', e.message); return; }
+    if (!p.isConnected || !d.ok) { if (d && !d.ok) host.innerHTML = App.emptyState('No competitor data', (d.notes || [])[0] || 'Widen the filters.'); return; }
+    const pctS = (v, dp = 0) => { if (v == null) return 'n/a'; const r = +v.toFixed(dp); return `${r > 0 ? '+' : ''}${r === 0 ? 0 : r}%`; }, mk = d.market, pay = mk.payday, wkd = mk.weekend;
+    const dayLbl = (iso) => (iso ? new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : 'n/a');
+    const tone = (v) => (v == null ? '' : v >= 10 ? 'good-t' : v <= -10 ? 'bad-t' : '');
+    const t0 = MR.dayFromIso(d.today), nextSalary = (() => { for (let k = 0; k < 40; k++) { const iso = MR.isoFromDay(t0 + k); if (+iso.slice(8) === d.window.from) return { iso, in: k }; } return null; })();
+    const lines = [
+      pay.lift_pct != null && Math.abs(pay.lift_pct) < 3 ? `No clear salary day effect: spend per day on salary days (${d.window.from}th to the ${d.window.to}rd) is within 3% of the rest of the month (${pay.months} full months measured).` : pay.lift_pct != null ? `On salary days (${d.window.from}th to the ${d.window.to}rd) the market spends <b class="${tone(pay.lift_pct)}">${pctS(pay.lift_pct)}</b> per day compared with the rest of the same month (${pay.months} full months measured). ${Math.round((pay.share || 0) * 100)}% of all spend lands in those days.` : 'Not enough full months to measure salary day behaviour yet.',
+      wkd.lift_pct != null && Math.abs(wkd.lift_pct) >= 3 ? `Weekends carry <b class="${tone(wkd.lift_pct)}">${pctS(wkd.lift_pct)}</b> spend per day against weekdays.` : '',
+      nextSalary ? `The next salary window starts <b>${dayLbl(nextSalary.iso)}</b> (in ${nextSalary.in} days). Rivals that launch on salary days will move then; book your slots before it.` : '',
+    ].filter(Boolean);
+    const rv = d.rivals.filter((r) => !r.is_me), me = d.rivals.find((r) => r.is_me);
+    const soon = rv.filter((r) => r.next).sort((a, b) => a.next.days_from_today - b.next.days_from_today);
+    const nextTxt = (r) => { const n = r.next; if (!n) return `<span class="muted">${esc(r.basis)}</span>`; const when = n.days_from_today < -3 ? 'overdue, could start any day' : n.days_from_today <= 0 ? 'any day now' : `in ${n.days_from_today} days`; return `<b>${esc(dayLbl(n.date))}</b> <span class="muted small">(${when})</span> <span class="badge ${r.confidence === 'High' ? 'good' : r.confidence === 'Medium' ? 'warn' : 'bad'}">${esc(r.confidence)}</span>`; };
+    const todo = (r) => {
+      const ch = (r.channels[0] || {}).channel, parts = [];
+      if (r.next) parts.push(`Expect a flight from <b>${esc(r.advertiser)}</b>${ch ? ` mainly on ${esc(ch)}` : ''}${r.daypart ? ` (${esc(r.daypart)})` : ''} around ${esc(dayLbl(r.next.date))}.`);
+      if (r.payday.starts_in_window != null && r.payday.starts_in_window >= 0.6) parts.push('It tends to launch on salary days.');
+      if (r.mover) parts.push(`It is moving money towards ${esc(r.mover.channel)} (${Math.round(r.mover.now * 100)}% of its spend, up from ${Math.round(r.mover.before * 100)}%).`);
+      if (r.faller) parts.push(`It is pulling back from ${esc(r.faller.channel)}.`);
+      if (r.trend_pct != null && Math.abs(r.trend_pct) >= 25) parts.push(`Its spend is ${r.trend_pct > 0 ? 'up' : 'down'} ${Math.abs(Math.round(r.trend_pct))}% on the 8 weeks before.`);
+      return parts.join(' ');
+    };
+    host.innerHTML = `<div class="card"><div class="card-head"><div><h3>What the LMRB says about the calendar</h3><div class="sub">Measured from your data (${esc(d.date_min)} to ${esc(d.date_max)}). Dates marked FORECAST are estimates from each rival's past pattern.</div></div></div>
+        <ul class="mv-list">${lines.map((l) => `<li>${l}</li>`).join('')}</ul>${(d.notes || []).map((n) => `<div class="banner info"><span>${esc(n)}</span></div>`).join('')}
+        <div class="grid g2" style="margin-top:12px"><div class="chart-wrap" style="height:230px"><canvas id="mv-band" role="img" aria-label="Spend index by part of the month"></canvas></div><div class="chart-wrap" style="height:230px"><canvas id="mv-dow" role="img" aria-label="Spend index by weekday"></canvas></div></div>
+        <div class="muted small" style="margin-top:6px">Index 1.00 is a normal day in that month. Above 1.00 means that part of the month is busier than average.</div></div>
+      <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Rivals: what each will probably do next <span class="badge warn">FORECAST</span></h3><div class="sub">From each rival's past campaign rhythm. Confidence: High needs 5 or more regular flights, Low means a rough guess.</div></div></div>
+        <div class="mv-cards">${soon.slice(0, 4).map((r) => `<div class="mv-card"><div class="mv-h"><b>${esc(r.advertiser)}</b>${r.flights.in_flight ? '<span class="badge good">running now</span>' : ''}</div><div>${nextTxt(r)}</div><div class="small muted">${todo(r)}</div></div>`).join('') || '<p class="muted small">No rival has enough past flights to time its next move.</p>'}</div>
+        <div id="mv-tbl" style="margin-top:12px"></div></div>
+      ${me ? `<div class="card" style="margin-top:16px"><h3>Your brand: ${esc(me.advertiser)}</h3><div class="small">${me.payday.lift_pct != null ? `You spend ${pctS(me.payday.lift_pct)} per day on salary days against the rest of the month. ` : ''}${me.next ? `Your own rhythm points to a next flight around <b>${esc(dayLbl(me.next.date))}</b>.` : esc(me.basis)}</div></div>` : ''}`;
+    const row = (r) => ({ advertiser: r.advertiser, share: r.share, pay: r.payday.lift_pct, trend: r.trend_pct, cycle: r.flights.cycle_days, flights: r.flights.count, ch: (r.channels || []).map((c) => `${c.channel} ${Math.round(c.share * 100)}%`).join(', '), next: r.next ? r.next.date : null, r });
+    T.create(host.querySelector('#mv-tbl'), { csv: 'competitor_playbook', pageSize: 12, search: d.rivals.length > 10, defaultSort: { key: 'share', desc: true }, rows: d.rivals.map(row),
+      columns: [{ key: 'advertiser', label: 'Advertiser', html: (v, r) => `<b>${esc(v)}</b>${r.r.is_me ? ' <span class="badge">you</span>' : ''}` },
+        { key: 'share', label: 'Share of spend', num: true, html: (v) => (v == null ? 'n/a' : fmt.pct(v * 100, 1)) },
+        { key: 'pay', label: 'Salary day lift', num: true, html: (v) => `<span class="${tone(v)}">${pctS(v)}</span>` },
+        { key: 'trend', label: 'Last 8 weeks', num: true, html: (v) => `<span class="${v == null ? '' : v >= 0 ? 'good-t' : 'bad-t'}">${pctS(v)}</span>` },
+        { key: 'cycle', label: 'Flights', num: true, html: (v, r) => (r.flights ? (v ? `${r.flights} (every ${v} d)` : `${r.flights}`) : 'none') },
+        { key: 'ch', label: 'Main channels now' },
+        { key: 'next', label: 'Next move (FORECAST)', html: (v, r) => nextTxt(r.r) }] });
+    const bar = (id, labels, vals) => C.bar({ id, labels, valueFmt: (v) => fmt.num(v, 2), legend: false, datasets: [{ label: 'Spend index', data: vals, backgroundColor: vals.map((v) => (v != null && v >= 1.1 ? C.PALETTE[0] : C.PALETTE[1])) }] });
+    bar('mv-band', mk.bands.map((b) => b.label), mk.bands.map((b) => (b.index == null ? null : +b.index.toFixed(2))));
+    bar('mv-dow', mk.dow.map((b) => b.name.slice(0, 3)), mk.dow.map((b) => (b.index == null ? null : +b.index.toFixed(2))));
   }
   function wireColdStart(p, filters, pc) {
     const host = $('#np-card', p); if (!host) return;
@@ -807,7 +856,8 @@
       </div>
       <div class="pb-head"><h2>Competitor War-Room and Next-Move Playbook</h2><span class="muted small">From the LMRB sheet alone, every medium. The TVR sheet is optional.</span></div>
       <div class="sl-grid four" id="pb-mk"></div>
-      ${svNav('market', [['war', 'War-room details', 'What will rivals do next?'], ['buys', 'Programme buys', 'Where will rivals buy?'], ['plan', 'Next month plan', 'What will rivals do?'], ['comp', 'Competitors', 'Who gains share?'], ['price', 'Price and discounts', 'Sponsorship vs commercial'], ['slots', 'Slots and clutter', 'Where to buy?']])}
+      ${svNav('market', [['moves', 'Salary days and next moves', 'When and what will rivals do?'], ['war', 'War-room details', 'What will rivals do next?'], ['buys', 'Programme buys', 'Where will rivals buy?'], ['plan', 'Next month plan', 'What will rivals do?'], ['comp', 'Competitors', 'Who gains share?'], ['price', 'Price and discounts', 'Sponsorship vs commercial'], ['slots', 'Slots and clutter', 'Where to buy?']])}
+      <section class="sv" data-sv="moves"${svHide('market', 'moves')}><div id="mv-body"><p class="muted small">Reading how rivals spend through the month and in campaigns...</p></div></section>
       <section class="sv" data-sv="war"${svHide('market', 'war')}>
         ${C.box('pm-focus', 'Where rivals outspend your focus brand', 'Forecast spend of your focus brand against the biggest rival, by channel, daypart or language.', { tall: true, ev: true,
           extra: '<div class="seg" id="pmf-seg"><button type="button" data-d="channel" aria-pressed="true">Channel</button><button type="button" data-d="daypart" aria-pressed="false">Daypart</button><button type="button" data-d="lang" aria-pressed="false">Language</button></div>',
@@ -880,6 +930,7 @@
     wireRerun(p, key, () => marketTab(p, ctx));
     wireCalendar(p, () => marketTab(p, ctx), { kind: 'lmrb', pg: pc.product_group });
     wireSv(p, 'market');
+    movesTab(p, filters, opts, pc);
     markForecast(p, { R, H, M });
     p.querySelectorAll('[data-intro]').forEach((b) => { b.onclick = () => App.loadIntro().then(() => App.intro.open(true)); });
     $('#mk-group', p).onchange = (e) => { App.store.set('mk-group:' + App.clientId(), e.target.value); marketTab(p, ctx); };

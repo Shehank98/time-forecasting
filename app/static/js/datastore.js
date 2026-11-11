@@ -89,6 +89,7 @@
     shortFormRow: (b) => open().then(() => call('shortFormRow', b)),
     negotiation: (b) => open().then(() => call('negotiation', b)),
     predictStealth: (b) => open().then(() => call('predictStealth', b)),
+    marketPlay: (b) => open().then(() => call('marketPlay', b)),
     coldStart: (b) => open().then(() => call('coldStart', b)),
     async kpiPropose(file, onProgress) { await open(); persist(); return call('kpiPropose', { file }, onProgress); },
     async kpiApply(b, onProgress) { await open(); return after(call('kpiApply', b, onProgress)); },

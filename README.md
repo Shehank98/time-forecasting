@@ -624,3 +624,10 @@ Two evaluations are built the same way, one card per TVR channel; pick which wit
 
 
 - Build evaluation and Comparison now follow the same "less on screen" layout: four summary tiles, one-line channel cards, and the by channel table, scenarios and method notes folded into collapsible blocks.
+
+## Forecast from today, programme ratings and competitor playbook
+
+- **Forecast from today.** The forecast engine starts the day after your last data row. When your data is older than today, the app now asks for the extra days, cuts the part that is already in the past and starts every total, chart and table from today. A banner says how old the data is. If the data is more than 190 days old, nothing is cut and a warning says so.
+- **Programme ratings.** The TVR forecast tab opens on "Programme ratings": one row per programme, followed by its name and channel (not its slot), so a show that changes day or time keeps its history. Each row shows the last 4 weeks, the forecast, the change, the low to high range and reliability. A note flags shows that moved slot or are new (under 6 weeks).
+- **Forecast Studio** defaults to dayparts for TV. Emerging and declining lists hide Low reliability series (they stay in the table).
+- **Salary days and next moves** (Market forecast tab, first section). From the LMRB: spend index by part of the month (salary window 25th to 3rd) and by weekday, each rival's salary day lift, campaign (flight) rhythm, channel moves, and an estimated next move with a confidence label. Engine: `app/static/js/engine/marketplay.js`; tests: `tests/test_marketplay.py`.
