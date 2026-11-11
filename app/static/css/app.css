@@ -945,3 +945,10 @@ input.gi { width: 74px; text-align: right; padding: 6px 8px; border-radius: 8px;
 #pf-dp { flex-wrap: nowrap; white-space: nowrap; } #pf-dp button { padding: 6px 12px; } #pt-filters #pf-set { padding: 6px 14px; }
 .pt-ready { gap: 6px; } .pt-ready .rd { padding: 3px 10px 3px 6px; font-size: 12px; } .pt-ready .rd.ok .rd-v { display: none; } .pt-ready .rd-i { width: 18px; height: 18px; font-size: 11px; }
 #pt-ready .small { margin-top: 6px !important; }
+
+/* build evaluation: small channel cards with one summary line */
+.bd-cards { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 12px !important; }
+.bd-card { padding: 10px 12px; gap: 4px; border-radius: 12px; box-shadow: none; position: relative; }
+.bd-card:hover, .bd-card:focus-visible { transform: none; }
+.bd-card .bd-l { font-size: 13px; font-weight: 600; } .bd-card .bd-l2 { font-size: 12px; color: var(--muted); }
+.bd-card .sc-go { display: none; }
