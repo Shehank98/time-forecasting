@@ -188,3 +188,43 @@ def test_itn_rate_card_is_bundled_and_imports(admin):
     itn = [e for e in admin.get("/api/ratecards/current").json()["entries"] if e["channel"] == "ITN"]
     assert len(itn) == 31 and sum(e["rack30"] for e in itn) == sum(x["rack30"] for x in ch["rows"])
     assert admin.post("/api/ratecards/import-builtin", params={"name": "nope"}).status_code == 422
+
+
+def test_contract_rate_next_to_the_rack_rate():
+    """Derana style card: the (non contract) rack rate values the spot, the contract rate x 27% is the negotiated rate. Both are kept; the discount is stored off the rack rate."""
+    wb = openpyxl.Workbook()
+    d = wb.active
+    d.title = "TV Derana"
+    d.append(["TV Derana - Rate Card   |   Effective: 2026.11.01", None, None, None, None, None, None, None, "Negosiated Rate"])
+    d.append(["Prime / Non Prime", "Programme", "Rating", "Day/s", "Start", "End", "Rack Rate 30 Sec", "Contract Rate 30 Sec", "Negotiated"])
+    d.append(["NPT", "Iskole", 11.5, "Mon-Fri", t(19, 30), t(20), 1200000, 1000000, "=H3*27%"])
+    d.append(["NPT", "Plain row", 1.0, "Mon-Fri", t(10), t(10, 30), 152000, None, "=G4*27%"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    row = {r["programme"]: r for r in ratecard.parse_workbook(buf.getvalue())["channels"][0]["rows"]}
+    i = row["Iskole"]
+    assert i["rack30"] == 1200000 and i["contract30"] == 1000000 and i["neg_mode"] == "discount"
+    assert i["neg_rate"] == pytest.approx(270000) and i["neg_value"] == pytest.approx((1 - 270000 / 1200000) * 100)      # 270,000 is 77.5% off the rack rate
+    p = row["Plain row"]
+    assert p["contract30"] is None and p["neg_rate"] == pytest.approx(152000 * 0.27)
+
+
+def test_database_gets_the_new_column_without_losing_rates(tmp_path, monkeypatch):
+    """A database created before the contract column existed is upgraded in place on start."""
+    import sqlalchemy as sa
+    from app.services import db
+    url = f"sqlite:///{tmp_path / 'old.db'}"
+    eng = sa.create_engine(url)
+    with eng.begin() as c:
+        c.execute(sa.text("CREATE TABLE rate_cards (id INTEGER PRIMARY KEY, channel VARCHAR(100) NOT NULL, effective_from VARCHAR(10) NOT NULL, programme VARCHAR(300) NOT NULL, band VARCHAR(40) NOT NULL DEFAULT '', days VARCHAR(60) NOT NULL DEFAULT '', day_mask VARCHAR(7) NOT NULL DEFAULT '1111111', start_sec INTEGER, end_sec INTEGER, rating FLOAT, rack30 FLOAT NOT NULL, rack10 FLOAT, neg_mode VARCHAR(12), neg_value FLOAT, neg_rate FLOAT, source VARCHAR(300) NOT NULL DEFAULT '', created_by INTEGER, created_at DATETIME)"))
+        c.execute(sa.text("INSERT INTO rate_cards (channel, effective_from, programme, rack30) VALUES ('DERANA', '2026-01-01', 'Old row', 500000)"))
+    monkeypatch.setenv("DATABASE_URL", url)
+    db.reset_engine()
+    try:
+        e = db.engine()
+        cols = {c["name"] for c in sa.inspect(e).get_columns("rate_cards")}
+        assert "contract30" in cols
+        with e.connect() as c:
+            assert c.execute(sa.text("SELECT rack30, contract30 FROM rate_cards")).one() == (500000, None)
+    finally:
+        db.reset_engine()

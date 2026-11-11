@@ -145,8 +145,9 @@ def parse_workbook(content: bytes, default_effective: str | None = None) -> dict
         i_prog, i_rate = _find(headers, "programme"), _find(headers, "rating")
         i_day, i_start, i_end = _find(headers, "day"), _find(headers, "start"), _find(headers, "end")
         i30, i10 = _find(headers, "rack", "30"), _find(headers, "rack", "10")
+        i_con = next((i for i, h in enumerate(headers) if "contract" in h and "30" in h and "rack" not in h and "non" not in h), None)      # "Contract Rate 30 Sec": the rate the negotiated discount is taken from
         i_neg = next((i for i, t in enumerate(title_row) if "negos" in t or "negot" in t), None)
-        if i_prog is None or (i30 is None and i10 is None):
+        if i_prog is None or (i30 is None and i10 is None and i_con is None):
             warnings.append(f"Tab \"{ws.title}\": no programme or rack rate column was found, so it was skipped.")
             continue
         channel, matched = normalise_channel(ws.title)
@@ -160,6 +161,9 @@ def parse_workbook(content: bytes, default_effective: str | None = None) -> dict
             rack30, rack10 = _num(ws.cell(r, i30 + 1).value) if i30 is not None else None, _num(ws.cell(r, i10 + 1).value) if i10 is not None else None
             if rack30 is None and rack10:
                 rack30 = rack10 * 3
+            contract30 = _num(ws.cell(r, i_con + 1).value) if i_con is not None else None
+            if not rack30 and contract30:
+                rack30 = contract30                                   # a card with only a contract rate: it is also the rack rate
             if not prog or not str(prog).strip() or not rack30 or rack30 <= 0:
                 continue
             label, mask = parse_days(ws.cell(r, i_day + 1).value if i_day is not None else "")
@@ -170,9 +174,9 @@ def parse_workbook(content: bytes, default_effective: str | None = None) -> dict
                 m = re.fullmatch(r"=\s*\$?([A-Z]+)\$?\d+\s*\*\s*(\d*\.?\d+)\s*(%?)", str(formula or "").strip())
                 if m:                                            # a formula: read the factor from it (cached results may be missing)
                     f = float(m.group(2)) / (100 if m.group(3) else 1)
-                    ref_ok = m.group(1) in {_col(i30) if i30 is not None else "", _col(i10) if i10 is not None else ""}
+                    ref_ok = m.group(1) in {_col(i30) if i30 is not None else "", _col(i10) if i10 is not None else "", _col(i_con) if i_con is not None else ""}
                     if ref_ok and 0 < f <= 1:
-                        base = rack30 if m.group(1) == (_col(i30) if i30 is not None else "") else (rack10 or rack30)
+                        base = rack30 if m.group(1) == (_col(i30) if i30 is not None else "") else (contract30 if m.group(1) == (_col(i_con) if i_con is not None else "") and contract30 else (rack10 or rack30))
                         neg_mode, neg_value, neg_rate = "discount", round((1 - f * base / rack30) * 100, 4), f * base
                         n_disc += 1
                 if neg_mode is None and neg_rate and neg_rate > 0:
@@ -181,7 +185,7 @@ def parse_workbook(content: bytes, default_effective: str | None = None) -> dict
             band = str(ws.cell(r, 1).value or "").strip()
             rows.append({"channel": channel, "effective_from": effective, "programme": re.sub(r"\s+", " ", str(prog)).strip(), "band": band, "days": label, "day_mask": mask,
                          "start_sec": parse_time(ws.cell(r, i_start + 1).value) if i_start is not None else None, "end_sec": parse_time(ws.cell(r, i_end + 1).value) if i_end is not None else None,
-                         "rating": _num(ws.cell(r, i_rate + 1).value) if i_rate is not None else None, "rack30": rack30, "rack10": rack10, "neg_mode": neg_mode, "neg_value": neg_value,
+                         "rating": _num(ws.cell(r, i_rate + 1).value) if i_rate is not None else None, "rack30": rack30, "rack10": rack10, "contract30": contract30, "neg_mode": neg_mode, "neg_value": neg_value,
                          "neg_rate": neg_rate if neg_mode else None})
         if not rows:
             warnings.append(f"Tab \"{ws.title}\": no programme rows with a rack rate.")
@@ -231,7 +235,7 @@ def current(as_of: str | None = None) -> dict:
         for ch, eff in latest.items():
             for r in c.execute(select(t).where(t.c.channel == ch, t.c.effective_from == eff).order_by(t.c.start_sec, t.c.programme)).mappings():
                 entries.append({"channel": ch, "effective_from": eff, "programme": r["programme"], "band": r["band"], "days": r["days"], "mask": r["day_mask"], "start": r["start_sec"], "end": r["end_sec"],
-                                "rating": r["rating"], "rack30": r["rack30"], "rack10": r["rack10"], "neg_mode": r["neg_mode"], "neg_value": r["neg_value"], "neg_rate": r["neg_rate"]})
+                                "rating": r["rating"], "rack30": r["rack30"], "rack10": r["rack10"], "contract30": r["contract30"], "neg_mode": r["neg_mode"], "neg_value": r["neg_value"], "neg_rate": r["neg_rate"]})
     return {"channels": [{"channel": ch, "effective_from": eff, "rows": sum(1 for e in entries if e["channel"] == ch)} for ch, eff in sorted(latest.items())], "entries": entries}
 
 

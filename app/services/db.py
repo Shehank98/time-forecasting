@@ -129,6 +129,7 @@ rate_cards = Table(
     Column("rating", Float),
     Column("rack30", Float, nullable=False),                  # rack rate for 30 seconds
     Column("rack10", Float),
+    Column("contract30", Float),                              # the contract rate for 30 seconds, when the card has one next to the (non contract) rack rate
     Column("neg_mode", String(12)),                           # discount | special | NULL
     Column("neg_value", Float),                               # discount % off rack, or the special 30 sec rate
     Column("neg_rate", Float),                                # the negotiated 30 sec rate as the sheet works it out
@@ -175,8 +176,24 @@ def engine() -> Engine:
                 def _fk(dbapi_conn, _):  # SQLite needs foreign keys switched on for ON DELETE CASCADE
                     cur = dbapi_conn.cursor(); cur.execute("PRAGMA foreign_keys=ON"); cur.close()
             metadata.create_all(_engine)
+            _add_missing_columns(_engine)
             log.info("Database ready (%s)", url.split("@")[-1] if "@" in url else url)
         return _engine
+
+
+def _add_missing_columns(eng: Engine) -> None:
+    """create_all never changes a table that already exists: add the columns a newer version of the app needs (nullable, so old rows stay valid)."""
+    from sqlalchemy import inspect, text
+    insp = inspect(eng)
+    for table in metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name not in have and col.nullable and not col.primary_key:
+                with eng.begin() as c:
+                    c.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(dialect=eng.dialect)}'))
+                log.info("Database: added column %s.%s", table.name, col.name)
 
 
 def reset_engine() -> None:

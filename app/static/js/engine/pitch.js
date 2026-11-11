@@ -425,7 +425,7 @@
       if (!(chWanted.size ? chWanted.has(e.channel) : inTvr.has(e.channel))) return;
       const card30 = rr.card(e), neg30 = rr.neg(e), rule = rr.rule(e);
       ratesRows.push({ key: e.key, channel: e.channel, program: e.program, start: e.start_hm, days: e.day_label, daypart: e.pt ? 'Prime' : 'Non prime', tvr: e.tvr, in_buy: paid.has(e.key), paid30: paid.get(e.key) ?? null,
-        card30, neg30, card_src: rr.source(e), card_prog: rr.row(e) ? rr.row(e).programme : null, card_eff: rr.row(e) ? rr.row(e).effective_from : null, rule_mode: rule ? rule.mode : 'none', rule_value: rule ? rule.value : null, saving_pct: card30 > 0 && neg30 > 0 ? (1 - neg30 / card30) * 100 : null,
+        card30, neg30, card_src: rr.source(e), card_prog: rr.row(e) ? rr.row(e).programme : null, card_eff: rr.row(e) ? rr.row(e).effective_from : null, contract30: rr.row(e) ? rr.row(e).contract30 : null, rule_mode: rule ? rule.mode : 'none', rule_value: rule ? rule.value : null, saving_pct: card30 > 0 && neg30 > 0 ? (1 - neg30 / card30) * 100 : null,
         saving_vs_paid_pct: paid.get(e.key) > 0 && neg30 > 0 ? (1 - neg30 / paid.get(e.key)) * 100 : null });
     });
 
