@@ -400,7 +400,7 @@
         <button class="btn" id="b-newds" type="button">New dataset</button><button class="btn" id="b-meta" type="button">Edit metrics</button><button class="btn" id="b-append" type="button">Append file</button><button class="btn" id="b-change" type="button">Replace file</button>
         <button class="btn ghost danger" id="b-delds" type="button">Remove dataset</button>` : '';
       const INFO = SECTION_INFO;
-      const tabBtn = (t) => { const i = INFO[t.id] || {}; return `<button class="tab scard ${t.predict ? 'predict' : ''}" type="button" id="tab-${t.id}" aria-haspopup="dialog" aria-controls="sheet" aria-selected="false" data-tab="${t.id}">
+      const tabBtn = (t) => { const i = INFO[t.id] || {}; return `<button class="tab scard ${t.predict ? 'predict' : ''}" type="button" id="tab-${t.id}" title="${esc(i.text || '')}" aria-haspopup="dialog" aria-controls="sheet" aria-selected="false" data-tab="${t.id}">
         <span class="sc-ic"><svg viewBox="0 0 24 24" aria-hidden="true">${i.icon || SECTION_ICON}</svg></span><span class="sc-t">${esc(t.label)}${t.predict ? '<span class="pulse" aria-hidden="true"></span>' : ''}</span>
         <span class="sc-d">${esc(i.text || '')}</span><span class="sc-go" aria-hidden="true">Open &rarr;</span></button>`; };
       const pTabs = predictMode ? (cfg.predict || []) : [];

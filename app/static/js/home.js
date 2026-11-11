@@ -49,10 +49,9 @@
     root.innerHTML = `<section class="hero"><h1>Which prediction do you need <span class="grad-text">today</span>?</h1></section>
       <div class="home-cards ${CARDS.length > 2 ? 'three' : 'two'}" id="cards">${CARDS.map((k, i) => `<a class="home-card ${k.cls}" href="${k.href}" data-i="${i}"><span class="tag">${k.tag}</span><div class="ic"><svg viewBox="0 0 24 24">${k.icon}</svg></div>
         <h2>${k.title}</h2><p>${k.text}</p>${wave(i + 1)}<div class="small" data-st="${k.kind}">${status(k.kind, null)}</div><span class="go">Open prediction <span aria-hidden="true">&rarr;</span></span></a>`).join('')}</div>
-      <div class="grid g2" style="margin-top:24px">
-        <div class="card"><div class="card-head"><div><h3>Saved forecasts</h3><div class="sub">Forecasts, scenario plans and pacing checks saved for ${esc(c.name)}</div></div></div><div id="h-fc">${App.skeleton(1)}</div></div>
-        <div class="card"><div class="card-head"><div><h3>Client reports</h3><div class="sub">Every PDF, PowerPoint and Excel report generated for ${esc(c.name)}</div></div></div><div id="h-rep">${App.skeleton(1)}</div></div></div>
-      <div class="card" style="margin-top:16px" id="h-data"></div>`;
+      <details class="g-det home-det"><summary>Saved forecasts <span class="muted small">forecasts, scenario plans and pacing checks saved for ${esc(c.name)}</span></summary><div id="h-fc" style="margin-top:10px">${App.skeleton(1)}</div></details>
+      <details class="g-det home-det"><summary>Client reports <span class="muted small">every PDF, PowerPoint and Excel report generated for ${esc(c.name)}</span></summary><div id="h-rep" style="margin-top:10px">${App.skeleton(1)}</div></details>
+      <details class="g-det home-det"><summary>Data in this browser <span class="muted small">what is stored for ${esc(c.name)}</span></summary><div id="h-data" style="margin-top:10px"></div></details>`;
     // right after sign-in: play the intro film unless the planner chose not to see it again
     try { if (sessionStorage.getItem('intro:pending') === '1') { sessionStorage.removeItem('intro:pending'); App.loadIntro().then(() => App.intro.open(false)); } } catch (e) { /* ignore */ }
     root.querySelectorAll('.home-card').forEach((a) => { a.onclick = (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); launch(CARDS[+a.dataset.i]); }; });

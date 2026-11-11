@@ -339,7 +339,7 @@
     T.create(host, { csv: 'programme_rating_forecast', pageSize: 12, defaultSort: { key: 'next', desc: true }, rows,
       columns: [{ key: 'name', label: 'Programme', html: (v, r) => `<b>${esc(v)}</b><div class="muted small">${esc(r.channel)}${r.slot ? ' · ' + esc(r.slot) : ''}</div>` },
         { key: 'now', label: M ? 'Last 3 months' : 'Last 4 weeks', num: true, fmt: (v) => f2(v) },
-        { key: 'next', label: `Next ${M ? 'months' : H + ' days'} (FORECAST)`, num: true, fmt: (v) => `<b>${f2(v)}</b>`, html: (v) => `<b>${f2(v)}</b>` },
+        { key: 'next', label: `Next ${M ? Math.round(H / 30) + ' months' : H + ' days'} (FORECAST)`, num: true, fmt: (v) => `<b>${f2(v)}</b>`, html: (v) => `<b>${f2(v)}</b>` },
         { key: 'chg', label: 'Change', num: true, html: (v) => (v == null ? 'n/a' : `<span class="${v >= 0 ? 'good-t' : 'bad-t'}">${v >= 0 ? '+' : ''}${v.toFixed(1)}%</span>`) },
         { key: 'lo', label: 'Range (low to high)', num: true, html: (v, r) => `${f2(v)} to ${f2(r.hi)}` },
         { key: 'rel', label: 'Reliability', html: (v) => `<span class="badge ${relCls[v] || ''}">${esc(v || 'n/a')}</span>` },
