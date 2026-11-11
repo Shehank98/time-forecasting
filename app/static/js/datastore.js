@@ -96,6 +96,30 @@
   };
 
   /** Run a the forecast engine job on compact series and wait for it. onProgress(p, message). */
+  /* Forecast from today: the engine starts the day after the last data row, so when the data is old the first part of the forecast is already in the past.
+     We ask for that extra stretch, cut it off (kept as r.gap) and every number then starts from today. */
+  App.anchor = (() => {
+    const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    const dayDiff = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+    const MAXGAP = 190;
+    function gapOf(items) { const t = todayIso(); let g = 0; for (const it of items) { const last = it.dates && it.dates[it.dates.length - 1]; if (last) g = Math.max(g, dayDiff(last, t)); } return Math.max(0, Math.min(MAXGAP, g)); }
+    function anchorToToday(results, gran) {
+      const t = todayIso(), span = gran === 'weekly' ? 6 : 0;
+      for (const r of results) {
+        const f = r.forecast, last = r.history.dates[r.history.dates.length - 1];
+        let k = 0;
+        if (gran === 'monthly') { while (k < f.dates.length - 1 && f.dates[k].slice(0, 7) < t.slice(0, 7)) k++; }
+        else { while (k < f.dates.length - 1 && dayDiff(f.dates[k], t) > span) k++; }
+        const gd = Math.max(0, dayDiff(last, t)), stale = gd > MAXGAP;
+        r.anchor = { today: t, last_data: last, gap_days: gd, cut: stale ? 0 : k, stale };
+        if (k > 0 && !stale) { r.gap = { dates: f.dates.slice(0, k), p10: f.p10.slice(0, k), p50: f.p50.slice(0, k), p90: f.p90.slice(0, k) }; for (const key of ['dates', 'p10', 'p50', 'p90']) f[key] = f[key].slice(k); }
+      }
+      return results;
+    }
+    /** Extra days to request so the forecast still covers the whole horizon after cutting the past. */
+    const extra = (items, gran) => (gran === 'daily' ? gapOf(items) : gran === 'weekly' ? Math.ceil(gapOf(items) / 7) * 7 : Math.min(40, Math.ceil(gapOf(items) / 30) * 30));
+    return { todayIso, dayDiff, gapOf, anchorToToday, extra };
+  })();
   App.runJob = async function (url, body, onProgress) {
     const { job_id: jid } = await App.api.post(url, body);
     for (;;) {

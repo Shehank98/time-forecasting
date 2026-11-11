@@ -244,15 +244,16 @@
   function forecastResults(root, res, ctx, params, savedNote) {
     banner(res.model);
     const rs = res.results, et = res.params.entity_type;
-    const rising = rs.filter((r) => r.outlook.trend === 'rising').sort((a, b) => b.outlook.trend_change_pct - a.outlook.trend_change_pct);
-    const falling = rs.filter((r) => r.outlook.trend === 'falling').sort((a, b) => a.outlook.trend_change_pct - b.outlook.trend_change_pct);
+    const solid = (r) => r.reliability.level !== 'Low', rising = rs.filter((r) => r.outlook.trend === 'rising' && (rs.length < 6 || solid(r))).sort((a, b) => b.outlook.trend_change_pct - a.outlook.trend_change_pct);
+    const falling = rs.filter((r) => r.outlook.trend === 'falling' && (rs.length < 6 || solid(r))).sort((a, b) => a.outlook.trend_change_pct - b.outlook.trend_change_pct);
     const nm = { timebelt: 'time-belts', channel: 'channels', category: 'categories', daypart: 'dayparts', advertiser: 'competitors', segment: 'segments', product_group: 'product groups', program: 'programmes' }[et] || 'entities';
     const li = (r) => `<li><b>${esc(r.entity)}</b> ${fmt.delta(r.outlook.trend_change_pct)} <span class="badge ${relCls[r.reliability.level]}">${r.reliability.level}</span></li>`;
     const breaches = rs.reduce((a, r) => a + (r.band_breaches || []).length, 0);
     root.innerHTML = `${savedNote ? `<div class="banner info"><span>${esc(savedNote)}</span></div>` : ''}${(res.notes || []).map((n) => `<div class="banner info"><span>${esc(n)}</span></div>`).join('')}
+      ${(() => { const a = (rs[0] || {}).anchor; return a && a.stale ? `<div class="banner warn"><span>Your data is ${a.gap_days} days old (last row ${esc(a.last_data)}), too old to forecast from today. The forecast covers the period right after your last row. Upload newer data.</span></div>` : a && a.gap_days > 1 ? `<div class="banner info"><span>Your data ends <b>${esc(a.last_data)}</b>, ${a.gap_days} days ago. Every forecast below starts from <b>today (${esc(a.today)})</b>; the ${a.gap_days} days in between were estimated, not recorded. Upload newer data for a sharper forecast.</span></div>` : ''; })()}
       ${res.covariate_note ? `<div class="banner info"><span>${esc(res.covariate_note)}</span></div>` : ''}
       ${res.covariates_used && res.covariates_used.length ? `<div class="banner info"><span>Calendar covariates used: ${esc(res.covariates_used.join(', '))}.</span></div>` : ''}
-      ${rs.length > 1 ? `<div class="grid g2" style="margin-bottom:16px"><div class="card"><h3>Emerging ${nm}</h3><ul class="small" style="margin:8px 0 0;padding-left:18px">${rising.slice(0, 6).map(li).join('') || '<li class="muted">None rising more than 10%.</li>'}</ul></div>
+      ${rs.length > 1 ? `<div class="grid g2" style="margin-bottom:16px"><div class="card"><h3>Emerging ${nm}</h3><ul class="small" style="margin:8px 0 0;padding-left:18px">${rising.slice(0, 6).map(li).join('') || '<li class="muted">None rising more than 10% with a reliable forecast.</li>'}</ul>${rs.length >= 6 && rs.some((r) => !solid(r) && r.outlook.trend !== 'stable') ? `<div class="muted small" style="margin-top:6px">${rs.filter((r) => !solid(r) && r.outlook.trend !== 'stable').length} weak signals hidden (low reliability). They stay in the table below.</div>` : ''}</div>
         <div class="card"><h3>Declining ${nm}</h3><ul class="small" style="margin:8px 0 0;padding-left:18px">${falling.slice(0, 6).map(li).join('') || '<li class="muted">None falling more than 10%.</li>'}</ul></div></div>` : ''}
       <div class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>Outlook summary</h3><div class="sub">${rs.length} ${nm} forecast in one batched call${breaches ? `, ${breaches} monitoring alert${breaches === 1 ? '' : 's'}` : ''}${res.cached ? ', served from cache' : ''}.</div></div>
         <div class="row"><button class="btn sm" id="fc-save" type="button">Save to client</button></div></div><div id="fc-sum"></div></div>
@@ -373,7 +374,7 @@
     }
 
     function forecastForm() {
-      const st = { metric: metrics[s0.metric] ? s0.metric : Object.keys(metrics)[0], et: ents.includes(s0.entity_type) ? s0.entity_type : (kind === 'tv' ? 'timebelt' : ents[0]), gran: s0.granularity || defGran };
+      const st = { metric: metrics[s0.metric] ? s0.metric : Object.keys(metrics)[0], et: ents.includes(s0.entity_type) ? s0.entity_type : (kind === 'tv' ? (ents.includes('daypart') ? 'daypart' : 'timebelt') : ents[0]), gran: s0.granularity || defGran };
       form.innerHTML = `<div class="filter-grid">
         <div class="field"><label for="f-metric">Target metric</label><select id="f-metric">${opt(metrics, st.metric)}</select></div>
         <div class="field"><label for="f-ent">Forecast by</label><select id="f-ent">${entOpts(st.et)}</select></div>
@@ -401,7 +402,9 @@
           if (!s.series.length) { console.warn('[forecast] no series could be built:', s.notes); console.groupEnd(); return { ok: false, message: s.notes[0] || 'No series could be built.' }; }
           App.loader.progress(null, `Forecasting ${s.series.length} series`);
           const t0 = performance.now();
-          const res = await App.runJob('/api/forecast/run', { kind, series: s.series, params: { ...params, granularity: s.granularity } }, onJob);
+          const extra = App.anchor.extra(s.series, s.granularity);
+          const res = await App.runJob('/api/forecast/run', { kind, series: s.series, params: { ...params, granularity: s.granularity, horizon_days: params.horizon_days + extra } }, onJob);
+          if (res.ok) App.anchor.anchorToToday(res.results, s.granularity);
           console.info(`[forecast] studio: server answered in ${((performance.now() - t0) / 1000).toFixed(1)}s ok=${res.ok}`);
           if (res.ok && App.traceForecast) App.traceForecast(res, res.results); else if (!res.ok) console.warn('[forecast] the server could not run the forecast:', res.message, res.notes);
           console.groupEnd();

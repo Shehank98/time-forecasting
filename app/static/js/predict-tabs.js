@@ -3,7 +3,7 @@
  * in one batch on the server; the horizon control only slices the outlook, so changing it is instant.
  */
 (function (App) {
-  const { esc, fmt, charts: C, $ } = App;
+  const { esc, fmt, charts: C, tables: T, $ } = App;
   const MR = window.MR;
   const HMAX = 60;
   const cache = new Map();
@@ -80,8 +80,10 @@
     trace(`server finished ${gran} batch in ${((performance.now() - t0) / 1000).toFixed(1)}s: ok=${out && out.ok}${out && out.cached ? ' (cached)' : ''}`);
     return out;
   }
+  const anchorToToday = (r, g) => App.anchor.anchorToToday(r, g);
   async function forecastBatchRaw(kind, items, gran, onProgress) {
-    return App.runJob('/api/forecast/run', { kind, series: items, params: { granularity: gran, horizon_days: gran === 'weekly' ? HMAX + 6 : gran === 'monthly' ? 360 : HMAX, covariates: true, entity_type: 'prediction', metric: 'prediction',
+    const gap = App.anchor.extra(items, gran);
+    return App.runJob('/api/forecast/run', { kind, series: items, params: { granularity: gran, horizon_days: (gran === 'weekly' ? HMAX + 6 : gran === 'monthly' ? 360 : HMAX) + gap, covariates: true, entity_type: 'prediction', metric: 'prediction',
       holdout: gran === 'monthly' ? 3 : gran === 'weekly' ? 4 : 30, major_events: MAJOR } }, onProgress);
   }
   /** What came back: engine, calendar covariates, stored history, and one row per series with the method that won and its accuracy. */
@@ -113,7 +115,7 @@
       onProgress(0.08, `Analysing ${n} series`);
       const [d, w] = await Promise.all([forecastBatch(kind, payload.daily, payload.gran || 'daily', (p2, m) => onProgress(0.08 + 0.9 * p2, m)), forecastBatch(kind, payload.weekly, 'weekly', () => {})]);
       for (const r of [d, w]) if (r && !r.ok) { traceWarn('the server could not run the forecast:', r.message, r.notes); console.groupEnd(); throw new Error(r.message || 'The forecast could not run.'); }
-      const results = [].concat(d ? d.results : [], w ? w.results : []);
+      const results = [].concat(d ? anchorToToday(d.results, payload.gran || 'daily') : [], w ? anchorToToday(w.results, 'weekly') : []);
       traceResults(d || w, results);
       trace(`step 5: ready in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
       console.groupEnd();
@@ -151,7 +153,7 @@
     <div class="fc-key-note">Every number marked FORECAST is an estimate of the next ${M ? 'months' : 'days'} based on your own history. It can be wrong.</div></details></div>`;
 
   /* ---------------- sub-views (one question per view) ---------------- */
-  const SV = { tvr: 'playbook', market: 'war' };
+  const SV = { tvr: 'progrates', market: 'war' };
   const svNav = (kind, items) => `<div class="sv-nav" role="tablist" aria-label="Choose a view">${items.map(([id, label, q]) => `<button type="button" class="sv-btn" role="tab" data-svb="${id}" aria-pressed="${SV[kind] === id}"><b>${esc(label)}</b><small>${esc(q)}</small></button>`).join('')}</div>`;
   const svHide = (kind, id) => (SV[kind] === id ? '' : ' hidden');
   function wireSv(p, kind) {
@@ -188,6 +190,13 @@
   }
   /* ---- Trust meter: accuracy on days the engine had not seen (100 minus sMAPE) ---- */
   const trustOf = (r) => { const b = r && r.backtest; if (!b || !b.model) return null; if (b.accuracy_planning != null) return b.accuracy_planning; if (b.accuracy != null) return b.accuracy; return b.model.smape != null ? Math.max(0, Math.min(100, 100 - b.model.smape)) : null; };
+  const fromLabel = (results, pc) => { const a = (results.find((r) => r.anchor) || {}).anchor; return a && a.stale ? pc.date_max : `today (${App.anchor.todayIso()})`; };
+  /** Said once at the top when the data is older than today: what was estimated and what to do. */
+  function gapBanner(results) {
+    const a = (results.find((r) => r.anchor && r.anchor.gap_days > 1) || {}).anchor; if (!a) return '';
+    if (a.stale) return `<div class="banner warn"><span><b>Your data is ${a.gap_days} days old</b> (last row ${esc(a.last_data)}). That is too old to forecast from today, so the forecast covers the period right after your last row. Upload newer data to get a forecast from today.</span></div>`;
+    return `<div class="banner info"><span><b>Forecast starts from today.</b> Your data ends ${esc(a.last_data)}, ${a.gap_days} days ago. The days in between are estimated (not recorded) and left out of every total below. Upload newer data for a sharper forecast.</span></div>`;
+  }
   const trustLvl = (t) => (t == null ? ['n/a', 'warn'] : t >= 90 ? ['High', 'good'] : t >= 75 ? ['Medium', 'warn'] : ['Low', 'bad']);
   const trustTip = (r) => { const b = r && r.backtest; return b ? `Tested on ${b.folds || 1} past window${(b.folds || 1) === 1 ? '' : 's'} of ${b.holdout} ${r.granularity === 'monthly' ? 'months' : r.granularity === 'weekly' ? 'weeks' : 'days'} that the engine had not seen. Trust is measured on ${b.planning_grain || 'each period'}${b.planning_grain === 'weekly totals' && b.accuracy != null ? ` (day by day it is ${b.accuracy.toFixed(0)}%)` : ''}: 100 minus the average percentage error (${b.accuracy_basis === 'WAPE' ? 'WAPE, used because some days are near zero' : 'sMAPE'})${b.model && b.model.mase != null ? `. MASE ${b.model.mase.toFixed(2)} (below 1 beats repeating last week)` : ''}${b.engine ? `. Method: ${b.engine.label}` : ''}.` : 'Not enough history for an accuracy test.'; };
   function trustBadge(results) {
@@ -317,6 +326,36 @@
 
 
   /* ---------------- New Programme Estimator ---------------- */
+  /** One row per programme (followed by name): expected rating, change, range, how sure we are, and a move of slot. Click a row's Chart button for its history and forecast. */
+  function progRatings(p, R, pc, H, M, NOW) {
+    const host = p.querySelector('#pr-tbl'); if (!host) return;
+    const list = R.filter((r) => r.group === 'progname_tvr'), slots = pc.prog_slots || {};
+    if (!list.length) { host.innerHTML = '<p class="muted small">Not enough weekly history per programme to forecast. Load more weeks of TVR data.</p>'; return; }
+    const rows = list.map((r, i) => {
+      const f = slice(r, H), nx = avg(f.p50), now = MR.recentMean(r, M ? 3 : 4), sl = slots[r.entity] || {}, [name, channel] = r.entity.split(' | '), tr = trustOf(r), rel = r.reliability && r.reliability.level;
+      const flag = sl.moved && !sl.daily ? `Moved: ${(sl.before || [])[0] || ''} to ${(sl.now || [])[0] || ''}` : (sl.weeks != null && sl.weeks < 6 ? 'New (under 6 weeks)' : '');
+      return { i, name, channel, now, next: nx, chg: finite(nx) && finite(now) && now > 0 ? (nx / now - 1) * 100 : null, lo: avg(f.p10), hi: avg(f.p90), airings: sl.airings, slot: sl.daily || (sl.now || []).join(', '), flag, trust: tr, rel };
+    }).filter((x) => finite(x.next));
+    T.create(host, { csv: 'programme_rating_forecast', pageSize: 12, defaultSort: { key: 'next', desc: true }, rows,
+      columns: [{ key: 'name', label: 'Programme', html: (v, r) => `<b>${esc(v)}</b><div class="muted small">${esc(r.channel)}${r.slot ? ' · ' + esc(r.slot) : ''}</div>` },
+        { key: 'now', label: M ? 'Last 3 months' : 'Last 4 weeks', num: true, fmt: (v) => f2(v) },
+        { key: 'next', label: `Next ${M ? 'months' : H + ' days'} (FORECAST)`, num: true, fmt: (v) => `<b>${f2(v)}</b>`, html: (v) => `<b>${f2(v)}</b>` },
+        { key: 'chg', label: 'Change', num: true, html: (v) => (v == null ? 'n/a' : `<span class="${v >= 0 ? 'good-t' : 'bad-t'}">${v >= 0 ? '+' : ''}${v.toFixed(1)}%</span>`) },
+        { key: 'lo', label: 'Range (low to high)', num: true, html: (v, r) => `${f2(v)} to ${f2(r.hi)}` },
+        { key: 'rel', label: 'Reliability', html: (v) => `<span class="badge ${relCls[v] || ''}">${esc(v || 'n/a')}</span>` },
+        { key: 'flag', label: 'Note', html: (v) => (v ? `<span class="badge warn">${esc(v)}</span>` : '') },
+        { key: 'i', label: '', html: (v) => `<button class="btn sm" type="button" data-pr="${v}">Chart</button>` }] });
+    const open = (i) => {
+      const r = list[i], d = p.querySelector('#pr-detail'); if (!r) return;
+      const x = rows.find((q) => q.i === i) || {}, sl = slots[r.entity] || {};
+      d.innerHTML = `<div class="card"><div class="card-head"><div><h3>${esc(r.entity.split(' | ')[0])} <span class="muted small">${esc(r.entity.split(' | ')[1] || '')}</span></h3><div class="sub">Aired ${sl.airings || 'n/a'} times since ${esc(sl.first || 'n/a')}. ${sl.moved ? `It moved from ${esc((sl.before || []).join(', '))} to ${esc((sl.now || []).join(', '))}; the forecast follows the show, not the slot.` : `Slot: ${esc(sl.daily || (sl.now || []).join(', ') || 'n/a')}.`}</div></div></div>
+        <div class="chart-wrap" style="height:300px"><canvas id="pr-chart" role="img" aria-label="Programme rating history and forecast"></canvas></div></div>`;
+      fan('pr-chart', r, H, { lowLabel: 'Low case' });
+      d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+    host.addEventListener('click', (e) => { const b = e.target.closest('[data-pr]'); if (b) open(+b.dataset.pr); });
+    if (rows[0]) open(rows[0].i);
+  }
   function wireColdStart(p, filters, pc) {
     const host = $('#np-card', p); if (!host) return;
     const chs = pc.channels || [], cats = pc.categories || [], DAYN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -422,19 +461,20 @@
     vaultSync('quiet');
     const spotsPerDay = Math.max(1, +App.store.get('spots-per-day', 5));
     const fR = reach ? slice(reach, H) : null;
-    p.innerHTML = w(`${headCard('TVR & Audience Forecast', `Next ${SPAN} from ${pc.date_max}, ${fmt.num(pc.rows)} airings in scope. History ${tot.n_points} ${M ? 'months' : 'days'}.`, tot,
+    p.innerHTML = w(`${headCard('TVR & Audience Forecast', `Next ${SPAN} from ${fromLabel(pr.results, pc)}, ${fmt.num(pc.rows)} airings in scope. History ${tot.n_points} ${M ? 'months' : 'days'}.`, tot,
         `<label class="row small" title="Used for the guaranteed GRP tooltip">Spots per day <input type="number" min="1" max="200" value="${spotsPerDay}" id="spd" style="width:72px"></label>`)}
-      ${forecastKey(M)}${M ? monthNote(pc) : ''}${(pr.payload.notes || []).filter((n) => !/interpolation/.test(n)).map((n) => `<div class="banner info"><span>${esc(n)}</span></div>`).join('')}
+      ${gapBanner(pr.results)}${forecastKey(M)}${M ? monthNote(pc) : ''}${(pr.payload.notes || []).filter((n) => !/interpolation/.test(n)).map((n) => `<div class="banner info"><span>${esc(n)}</span></div>`).join('')}
       <div class="kpis">
         ${kpiTile('Projected average TVR', f2(pTVR), `${signed(pct(pTVR, recentT), 1)} vs last 4 weeks (${f2(recentT)})`, App.help('Mean of the daily most likely forecast of the average programme TVR over the horizon.', 'The audience level to plan on for an average airing.'))}
         ${kpiTile('Guaranteed minimum TVR (low case)', f2(gTVR), `9 in 10 days should land above this. Upside high case ${f2(upTVR)}`, App.help('Mean of the daily low case estimate: the forecast engine expects actuals to fall below it only about 10% of the time.', 'A safe number for audience guarantees and GRP commitments.'))}
         ${kpiTile('Projected reach %', fR ? fmt.pct(avg(fR.p50), 1) : 'n/a', fR ? `Range ${fmt.pct(avg(fR.p10), 1)} to ${fmt.pct(avg(fR.p90), 1)}` : 'Reach % is not in the sheet', App.help('Mean of the daily most likely forecast of average Reach % per airing.', 'How much of the audience an average airing is expected to touch.'))}
         ${kpiTile('Top growing category', growing[0] ? esc(growing[0].name) : 'n/a', growing[0] ? `${growing[0].shift >= 0 ? '+' : ''}${f1(growing[0].shift)} pts of TVR share` : '', App.help('Each category\'s share of total TVR is forecast; the one gaining the most share points versus the last 4 weeks is shown.', 'Where audience attention is moving, for content and programme selection.'))}
       </div>
-      <div class="pb-head"><h2>Planner's Action Playbook</h2><span class="muted small">From the TVR sheet alone. No other file needed.</span></div>
-      <div class="sl-grid" id="pb-tvr"></div>
-      ${svNav('tvr', [['playbook', 'Playbook details', 'Which slots do I act on?'], ['plan', 'Next month plan', 'What do I buy?'], ['channels', 'Channel share', 'Who will win audience?'], ['programmes', 'Programmes', 'Which shows will deliver?'], ['when', 'When and who', 'Which hours and genres?']])}
+      ${svNav('tvr', [['progrates', 'Programme ratings', 'How will each show rate?'], ['playbook', 'Playbook details', 'Which slots do I act on?'], ['plan', 'Next month plan', 'What do I buy?'], ['channels', 'Channel share', 'Who will win audience?'], ['programmes', 'Programmes', 'Which shows will deliver?'], ['when', 'When and who', 'Which hours and genres?']])}
+      <section class="sv" data-sv="progrates"${svHide('tvr', 'progrates')}><div class="card"><div class="card-head"><div><h3>Programme ratings: what each show will rate</h3><div class="sub">Followed by programme name, so a show that changes day or time keeps its history. Numbers marked FORECAST are predictions.</div></div></div><div id="pr-tbl"></div></div><div id="pr-detail" style="margin-top:16px"></div></section>
       <section class="sv" data-sv="playbook"${svHide('tvr', 'playbook')}>
+        <div class="pb-head"><h2>Planner's Action Playbook</h2><span class="muted small">From the TVR sheet alone. No other file needed.</span></div>
+          <div class="sl-grid" id="pb-tvr"></div>
         <div class="grid g2">
           ${C.box('pt-sticky', 'Loyal audience or zapping?', 'Each dot is a programme slot. Right and high is a big, loyal audience. Right and low is reach that zaps away.', { tall: true, ev: true,
             help: ['Forecast TVR and forecast Reach % are compared for every programme slot. TVR per point of reach shows how much of the audience that tuned in stayed to watch. Average viewing time is added when the sheet has it.', 'Buy loyal slots for message delivery. Be careful with high-reach, low-TVR slots: people sample them and leave.'] })}
@@ -478,6 +518,7 @@
     wireRerun(p, key, () => tvrTab(p, ctx));
     wireCalendar(p, () => tvrTab(p, ctx), { kind: 'tv', pg: null });
     wireSv(p, 'tvr');
+    progRatings(p, R, pc, H, M, NOW);
     wireColdStart(p, filters, pc);
     p.querySelectorAll('[data-open-sv]').forEach((b) => { b.onclick = () => { const t = p.querySelector(`[data-svb="${b.dataset.openSv}"]`); if (t) t.click(); }; });
     markForecast(p, { R, H, M });
@@ -756,8 +797,8 @@
     vaultSync('quiet');
     const groupSel = `<label class="row small">Product group <select id="mk-group" style="max-width:220px">${pc.product_groups.map((g) => `<option ${g === pc.product_group ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></label>
       <label class="row small">Focus brand <select id="mk-brand" style="max-width:220px"><option value="">None</option>${pc.advertisers.map((a) => `<option ${a === persp.my_brand ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>`;
-    p.innerHTML = w(`${headCard('Market & Competitor Forecast', `${pc.product_group}: next ${SPAN} from ${pc.date_max}, ${fmt.num(pc.group_rows)} spots in the group.`, spots, groupSel)}
-      ${forecastKey(M)}${M ? monthNote(pc) : ''}${(pr.payload.notes || []).filter((n) => !/interpolation/.test(n)).map((n) => `<div class="banner info"><span>${esc(n)}</span></div>`).join('')}
+    p.innerHTML = w(`${headCard('Market & Competitor Forecast', `${pc.product_group}: next ${SPAN} from ${fromLabel(pr.results, pc)}, ${fmt.num(pc.group_rows)} spots in the group.`, spots, groupSel)}
+      ${gapBanner(pr.results)}${forecastKey(M)}${M ? monthNote(pc) : ''}${(pr.payload.notes || []).filter((n) => !/interpolation/.test(n)).map((n) => `<div class="banner info"><span>${esc(n)}</span></div>`).join('')}
       <div class="kpis">
         ${kpiTile('Predicted competitor spend', fmt.lkrc(rivalNext), `${signed(pct(rivalNext, rivalPrev), 0)} vs the previous ${SPAN}. Range ${fmt.lkrc(total(rivals.map((x) => x.lo)))} to ${fmt.lkrc(total(rivals.map((x) => x.hi)))}`, App.help('Sum of the daily most likely spend forecasts for the top competitors in the product group (your brand excluded).', 'How much pressure to expect from rivals, for budget defence.'))}
         ${kpiTile('Predicted spot volume', fS ? fmt.num(total(fS.p50)) : 'n/a', fS ? `About ${fmt.num(avg(fS.p50), 0)} spots a day in ${esc(pc.product_group)}` : '', App.help('Most likely forecast of daily spot counts for the whole product group, summed over the horizon.', 'Category clutter in the period: more spots means each one works harder to stand out.'))}

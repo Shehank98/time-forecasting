@@ -55,7 +55,7 @@
   const LMRB_ENTITIES = { advertiser: 'advertiser', product_group: 'product_group', channel: 'channel', daypart: 'daypart', total: null,
     product: 'product', program: (T) => (i) => `${S(T, 'channel', i)} / ${S(T, 'program', i)}` };
   const TV_ENTITIES = { channel: 'channel', category: 'category', daypart: 'daypart', timebelt: (T) => (i) => MR.timebelt(T.cols.start[i]),
-    program: (T) => (i) => MR.tvProgramKey(T, i), total: null, hour: (T) => (i) => MR.hourBand(T.cols.start[i]),
+    program: (T) => (i) => MR.tvProgramKey(T, i), progname: (T) => (i) => `${MR.programBase(S(T, 'program', i)) || 'UNKNOWN'} | ${S(T, 'channel', i)}`, total: null, hour: (T) => (i) => MR.hourBand(T.cols.start[i]),
     day: (T) => (i) => MR.DAY_NAMES[dowMon(T.cols.date[i])] };
 
   function catalog(kind, T, meta) {
@@ -168,7 +168,7 @@
     if (opts.entity === undefined && !(entityType in ents)) throw new Error(`Unknown entity type: ${entityType}`);
     if (!GRANULARITIES.includes(gran)) throw new Error('granularity must be daily, weekly or monthly');
     const notes = [];
-    if (entityType === 'program' && kind === 'tv' && gran === 'daily') { gran = 'weekly'; notes.push('Programmes recur weekly, so the series was built weekly.'); }
+    if ((entityType === 'program' || entityType === 'progname') && kind === 'tv' && gran === 'daily') { gran = 'weekly'; notes.push('Programmes recur weekly, so the series was built weekly.'); }
     if (!idx.length) return { series: [], notes: ['No rows match the current filters.'], gran };
     if (opts.historyDays) { const hi = MR.minMax(T.cols.date, idx)[1], lo = hi - (opts.historyDays - 1); idx = MR.where(T, idx, (i) => T.cols.date[i] >= lo); }
     for (const c of [m.col, m.num, m.den]) if (c && !T.cols[c]) return { series: [], notes: [`Column for ${m.label} is not available in this data.`], gran };

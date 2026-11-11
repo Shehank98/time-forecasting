@@ -16,6 +16,27 @@
   function hasPositive(T, col, idx) { const C = T.cols[col]; if (!C) return false; for (let k = 0; k < idx.length; k++) if (C[idx[k]] > 0) return true; return false; }
   const items = (res, group) => res.series.map((s) => MR.payloadItem(s, group));
 
+  /** Where each programme (by name) airs now and where it aired before, so a move of day or time is visible. */
+  function progSlots(T, idx, names, hiDay) {
+    const want = new Set(names), cut = hiDay - 28, out = {}, key = (i) => `${MR.programBase(S(T, 'program', i)) || 'UNKNOWN'} | ${S(T, 'channel', i)}`;
+    const recent = new Map(), older = new Map(), airs = new Map(), first = new Map(), recentTime = new Map(), recentN = new Map();
+    for (let k = 0; k < idx.length; k++) {
+      const i = idx[k], e = key(i); if (!want.has(e)) continue;
+      const slot = `${MR.DAY_NAMES[MR.dowMon(T.cols.date[i])].slice(0, 3)} ${MR.hm(T.cols.start[i]) || ''}`.trim(), m = T.cols.date[i] > cut ? recent : older;
+      if (!m.has(e)) m.set(e, new Map()); m.get(e).set(slot, (m.get(e).get(slot) || 0) + 1);
+      if (m === recent) { recentN.set(e, (recentN.get(e) || 0) + 1); if (!recentTime.has(e)) recentTime.set(e, new Map()); const tm = MR.hm(T.cols.start[i]) || ''; recentTime.get(e).set(tm, (recentTime.get(e).get(tm) || 0) + 1); }
+      airs.set(e, (airs.get(e) || 0) + 1); if (!first.has(e) || T.cols.date[i] < first.get(e)) first.set(e, T.cols.date[i]);
+    }
+    // the slots that carry at least a quarter of the airings in that period (a daily show has several)
+    const top = (mm) => { if (!mm) return []; const tot = [...mm.values()].reduce((a, b) => a + b, 0); return [...mm.entries()].filter((x) => x[1] >= tot * 0.25).sort((a, b) => b[1] - a[1]).slice(0, 4).map((x) => x[0]); };
+    for (const e of names) {
+      let now = top(recent.get(e)), before = top(older.get(e));
+      const daily = (recentN.get(e) || 0) >= 20 && recentTime.get(e), dailyAt = daily ? top(recentTime.get(e))[0] : null;
+      out[e] = { daily: dailyAt ? `Daily ${dailyAt}` : null, airings: airs.get(e) || 0, first: first.has(e) ? isoFromDay(first.get(e)) : null, now, before, moved: !!(now.length && before.length && !now.some((x) => before.includes(x))), weeks: Math.round(((hiDay - (first.get(e) || hiDay)) / 7)) };
+    }
+    return out;
+  }
+
   /* ---------------- TVR & Audience ---------------- */
   /** mode 'daily' (60 days ahead) or 'monthly' (12 months ahead). In monthly mode every series is monthly and goes in `daily` (the primary batch). */
   function tvrPayload(T, idx, mode, vopt = {}) {
@@ -35,6 +56,9 @@
     const cdp = (T2) => (i) => `${S(T2, 'channel', i)} | ${S(T2, 'daypart', i)}`;
     run(daily, 'chan_daypart', 'channel', 'tvr', G, { entity: cdp, maxEntities: 48 });
     const wk = run(monthly ? daily : weekly, 'program_tvr', 'program', 'tvr', monthly ? 'monthly' : 'weekly', { maxEntities: 16 });
+    // programme by NAME (channel + cleaned name): follows the show when its day or time changes. Weekly (monthly in monthly mode).
+    const pn = run(monthly ? daily : weekly, 'progname_tvr', 'progname', 'tvr', monthly ? 'monthly' : 'weekly', { maxEntities: 40 });
+    ctx.prog_slots = progSlots(T, idx, pn.series.map((x) => x.entity), hi);
     // stickiness: reach % and viewing time for the same programme slots, so TVR can be set against reach
     const slotNames = wk.series.map((x) => x.entity);
     if (slotNames.length && ctx.has_reach_pct) run(monthly ? daily : weekly, 'program_reach', 'program', 'reach_pct', monthly ? 'monthly' : 'weekly', { entities: slotNames });
