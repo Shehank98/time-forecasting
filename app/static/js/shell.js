@@ -12,6 +12,7 @@
     side: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
     out: '<path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
     film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/>',
+    spark: '<path d="M12 3l2.2 5.6L20 11l-5.8 2.4L12 19l-2.2-5.6L4 11l5.8-2.4z"/><path d="M19 3v4M17 5h4"/>',
   };
   const svg = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${I[k]}</svg>`;
 
@@ -126,6 +127,7 @@
           ${link('/tv.html', 'tv', 'tv', 'TVR Audience Prediction')}
           ${link('/lmrb.html', 'lmrb', 'chart', 'Market Prediction')}
           ${link('/pitch.html', 'pitch', 'film', 'Client Pitch Evaluator')}
+          ${link('/adtest.html', 'adtest', 'spark', 'Pre-Launch Ad Test')}
           ${me.user.is_admin ? `<div class="nav-label">Agency</div>${link('/admin.html', 'admin', 'admin', 'Admin')}` : ''}
         </nav>
         <div class="side-foot nav">

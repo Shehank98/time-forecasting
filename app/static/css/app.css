@@ -977,3 +977,25 @@ input.gi { width: 74px; text-align: right; padding: 6px 8px; border-radius: 8px;
 #sheet .kpis { gap: 10px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
 #sheet .kpi.fc { padding: 10px 14px 8px; } #sheet .kpi .k-val { font-size: 21px; margin-top: 2px; } #sheet .kpi .k-sub { font-size: 11.5px; }
 #sheet .fc-key { padding: 6px 12px !important; margin-bottom: 8px; }
+
+/* Pre-Launch Ad Test */
+.at-grid { display: grid; grid-template-columns: minmax(200px, 300px) 1fr; gap: 16px; margin-top: 12px; } .at-fields { display: grid; gap: 8px; } .at-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.at-drop { display: grid; place-items: center; min-height: 190px; border: 2px dashed var(--border-strong); border-radius: 14px; text-align: center; cursor: pointer; background: var(--surface-2); overflow: hidden; padding: 8px; }
+.at-drop:hover, .at-drop.over, .at-drop:focus-visible { border-color: var(--accent); } .at-prev { max-width: 100%; max-height: 300px; border-radius: 10px; display: block; margin: auto; }
+.at-fields textarea, .at-fields input { width: 100%; }
+.at-verdict { justify-content: space-between; gap: 12px; flex-wrap: wrap; } .at-verdict.bad { border-color: var(--bad); }
+.at-split { display: grid; grid-template-columns: minmax(200px, 300px) 1fr; gap: 14px; margin-top: 14px; align-items: start; } .at-ad { position: sticky; top: 12px; display: grid; gap: 8px; }
+.at-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; } .at-tabs button { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); padding: 6px 14px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 13px; }
+.at-tabs button[aria-selected="true"] { background: var(--grad); color: var(--on-grad); border-color: transparent; font-weight: 700; }
+.at-persons { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; } .at-person { border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: grid; gap: 6px; background: var(--surface-2); }
+.at-gut { margin: 0; font-style: italic; } .at-bubble { background: var(--accent-soft); border: 1px solid var(--border-strong); border-radius: 12px 12px 12px 2px; padding: 8px 10px; font-size: 15px; }
+.at-int { display: grid; grid-template-columns: 78px 1fr 22px; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); } .at-int b { color: var(--text); text-align: right; }
+.at-meter { display: block; height: 8px; border-radius: 99px; background: var(--surface); border: 1px solid var(--border); overflow: hidden; } .at-meter i { display: block; height: 100%; background: var(--grad); }
+.at-split-bar { display: flex; height: 14px; border-radius: 99px; overflow: hidden; border: 1px solid var(--border); } .at-split-bar i { display: block; height: 100%; }
+.s-good { background: var(--good); } .s-neu { background: var(--muted); } .s-warn { background: var(--warn); } .s-bad { background: var(--bad); } .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+.at-wall { display: grid; gap: 8px; max-height: 420px; overflow: auto; } .at-cmt { display: flex; gap: 10px; align-items: flex-start; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.at-av { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-weight: 700; border: 1px solid var(--border-strong); }
+.at-scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; } .at-sc { display: grid; gap: 4px; }
+.at-tl { width: 100%; height: auto; max-height: 150px; } .at-tl .ln { fill: none; stroke: var(--accent); stroke-width: 2.4; } .at-tl .g { stroke: var(--border-strong); stroke-dasharray: 4 4; } .at-tl .pt { fill: var(--accent); } .at-tl .lo { fill: var(--bad); } .at-tl .tx { fill: var(--muted); font-size: 11px; }
+.at-fixes { padding-left: 20px; display: grid; gap: 8px; } .at-prog { max-width: 720px; }
+@media (max-width: 820px) { .at-grid, .at-split { grid-template-columns: 1fr; } .at-ad { position: static; } .at-two { grid-template-columns: 1fr; } }

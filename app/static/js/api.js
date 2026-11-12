@@ -59,7 +59,10 @@ window.App = window.App || {};
       const m = /filename="?([^";]+)"?/.exec(cd);
       return { blob: await res.blob(), name: m ? m[1] : 'download' };
     },
-    upload(url, file, onProgress) {
+    /** Multipart form (fields plus one file) with upload progress. */
+    form(url, fd, onProgress) { return api._send(url, fd, onProgress); },
+    upload(url, file, onProgress) { const fd = new FormData(); fd.append('file', file); return api._send(url, fd, onProgress); },
+    _send(url, fd, onProgress) {
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', url);
@@ -73,7 +76,7 @@ window.App = window.App || {};
           else reject(Object.assign(new Error(typeof j.detail === 'string' ? j.detail : 'Upload failed'), { status: xhr.status }));
         };
         xhr.onerror = () => reject(new Error('Network problem during upload.'));
-        const fd = new FormData(); fd.append('file', file); xhr.send(fd);
+        xhr.send(fd);
       });
     },
   };

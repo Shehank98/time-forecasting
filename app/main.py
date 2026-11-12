@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import account, ai, forecasting, negotiation, ratecard as ratecard_router, reports, vault as vault_router
+from .routers import account, adtest, ai, forecasting, negotiation, ratecard as ratecard_router, reports, vault as vault_router
 from .services import auth, db
 from .services import forecast as fc
 
@@ -20,7 +20,8 @@ log = logging.getLogger("app")
 
 STATIC_DIR = Path(__file__).parent / "static"
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
-MAX_BODY = int(os.environ.get("MAX_BODY_MB", "30")) * 1024 * 1024   # summaries only; raw sheets never come here
+MAX_BODY = int(os.environ.get("MAX_BODY_MB", "30")) * 1024 * 1024
+MAX_AD_BODY = int(os.environ.get("ADTEST_MAX_VIDEO_MB", "80")) * 1024 * 1024 + 1048576   # ad test uploads (video) are larger than summaries   # summaries only; raw sheets never come here
 
 
 @asynccontextmanager
@@ -41,7 +42,7 @@ async def guard(request: Request, call_next):
     if request.url.path.startswith("/api/") and request.method in UNSAFE and request.headers.get("x-requested-with") != "fetch":
         return JSONResponse({"detail": "Missing request header."}, status_code=403)
     try:
-        if int(request.headers.get("content-length") or 0) > MAX_BODY:
+        if int(request.headers.get("content-length") or 0) > (MAX_AD_BODY if request.url.path == "/api/adtest/run" else MAX_BODY):
             return JSONResponse({"detail": "Request too large. Narrow the filters or the number of series."}, status_code=413)
     except ValueError:
         return JSONResponse({"detail": "Bad Content-Length."}, status_code=400)
@@ -61,7 +62,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-for r in (account.router, forecasting.router, ai.router, reports.router, negotiation.router, ratecard_router.router, vault_router.router):
+for r in (account.router, adtest.router, forecasting.router, ai.router, reports.router, negotiation.router, ratecard_router.router, vault_router.router):
     app.include_router(r)
 
 

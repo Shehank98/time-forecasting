@@ -631,3 +631,15 @@ Two evaluations are built the same way, one card per TVR channel; pick which wit
 - **Programme ratings.** The TVR forecast tab opens on "Programme ratings": one row per programme, followed by its name and channel (not its slot), so a show that changes day or time keeps its history. Each row shows the last 4 weeks, the forecast, the change, the low to high range and reliability. A note flags shows that moved slot or are new (under 6 weeks).
 - **Forecast Studio** defaults to dayparts for TV. Emerging and declining lists hide Low reliability series (they stay in the table).
 - **Salary days and next moves** (Market forecast tab, first section). From the LMRB: spend index by part of the month (salary window 25th to 3rd) and by weekday, each rival's salary day lift, campaign (flight) rhythm, channel moves, and an estimated next move with a confidence label. Engine: `app/static/js/engine/marketplay.js`; tests: `tests/test_marketplay.py`.
+
+## Pre-Launch Ad Test (Card 05)
+
+Upload a video commercial (MP4) or a static ad (Facebook or Instagram image, press artwork) with the headline and copy, and get a pre-launch audit from Gemini.
+
+- **Vision** (`app/services/vision_engine.py`): videos are decoded with OpenCV at one frame per second (up to 48 frames, 180 seconds); static ads go in as one image. Scores for hook or eye-catch, visual hierarchy, legibility, colour, logo, clutter, pacing and second by second attention. Audio is not analysed; paste the voice-over in the script box.
+- **Focus group** (`persona_engine.py`): four Sri Lankan personas react at the same time, each with a gut reaction, a realistic Facebook or TikTok comment in Sinhala, Singlish or English, and purchase and share intent.
+- **Cultural risk** (`cultural_risk_engine.py`): language double meanings, religious, economic and gender triggers, meme potential, a predicted reaction split, a risk level (Low to Critical), fixes and a simulated comment wall.
+- **API** (`app/routers/adtest.py`): `POST /api/adtest/run` starts a background job, `GET /api/adtest/job/{id}` returns progress and the result, `POST /api/adtest/report` returns a self-contained HTML audit report (print to PDF from the browser, so Sinhala shows correctly).
+- Files are processed in memory and dropped. Nothing is stored on the server. Needs `GEMINI_API_KEY`; set `GEMINI_ADTEST_MODEL` (for example `gemini-2.5-pro`) to use a different model for this card. Limits: `ADTEST_MAX_IMAGE_MB` (15) and `ADTEST_MAX_VIDEO_MB` (80).
+- Personas and comments are simulated by a language model. They find likely problems and compare versions of an ad; they do not predict sales.
+- Tests: `tests/test_adtest.py` (Gemini replaced by canned answers).

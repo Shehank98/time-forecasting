@@ -11,7 +11,7 @@ from helpers import ADMIN, api, login, new_client, series_payload, summary, wait
 def test_health_and_static_pages():
     c = TestClient(app)
     assert c.get("/health").json()["status"] == "ok"
-    for page in ("/", "/login.html", "/tv.html", "/lmrb.html", "/kpi.html", "/admin.html", "/css/app.css", "/js/charts.js", "/js/engine/core.js", "/js/data-worker.js"):
+    for page in ("/", "/login.html", "/tv.html", "/lmrb.html", "/kpi.html", "/admin.html", "/adtest.html", "/js/adtest-page.js", "/css/app.css", "/js/charts.js", "/js/engine/core.js", "/js/data-worker.js"):
         assert c.get(page).status_code == 200, page
 
 

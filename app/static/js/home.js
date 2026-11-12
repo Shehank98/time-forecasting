@@ -13,6 +13,9 @@
     { kind: 'pitch', href: '/pitch.html', cls: 'c4', tag: 'Card 04', title: 'Client Pitch Evaluator',
       text: 'Show a prospect what their current agency bought, rate it against the TVR sheet, then show more GRPs and a lower cost per rating point for the same money at our rates.',
       icon: '<path d="M4 19V9M10 19V5M16 19v-8M22 19H2"/><path d="M3 7l5-3 4 3 8-5"/>' },
+    { kind: 'adtest', href: '/adtest.html', cls: 'c2', tag: 'Card 05', title: 'Pre-Launch Ad Test',
+      text: 'Upload a video or a static ad. Get visual and hook scores, four simulated Sri Lankan viewers, a comment wall and a language and backlash check before launch.',
+      icon: '<path d="M12 3l2.2 5.6L20 11l-5.8 2.4L12 19l-2.2-5.6L4 11l5.8-2.4z"/><path d="M19 3v4M17 5h4"/>' },
     { kind: 'kpi', href: '/kpi.html', cls: 'c3', tag: 'Card 03', title: 'Client KPI Forecast',
       text: 'Any dated client data: leads, sales, traffic and search demand. Forecasts, CPL, CPA and CPRP, spend scenarios, pacing and demand peaks.',
       icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>' },
@@ -30,6 +33,7 @@
   function status(kind, st) {
     if (!st) return '<span class="muted">Checking this browser</span>';
     if (kind === 'kpi') return st.kpi.length ? `<span class="badge good">${st.kpi.length} dataset${st.kpi.length === 1 ? '' : 's'}</span> ${esc(st.kpi.map((x) => x.name).join(', '))}` : '<span class="muted">No data yet: upload once, it stays in this browser</span>';
+    if (kind === 'adtest') return '<span class="muted">Upload the ad when you open it. Nothing is stored.</span>';
     if (kind === 'pitch') return st.lmrb && st.tv ? '<span class="badge good">Ready</span> LMRB and TVR sheets loaded' : st.lmrb || st.tv ? `<span class="badge">Needs the ${st.lmrb ? 'TVR' : 'LMRB'} sheet</span>` : '<span class="muted">Upload the LMRB and TVR sheets of the prospect</span>';
     const s = st[kind];
     return s ? `<span class="badge good">Ready</span> ${fmt.num(s.rows)} rows, ${esc(s.date_min)} to ${esc(s.date_max)}` : '<span class="muted">No data yet: upload once, it stays in this browser</span>';
