@@ -5,6 +5,8 @@
   window.App = window.App || {};
   const P = (s) => s.split(' ');
   const SKINS = [
+    { id: 'vision', name: 'Vision', mode: 'light', note: 'Light glass: white frosted panes over soft pastel light', sw: ['#f2f4fa', '#ffffff', '#0a6cff', '#8e5cf7'],
+      pal: P('#0a6cff #8e5cf7 #ff5e9c #34c759 #ff9f0a #00b3a4 #ff3b5c #5ac8fa #af52de #ffcc00 #30b0c7 #8e8e93') },
     { id: 'glasspro', name: 'Glass Pro', mode: 'dark', note: 'Full glassmorphism: frosted layers over a colour aurora', sw: ['#0a0f2c', '#6366f1', '#a855f7', '#22d3ee'],
       pal: P('#8b9dff #22d3ee #f472b6 #34d399 #fbbf24 #c084fc #fb7185 #38bdf8 #a3e635 #fb923c #2dd4bf #a5b4fc') },
     { id: 'glass', name: 'Glass', mode: 'dark', note: 'Frosted glass on charcoal, indigo accent', sw: ['#090d16', '#1e293b', '#6366f1', '#22d3ee'],
@@ -35,8 +37,8 @@
       pal: P('#f97316 #db2777 #7c3aed #0891b2 #16a34a #eab308 #ef4444 #2563eb #c026d3 #0d9488 #a16207 #64748b') },
   ];
   const byId = (id) => SKINS.find((s) => s.id === id) || SKINS[0];
-  // Glass Pro is the default look. Everyone is moved to it once (skin-v 3); a skin picked after that is kept. The earlier Glass stays in the picker.
-  const load = () => { try { if (localStorage.getItem('skin-v') !== '3') { localStorage.setItem('skin-v', '3'); return 'glasspro'; } return localStorage.getItem('skin') || 'glasspro'; } catch (e) { return 'glasspro'; } };
+  // Vision is the default look. Everyone is moved to it once (skin-v 4); a skin picked after that is kept. Glass Pro and Glass stay in the picker.
+  const load = () => { try { if (localStorage.getItem('skin-v') !== '4') { localStorage.setItem('skin-v', '4'); return 'vision'; } return localStorage.getItem('skin') || 'vision'; } catch (e) { return 'vision'; } };
   let current = byId(load());
 
   function apply(id, silent) {

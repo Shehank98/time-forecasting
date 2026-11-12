@@ -665,3 +665,7 @@ Two glass themes are in the theme picker (the half-moon icon in the top bar):
 - **Glass Pro** (default): full glassmorphism. The page sits on a slow colour aurora (indigo, violet, cyan, pink) so the frosted panes read as glass. Every pane has a translucent fill, a light gradient edge, an inner highlight and a deep soft shadow. The top bar floats. Buttons are glossy; the main action is an indigo to violet gradient. Toggles and tabs are a frosted track with a glossy pill for the chosen option. Check boxes, radios, sliders, fields, tables, badges, help tips, windows and toasts all follow the same style. Motion switches off for people who ask for less motion; browsers without blur get solid panes.
 - **Glass**: the earlier, calmer charcoal glass look.
 Everyone is moved to Glass Pro once; a theme picked after that is kept. Both share the component rules under `:root[data-glass]` in `app/static/css/app.css`; Glass Pro adds its own layer under `:root[data-skin="glasspro"]`.
+
+## Vision (default look)
+
+A light, airy glass design in the style of visionOS: soft pastel light behind white frosted panes with large rounded corners, dark text, a floating pill navigation centred at the top, pill buttons (the main action is solid blue), iOS style segmented controls for every toggle and tab, check boxes shown as iOS switches, round slider knobs, light frosted windows, pop-ups and toasts. Everyone is moved to Vision once; Glass Pro and Glass (and the other themes) stay in the theme picker. Rules live under `:root[data-skin="vision"]` in `app/static/css/app.css`.
