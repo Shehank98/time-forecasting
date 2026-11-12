@@ -63,17 +63,17 @@ def _work(jid: str, brief: AdBrief, data: bytes, filename: str, cfg: PanelConfig
         _set(jid, status="error", error="The ad test hit a problem. Please try again.", code=500)
 
 
-def _panel_cfg(panel_size: str, age_min: int, age_max: int, gender: str, region: str) -> PanelConfig:
+def _panel_cfg(panel_size: str, age_min: int, age_max: int, gender: str, region: str, runs: int = 3, quality: str = "standard") -> PanelConfig:
     try:
-        return PanelConfig(size=panel_size, age_min=age_min, age_max=age_max, gender=gender, region=region)
+        return PanelConfig(size=panel_size, age_min=age_min, age_max=age_max, gender=gender, region=region, runs=runs, quality=quality)
     except ValidationError as exc:
         raise HTTPException(422, "The audience settings are not valid.") from exc
 
 
 @router.get("/api/adtest/status")
 def status(ws: Workspace = Depends(workspace)) -> dict:
-    est = {k: {t: adtest_pipeline.estimate_tokens(t, n) for t in ("static", "video")} for k, n in persona_bank.PANEL_SIZES.items()}
-    return {"configured": llm.configured(), "model": llm.model_name(), "panel_model": llm.panel_model(), "sizes": persona_bank.PANEL_SIZES, "estimates": est,
+    est = {k: {t: {str(r): adtest_pipeline.estimate_tokens(t, n, r) for r in (1, 3)} for t in ("static", "video")} for k, n in persona_bank.PANEL_SIZES.items()}
+    return {"configured": llm.configured(), "model": llm.model_name(), "panel_model": llm.panel_model(), "best_model": llm.model_name(), "sizes": persona_bank.PANEL_SIZES, "estimates": est,
             "regions": persona_bank.REGIONS, "age_groups": persona_bank.AGE_GROUPS, "bank": len(persona_bank.BANK),
             "limits": {"image_mb": vision_engine.MAX_IMAGE_BYTES // 1048576, "video_mb": vision_engine.MAX_VIDEO_BYTES // 1048576,
                        "video_seconds": vision_engine.MAX_VIDEO_SECONDS}}
@@ -94,12 +94,16 @@ def panel(panel_size: str = "quick", age_min: int = 0, age_max: int = 120, gende
 @router.post("/api/adtest/run")
 async def run(ad_type: Literal["video", "static"] = Form(...), brand: str = Form(""), product: str = Form(""), headline: str = Form(""),
               ad_copy: str = Form("", alias="copy"), audience: str = Form(""), objective: str = Form(""), market_notes: str = Form(""), panel_size: str = Form("quick"), age_min: int = Form(0), age_max: int = Form(120),
-              gender: str = Form(""), region: str = Form(""), file: UploadFile = File(...), ws: Workspace = Depends(workspace)) -> dict:
+              gender: str = Form(""), region: str = Form(""), runs: int = Form(3), quality: str = Form("standard"),
+              category: str = Form(""), goal: str = Form(""), file: UploadFile = File(...), ws: Workspace = Depends(workspace)) -> dict:
     rate_limit(ws.sid + ":adtest", 6)
     if not llm.configured():
         raise HTTPException(503, "Gemini is not configured on the server. Set GEMINI_API_KEY and restart.")
-    brief = AdBrief(ad_type=ad_type, brand=brand[:200], product=product[:200], headline=headline[:FIELD_MAX], ad_copy=ad_copy[:FIELD_MAX], audience=audience[:FIELD_MAX],
-                    objective=objective[:FIELD_MAX], market_notes=market_notes[:FIELD_MAX])
+    try:
+        brief = AdBrief(ad_type=ad_type, category=category[:60], goal=goal, brand=brand[:200], product=product[:200], headline=headline[:FIELD_MAX], ad_copy=ad_copy[:FIELD_MAX], audience=audience[:FIELD_MAX],
+                        objective=objective[:FIELD_MAX], market_notes=market_notes[:FIELD_MAX])
+    except ValidationError as exc:
+        raise HTTPException(422, "The campaign goal is not valid.") from exc
     limit = vision_engine.MAX_VIDEO_BYTES if ad_type == "video" else vision_engine.MAX_IMAGE_BYTES
     data = bytearray()
     while chunk := await file.read(1 << 20):
@@ -110,7 +114,7 @@ async def run(ad_type: Literal["video", "static"] = Form(...), brand: str = Form
         vision_engine.check_upload(ad_type, file.filename or "", bytes(data))
     except vision_engine.AdFileError as exc:
         raise HTTPException(422, str(exc)) from exc
-    cfg = _panel_cfg(panel_size, age_min, age_max, gender, region)
+    cfg = _panel_cfg(panel_size, age_min, age_max, gender, region, runs, quality)
     try:
         adtest_pipeline.choose_panel(cfg)
     except adtest_pipeline.PanelError as exc:

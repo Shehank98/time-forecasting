@@ -1,0 +1,27 @@
+{
+  "note": "Indicative rules of thumb drawn from commonly cited public industry ranges and agency practice. They are NOT measured Sri Lankan campaign results. Replace the numbers below with your own campaign data as soon as you have it; the Ad Test reads this file on every run.",
+  "static": [
+    {"key": "hook", "label": "1 second eye-catch", "typical": [55, 75], "higher_is_better": true, "reference": "A feed ad gets about one second. Commonly cited global feed click-through rates are roughly 0.9% to 1.6%; a stronger first second is what separates the top of that range."},
+    {"key": "readability", "label": "Text readability", "typical": [60, 80], "higher_is_better": true, "reference": "Headline readable at arm's length on a phone; strong contrast against the background."},
+    {"key": "cleanliness", "label": "Layout cleanliness", "typical": [55, 78], "higher_is_better": true, "reference": "One message and one call to action; clutter lowers recall."},
+    {"key": "purchase", "label": "Purchase intent (panel)", "typical": [40, 60], "higher_is_better": true, "reference": "Simulated panel average, scaled to 100. Compare versions of the same ad rather than reading it as a sales forecast."},
+    {"key": "share", "label": "Share intent (panel)", "typical": [30, 50], "higher_is_better": true, "reference": "Simulated panel average, scaled to 100."},
+    {"key": "backlash", "label": "Backlash risk", "typical": [20, 45], "higher_is_better": false, "reference": "Lower is safer. Above the typical band means a real chance of complaints, trolling or a negative thread."}
+  ],
+  "video": [
+    {"key": "hook", "label": "3 second hook", "typical": [50, 70], "higher_is_better": true, "reference": "Meta and TikTok commonly cite a 3 second view rate of roughly 25% to 35% as healthy for short video; the first three seconds decide it."},
+    {"key": "pacing", "label": "Pacing", "typical": [50, 72], "higher_is_better": true, "reference": "A change of shot, subject or text every 2 to 4 seconds holds attention on social video."},
+    {"key": "readability", "label": "On-screen text readability", "typical": [60, 80], "higher_is_better": true, "reference": "Captions and offers readable on a phone with the sound off."},
+    {"key": "cleanliness", "label": "Frame cleanliness", "typical": [55, 78], "higher_is_better": true, "reference": "A clear subject in each frame."},
+    {"key": "purchase", "label": "Purchase intent (panel)", "typical": [40, 60], "higher_is_better": true, "reference": "Simulated panel average, scaled to 100."},
+    {"key": "share", "label": "Share intent (panel)", "typical": [30, 50], "higher_is_better": true, "reference": "Simulated panel average, scaled to 100."},
+    {"key": "backlash", "label": "Backlash risk", "typical": [20, 45], "higher_is_better": false, "reference": "Lower is safer."}
+  ],
+  "viability_weights": {
+    "awareness":     {"visual": 0.25, "hook": 0.25, "purchase": 0.10, "share": 0.15, "safety": 0.25},
+    "consideration": {"visual": 0.20, "hook": 0.15, "purchase": 0.20, "share": 0.15, "safety": 0.30},
+    "conversion":    {"visual": 0.15, "hook": 0.10, "purchase": 0.35, "share": 0.05, "safety": 0.35},
+    "leads":         {"visual": 0.15, "hook": 0.15, "purchase": 0.30, "share": 0.05, "safety": 0.35},
+    "installs":      {"visual": 0.15, "hook": 0.20, "purchase": 0.30, "share": 0.05, "safety": 0.30}
+  }
+}

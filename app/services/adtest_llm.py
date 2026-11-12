@@ -43,13 +43,19 @@ def _tally(resp: Any) -> None:
     u["calls"] += 1
 
 
+PRO = "gemini-2.5-pro"
+QUALITY: contextvars.ContextVar[str] = contextvars.ContextVar("adtest_quality", default="standard")
+
+
 def model_name() -> str:
-    """The model for the careful step (reading the ad)."""
-    return os.environ.get("GEMINI_ADTEST_MODEL") or gem.service.model_name
+    """The model for the careful step (reading the ad): Gemini 2.5 Pro unless GEMINI_ADTEST_MODEL says otherwise."""
+    return os.environ.get("GEMINI_ADTEST_MODEL") or PRO
 
 
 def panel_model() -> str:
-    """The model for the persona panel and the culture audit: a cheaper one by default, because these steps are many short answers."""
+    """The model for the persona panel and the culture audit. Standard quality uses a cheaper model, because these steps are many short answers; best quality uses Pro."""
+    if QUALITY.get() == "best":
+        return model_name()
     return os.environ.get("GEMINI_ADTEST_PANEL_MODEL") or "gemini-2.5-flash"
 
 
@@ -67,7 +73,7 @@ def _strip(text: str) -> str:
 
 
 async def generate_json(parts: list[Any], schema: type[T], system: str, temperature: float = 0.4, attempts: int = 3, max_tokens: int = 8192,
-                        model: str | None = None, thinking: int | None = None) -> T:
+                        model: str | None = None, thinking: int | None = None, seed: int | None = None) -> T:
     """parts: strings and google.genai types.Part objects (images). Returns the parsed schema or raises gem.GeminiError."""
     from google.genai import types
 
@@ -78,6 +84,8 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
         try:
             cfg = types.GenerateContentConfig(system_instruction=f"{system} {HOUSE_RULES}", response_mime_type="application/json",
                                               response_schema=schema, temperature=temperature, max_output_tokens=max_tokens)
+            if seed is not None:
+                cfg.seed = seed
             if thinking is not None:      # thinking tokens are billed as output; short structured answers do not need them
                 cfg.thinking_config = types.ThinkingConfig(thinking_budget=max(128, thinking) if "pro" in name else thinking)
             resp = await client.aio.models.generate_content(model=name, contents=parts, config=cfg)

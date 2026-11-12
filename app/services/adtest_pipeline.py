@@ -15,7 +15,7 @@ from typing import Callable
 
 from . import adtest_llm as llm
 from . import cultural_risk_engine as risk_engine
-from . import panel_stats, persona_bank, persona_engine, vision_engine
+from . import adtest_benchmarks, adtest_overlay, adtest_viability, panel_stats, persona_bank, persona_engine, vision_engine
 from .adtest_models import AdBrief, AdTestResult, PanelConfig, Usage
 
 log = logging.getLogger(__name__)
@@ -39,17 +39,17 @@ def choose_panel(cfg: PanelConfig) -> list[persona_bank.Persona]:
 
 
 # ------------------------------------------------------------------ token estimate
-def estimate_tokens(ad_type: str, panel_n: int) -> dict[str, int]:
+def estimate_tokens(ad_type: str, panel_n: int, runs: int = 1) -> dict[str, int]:
     """A rough guide shown before the run (a real count is shown after it). Image tile = 258 tokens; a video is assumed to be 30 frames."""
     img_vision = 4 * 258 if ad_type == "static" else vision_engine.MAX_FRAMES * 258 + vision_engine.MAX_FRAMES * 8
     img_light = 258 if ad_type == "static" else 4 * 258
-    vision_in, vision_out = img_vision + 900, 1500 if ad_type == "video" else 1000
+    vision_in, vision_out = img_vision + 1100, (2200 if ad_type == "video" else 1500)
     batches = -(-panel_n // persona_engine.BATCH)
-    panel_in = batches * (img_light + 700) + panel_n * 70
-    panel_out = panel_n * 95
+    panel_in = runs * (batches * (img_light + 700) + panel_n * 70)
+    panel_out = runs * panel_n * 110
     risk_in, risk_out = img_light + 1500, 2600
     i, o = vision_in + panel_in + risk_in, vision_out + panel_out + risk_out
-    return {"input": i, "output": o, "total": i + o, "calls": 2 + batches}
+    return {"input": i, "output": o, "total": i + o, "calls": 2 + runs * batches}
 
 
 # ------------------------------------------------------------------ cache
@@ -62,7 +62,7 @@ CACHE_MAX = 24
 def cache_key(brief: AdBrief, cfg: PanelConfig, data: bytes) -> str:
     h = hashlib.sha256()
     h.update(data)
-    h.update(json.dumps([brief.model_dump(), cfg.model_dump(), llm.model_name(), llm.panel_model(), persona_engine.BATCH, len(persona_bank.BANK)], sort_keys=True).encode())
+    h.update(json.dumps([brief.model_dump(), cfg.model_dump(), llm.model_name(), llm.PRO if cfg.quality == "best" else llm.panel_model(), persona_engine.BATCH, len(persona_bank.BANK), "v3"], sort_keys=True).encode())
     return h.hexdigest()
 
 
@@ -91,26 +91,41 @@ async def run(brief: AdBrief, data: bytes, filename: str, cfg: PanelConfig | Non
     say = progress or (lambda p, m: None)
     panel = choose_panel(cfg)
     usage = llm.new_usage()
+    llm.QUALITY.set(cfg.quality)
     t0 = time.perf_counter()
     say(0.05, "Reading the video frames" if brief.ad_type == "video" else "Reading the image")
-    vision, thumb, media = await vision_engine.analyse(brief, data, filename)
-    light = vision_engine.light_media(media)
-    log.info("[adtest] vision done in %.1fs (%s, %d frames); panel of %d", time.perf_counter() - t0, brief.ad_type, vision.frames_used, len(panel))
-    say(0.3, f"{len(panel)} Sri Lankan consumers are about to react")
+    an = await vision_engine.analyse(brief, data, filename)
+    vision = an.vision
+    light = vision_engine.light_media(an.media)
+    log.info("[adtest] vision done in %.1fs (%s, %d frames); panel of %d x %d runs", time.perf_counter() - t0, brief.ad_type, vision.frames_used, len(panel), cfg.runs)
+    say(0.3, f"{len(panel)} Sri Lankan consumers are about to react" + (f", {cfg.runs} times each" if cfg.runs > 1 else ""))
 
     def tick(done: int, total: int) -> None:
-        say(0.3 + 0.4 * done / max(1, total), f"{done} of {total} consumers have reacted")
+        say(0.3 + 0.4 * done / max(1, total), f"{done} of {total} reactions collected")
 
-    personas = await persona_engine.run_focus_group(brief, vision, light, panel, tick)
+    fg = await persona_engine.run_focus_group(brief, vision, light, panel, tick, cfg.runs)
+    personas = fg.results
     say(0.72, "Checking language, culture and backlash risk")
     risk = await risk_engine.audit(brief, vision, personas, light)
     say(0.95, "Building the scorecard")
     card = risk_engine.make_scorecard(vision, personas, risk)
-    summary = panel_stats.summarise(personas, len(panel))
+    summary = panel_stats.summarise(personas, len(panel), fg.runs)
+    via = adtest_viability.compute(vision, summary.purchase, summary.share, card.backlash_risk, card.risk_level, brief.goal,
+                                   [r.purchase for r in fg.runs], [r.share for r in fg.runs])
+    zones = vision.zones
+    try:
+        heat = adtest_overlay.heatmap_uri(an.ref, zones) if zones else ""
+    except Exception:  # noqa: BLE001
+        log.exception("[adtest] heatmap could not be drawn")
+        heat = ""
     caveats = CAVEATS + vision.notes
     if len(personas) < len(panel):
-        caveats.append(f"Gemini skipped {len(panel) - len(personas)} of {len(panel)} personas, so the panel results use {len(personas)}.")
-    log.info("[adtest] finished in %.1fs: risk=%s impact=%.0f hook=%.0f tokens in=%d out=%d calls=%d", time.perf_counter() - t0, risk.risk_level,
-             vision.visual_impact, vision.hook_score, usage["input_tokens"], usage["output_tokens"], usage["calls"])
-    return AdTestResult(brief=brief, vision=vision, personas=personas, risk=risk, scorecard=card, panel=summary, usage=Usage(**usage), thumbnail=thumb,
-                        model=f"{llm.model_name()} (ad), {llm.panel_model()} (panel)", caveats=caveats)
+        caveats.append(f"Gemini skipped {len(panel) - len(personas)} of {len(panel)} personas in at least one run, so those results use fewer people.")
+    if fg.runs and len(fg.runs) >= 2:
+        caveats.append(f"The margin of error comes from {len(fg.runs)} repeated runs of the simulated panel. It does not include any error in the image analysis.")
+    log.info("[adtest] finished in %.1fs: risk=%s impact=%.0f hook=%.0f viability=%.1f tokens in=%d out=%d calls=%d", time.perf_counter() - t0, risk.risk_level,
+             vision.visual_impact, vision.hook_score, via.score, usage["input_tokens"], usage["output_tokens"], usage["calls"])
+    res = AdTestResult(brief=brief, vision=vision, personas=personas, risk=risk, scorecard=card, panel=summary, viability=via, usage=Usage(**usage), thumbnail=an.thumb, heatmap=heat,
+                       model=f"{llm.model_name()} (ad), {llm.panel_model()} (panel)", caveats=caveats)
+    adtest_benchmarks.attach(res)
+    return res

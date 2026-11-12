@@ -74,8 +74,8 @@ def backlash_score(risk: CulturalRisk) -> float:
 
 def make_scorecard(vision: VisionResult, personas: list[PersonaResult], risk: CulturalRisk) -> Scorecard:
     n = max(1, len(personas))
-    pi = round(sum(p.reaction.purchase_intent for p in personas) / n, 1)
-    si = round(sum(p.reaction.share_intent for p in personas) / n, 1)
+    pi = round(sum(p.purchase_mean for p in personas) / n, 1)
+    si = round(sum(p.share_mean for p in personas) / n, 1)
     bl = backlash_score(risk)
     if risk.risk_level in ("High", "Critical") or bl >= 65:
         verdict, tone = "Fix before launch: the backlash risk is high.", "bad"
