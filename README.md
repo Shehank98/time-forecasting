@@ -658,3 +658,10 @@ Upload a video commercial (MP4) or a static ad (Facebook or Instagram image, pre
 ## Glass look (default theme)
 
 The whole platform uses a glassmorphism skin by default: frosted cards (`rgba(30, 41, 59, .7)`, 12 px blur, thin white border, soft shadow) on a deep charcoal background (`#090d16`), Inter type and indigo (`#6366f1`) buttons, tabs and focus rings. Tables have translucent rows and a sticky glass header; windows, modals, toasts and the theme picker are glass layers over a dimmed, blurred backdrop; charts are transparent with soft grid lines. Browsers without `backdrop-filter` get solid surfaces. The blur is used only on cards, the top bar and windows so scrolling stays smooth. Every user is moved to Glass once; the other 12 skins remain in the theme picker. No emojis are used anywhere: Ad Test moods are a coloured dot plus the word, chart event pins are letters in small circles (P Poya, S salary window, F festival, E major event), and emojis are removed from Gemini answers. Only the look changed; words, headings and features are the same.
+
+## Glass Pro (default) and Glass
+
+Two glass themes are in the theme picker (the half-moon icon in the top bar):
+- **Glass Pro** (default): full glassmorphism. The page sits on a slow colour aurora (indigo, violet, cyan, pink) so the frosted panes read as glass. Every pane has a translucent fill, a light gradient edge, an inner highlight and a deep soft shadow. The top bar floats. Buttons are glossy; the main action is an indigo to violet gradient. Toggles and tabs are a frosted track with a glossy pill for the chosen option. Check boxes, radios, sliders, fields, tables, badges, help tips, windows and toasts all follow the same style. Motion switches off for people who ask for less motion; browsers without blur get solid panes.
+- **Glass**: the earlier, calmer charcoal glass look.
+Everyone is moved to Glass Pro once; a theme picked after that is kept. Both share the component rules under `:root[data-glass]` in `app/static/css/app.css`; Glass Pro adds its own layer under `:root[data-skin="glasspro"]`.

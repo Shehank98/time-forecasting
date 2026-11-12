@@ -5,6 +5,8 @@
   window.App = window.App || {};
   const P = (s) => s.split(' ');
   const SKINS = [
+    { id: 'glasspro', name: 'Glass Pro', mode: 'dark', note: 'Full glassmorphism: frosted layers over a colour aurora', sw: ['#0a0f2c', '#6366f1', '#a855f7', '#22d3ee'],
+      pal: P('#8b9dff #22d3ee #f472b6 #34d399 #fbbf24 #c084fc #fb7185 #38bdf8 #a3e635 #fb923c #2dd4bf #a5b4fc') },
     { id: 'glass', name: 'Glass', mode: 'dark', note: 'Frosted glass on charcoal, indigo accent', sw: ['#090d16', '#1e293b', '#6366f1', '#22d3ee'],
       pal: P('#818cf8 #22d3ee #f472b6 #34d399 #fbbf24 #a78bfa #fb7185 #38bdf8 #a3e635 #fb923c #2dd4bf #94a3b8') },
     { id: 'space', name: 'Deep Space', mode: 'dark', note: 'Futuristic neon on midnight', sw: ['#050816', '#3de0ff', '#8b5cf6', '#ff4fd8'],
@@ -33,14 +35,15 @@
       pal: P('#f97316 #db2777 #7c3aed #0891b2 #16a34a #eab308 #ef4444 #2563eb #c026d3 #0d9488 #a16207 #64748b') },
   ];
   const byId = (id) => SKINS.find((s) => s.id === id) || SKINS[0];
-  // Glass is the default look. Everyone is moved to it once (skin-v 2); a skin picked after that is kept.
-  const load = () => { try { if (localStorage.getItem('skin-v') !== '2') { localStorage.setItem('skin-v', '2'); return 'glass'; } return localStorage.getItem('skin') || 'glass'; } catch (e) { return 'glass'; } };
+  // Glass Pro is the default look. Everyone is moved to it once (skin-v 3); a skin picked after that is kept. The earlier Glass stays in the picker.
+  const load = () => { try { if (localStorage.getItem('skin-v') !== '3') { localStorage.setItem('skin-v', '3'); return 'glasspro'; } return localStorage.getItem('skin') || 'glasspro'; } catch (e) { return 'glasspro'; } };
   let current = byId(load());
 
   function apply(id, silent) {
     current = byId(id);
     const r = document.documentElement;
     r.dataset.skin = current.id; r.dataset.theme = current.mode;
+    r.toggleAttribute('data-glass', current.id === 'glass' || current.id === 'glasspro');   // shared glass component rules
     try { localStorage.setItem('skin', current.id); localStorage.setItem('theme', current.mode); } catch (e) { /* ignore */ }
     if (!silent) document.dispatchEvent(new Event('themechange'));
   }
