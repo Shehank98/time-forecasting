@@ -75,7 +75,7 @@ class Fake:
                     self.dropped.add(i)
                     continue
                 seed = kw.get("seed") or 0
-                out.append(PanelReaction(id=i, emotion=["Joy", "Trust", "Humour", "Distrust"][k % 4], resonance=1 + (k + seed) % 10, gut_reaction=f"Reaction of {i}", comment="නියමයි! ❤️" if k % 3 == 0 else f"Comment from {i}", comment_language="Sinhala" if k % 3 == 0 else "English",
+                out.append(PanelReaction(id=i, emotion=["Joy", "Trust", "Humour", "Distrust"][k % 4], resonance=1 + (k + seed) % 10, gut_reaction=f"Reaction of {i}", comment="නියමයි!" if k % 3 == 0 else f"Comment from {i}", comment_language="Sinhala" if k % 3 == 0 else "English",
                                          purchase_intent=1 + ((k + seed) % 10), share_intent=1 + ((k * 3 + seed) % 10), mood=moods[k % 4], concern="price is too high" if k % 2 else "too much text"))
             return PanelBatch(reactions=out)
         if schema is CulturalRisk:
@@ -496,3 +496,8 @@ def test_api_accepts_category_goal_runs_and_quality(fake):
     assert j["status"] == "done" and j["result"]["viability"]["goal"] == "leads" and j["result"]["panel"]["runs"] == 2 and j["result"]["heatmap"]
     st = c.get("/api/adtest/status").json()
     assert set(st["estimates"]["quick"]["video"]) == {"1", "3"} and st["best_model"] == adtest_llm.PRO
+
+
+def test_emojis_are_removed_from_answers_but_sinhala_and_tamil_stay():
+    out = adtest_llm.no_emoji({"a": "නියමයි! \u2764\ufe0f", "b": ["Super \U0001F602\U0001F602 deal", "நல்லது \U0001F44D"], "n": 5})
+    assert out == {"a": "නියමයි!", "b": ["Super deal", "நல்லது"], "n": 5}

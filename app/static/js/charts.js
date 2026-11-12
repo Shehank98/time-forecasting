@@ -89,16 +89,20 @@
       ctx.fillStyle = css('--surface-solid') || '#0d1430'; ctx.strokeStyle = col; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px + 6, ar.top + 6, w, 20, 10) : ctx.rect(px + 6, ar.top + 6, w, 20); ctx.fill(); ctx.stroke();
       ctx.fillStyle = col; ctx.fillText(label, px + 14, ar.top + 20, w - 12); ctx.restore();
     } };
-  /** Emoji pins along the bottom of a time chart (Poya, salary window, festivals, major events). options.plugins.eventPins = {on, pins:[{index, emoji, label}]}. */
+  /** Event pins (a letter in a small circle) along the bottom of a time chart (Poya, salary window, festivals, major events). options.plugins.eventPins = {on, pins:[{index, emoji, label}]}. */
   const eventPins = { id: 'eventPins',
     afterDatasetsDraw(chart, a, o) {
       if (!o || !o.on || !o.pins || !o.pins.length) return;
       const { ctx, chartArea: ar, scales: { x } } = chart, used = new Map();
-      ctx.save(); ctx.font = '14px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      const PIN_COL = { P: '#fbbf24', S: '#34d399', F: '#f472b6', E: '#818cf8' };
+      ctx.save(); ctx.font = '700 9px Inter, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       o.pins.forEach((p) => {
         const px = x.getPixelForValue(p.index); if (!(px >= ar.left - 2 && px <= ar.right + 2)) return;
         const k = Math.round(px / 16), n = used.get(k) || 0; used.set(k, n + 1);
-        if (n < 3) ctx.fillText(p.emoji, px, ar.bottom - 5 - n * 16);
+        if (n >= 3) return;
+        const cy = ar.bottom - 10 - n * 16, mark = String(p.emoji || '').slice(0, 1) || '*';          // a letter in a small circle: P Poya, S salary, F festival, E event
+        ctx.beginPath(); ctx.arc(px, cy, 6.5, 0, Math.PI * 2); ctx.fillStyle = PIN_COL[mark] || '#94a3b8'; ctx.fill();
+        ctx.fillStyle = '#0b1020'; ctx.fillText(mark, px, cy + 0.5);
       });
       ctx.restore();
     } };

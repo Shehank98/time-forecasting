@@ -8,7 +8,8 @@
   const TABS = [['crowd', 'Crowd map'], ['wall', 'Comment wall'], ['people', 'People'], ['visual', 'Visual and attention'], ['bench', 'Benchmarks'], ['culture', 'Language and culture'], ['actions', 'Actions']];
   const CATEGORIES = ['FMCG and food', 'Banking and finance', 'Insurance', 'Telecom', 'Retail and e-commerce', 'Automotive', 'Real estate', 'Education', 'Health and pharma', 'Travel and hospitality', 'Fashion and beauty', 'Government and NGO', 'Other'];
   const GOALS = [['awareness', 'Awareness: be seen and remembered'], ['consideration', 'Consideration: make people interested'], ['conversion', 'Conversion: drive sales'], ['leads', 'Lead generation: get enquiries'], ['installs', 'App installs']];
-  const EMOJI = { Positive: '❤️', Neutral: '😐', Troll: '😂', Angry: '😡' };
+  // mood markers: a coloured dot next to the word (no emojis)
+  const EMOJI = { Positive: '<i class="mdot m-good"></i>', Neutral: '<i class="mdot m-neu"></i>', Troll: '<i class="mdot m-warn"></i>', Angry: '<i class="mdot m-bad"></i>' };
   const MOOD_CLS = { Positive: 'good', Neutral: 'neu', Troll: 'warn', Angry: 'bad' };
   const TONE = { Low: 'good', Medium: 'warn', High: 'bad', Critical: 'bad' };
   const STEPS = ['Reading the ad', 'Consumers react', 'Culture check', 'Scorecard'];

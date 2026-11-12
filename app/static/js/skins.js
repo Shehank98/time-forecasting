@@ -5,6 +5,8 @@
   window.App = window.App || {};
   const P = (s) => s.split(' ');
   const SKINS = [
+    { id: 'glass', name: 'Glass', mode: 'dark', note: 'Frosted glass on charcoal, indigo accent', sw: ['#090d16', '#1e293b', '#6366f1', '#22d3ee'],
+      pal: P('#818cf8 #22d3ee #f472b6 #34d399 #fbbf24 #a78bfa #fb7185 #38bdf8 #a3e635 #fb923c #2dd4bf #94a3b8') },
     { id: 'space', name: 'Deep Space', mode: 'dark', note: 'Futuristic neon on midnight', sw: ['#050816', '#3de0ff', '#8b5cf6', '#ff4fd8'],
       pal: P('#3de0ff #8b5cf6 #ff4fd8 #22f5a6 #ffb547 #4f8bff #ff6b6b #a3e635 #f472b6 #2dd4bf #facc15 #94a3b8') },
     { id: 'aurora', name: 'Aurora Light', mode: 'light', note: 'Deep Space, in daylight', sw: ['#eef3ff', '#0891b2', '#7c3aed', '#db2777'],
@@ -31,7 +33,8 @@
       pal: P('#f97316 #db2777 #7c3aed #0891b2 #16a34a #eab308 #ef4444 #2563eb #c026d3 #0d9488 #a16207 #64748b') },
   ];
   const byId = (id) => SKINS.find((s) => s.id === id) || SKINS[0];
-  const load = () => { try { const v = localStorage.getItem('skin'); if (v) return v; const old = localStorage.getItem('theme'); return old === 'light' ? 'aurora' : 'space'; } catch (e) { return 'space'; } };
+  // Glass is the default look. Everyone is moved to it once (skin-v 2); a skin picked after that is kept.
+  const load = () => { try { if (localStorage.getItem('skin-v') !== '2') { localStorage.setItem('skin-v', '2'); return 'glass'; } return localStorage.getItem('skin') || 'glass'; } catch (e) { return 'glass'; } };
   let current = byId(load());
 
   function apply(id, silent) {

@@ -164,7 +164,7 @@ def covariates(dates: pd.DatetimeIndex, gran: str, events: list[dict] | None = N
 
 
 # ------------------------------------------------------------------ chart pins
-_PIN = {"poya": ("🌕", "Poya"), "salary": ("💰", "Salary window"), "festival": ("🎉", "Festival"), "event": ("📌", "Major event")}
+_PIN = {"poya": ("P", "Poya"), "salary": ("S", "Salary window"), "festival": ("F", "Festival"), "event": ("E", "Major event")}   # a letter in a small circle on the chart (no emojis)
 
 
 def pins(start: str, end: str, events: list[dict] | None = None) -> list[dict]:
@@ -199,5 +199,5 @@ def pins(start: str, end: str, events: list[dict] | None = None) -> list[dict]:
     for t, key in (("public", "festival"),):
         for d, nm in ver.get(t, {}).items():
             if pd.Timestamp(start) <= pd.Timestamp(d) <= pd.Timestamp(end) and not any(p["date"] == str(d) and p["kind"] == key for p in out):
-                out.append({"date": str(d), "kind": "festival", "emoji": "🏛", "label": nm})
+                out.append({"date": str(d), "kind": "festival", "emoji": _PIN["festival"][0], "label": nm})
     return sorted(out, key=lambda p: (p["date"], p["kind"]))
