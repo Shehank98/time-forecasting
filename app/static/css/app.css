@@ -963,7 +963,7 @@ input.gi { width: 74px; text-align: right; padding: 6px 8px; border-radius: 8px;
 .home-card { padding: 18px 20px; gap: 8px; } .home-card .ic { width: 44px; height: 44px; border-radius: 12px; } .home-card .ic svg { width: 22px; height: 22px; }
 .home-card h2 { font-size: 18px; } .home-card p { font-size: 13.5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .home-card .spark { display: none; } .home-det > summary .muted { margin-left: 10px; font-weight: 400; }
-#h-data .card-head { display: none; }
+#h-data .card-head h3 { display: none; } #h-data .card-head { margin-bottom: 12px; }
 .control-bar .gfilters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .control-bar .cb-section { gap: 8px; }
 .filters-card { padding: 8px 14px !important; }
@@ -1221,3 +1221,52 @@ input.gi { width: 74px; text-align: right; padding: 6px 8px; border-radius: 8px;
 /* mood markers (text plus a coloured dot, no emojis) */
 .mdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 2px; background: var(--muted); }
 .mdot.m-good { background: var(--good); } .mdot.m-neu { background: var(--muted); } .mdot.m-warn { background: var(--warn); } .mdot.m-bad { background: var(--bad); }
+
+/* ============================================================================================
+   Disclosures, redesigned for every page: no browser triangle. Panel disclosures are a full row
+   with the title, an optional one-line description and a chevron on the right; inline ones are a
+   small accent link with a chevron. The open state draws a divider above the content.
+   ============================================================================================ */
+details > summary { list-style: none; cursor: pointer; } details > summary::-webkit-details-marker { display: none; } details > summary::marker { content: ""; }
+details > summary::after { content: ""; flex: none; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform .2s ease; opacity: .7; display: inline-block; margin-left: 8px; }
+details[open] > summary::after { transform: translateY(1px) rotate(-135deg); }
+/* panel style */
+.g-det, .pt-how, details.card, .tn-find { border: 1px solid var(--border); border-radius: 12px; padding: 0; background: color-mix(in srgb, var(--surface-2) 55%, transparent); overflow: hidden; }
+.g-det > summary, .pt-how > summary, details.card > summary, .tn-find > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 12px 16px; font-weight: 600; font-size: 14px; color: var(--text); transition: background .15s; min-height: 46px; }
+.g-det > summary:hover, .pt-how > summary:hover, details.card > summary:hover, .tn-find > summary:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.g-det > summary::after, .pt-how > summary::after, details.card > summary::after, .tn-find > summary::after { margin-left: auto; order: 2; color: var(--muted); }
+.g-det > summary .muted, .g-det > summary .small { order: 3; flex-basis: 100%; font-weight: 400; font-size: 12.5px; color: var(--muted); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g-det[open] > summary, .pt-how[open] > summary, details.card[open] > summary, .tn-find[open] > summary { border-bottom: 1px solid var(--border); }
+.g-det > :not(summary), .pt-how > :not(summary), details.card > :not(summary), .tn-find > :not(summary) { margin-left: 16px; margin-right: 16px; }
+.g-det > :not(summary):last-child, .pt-how > :not(summary):last-child, details.card > :not(summary):last-child, .tn-find > :not(summary):last-child { margin-bottom: 14px; }
+.g-det > :not(summary):nth-child(2), .pt-how > :not(summary):nth-child(2), details.card > :not(summary):nth-child(2), .tn-find > :not(summary):nth-child(2) { margin-top: 12px; }
+.g-det { margin-top: 12px; }
+.tn-find { border-top: 1px solid var(--border); padding-top: 0; }
+/* the filters bar and the data sources line already sit in a card: just the row */
+.filters-card summary { min-height: 30px; } .filters-card summary::after { color: var(--muted); }
+.src-det > summary { align-items: center; } .src-det > summary::after { color: var(--muted); align-self: center; }
+/* inline style: a small link with a chevron */
+details.evidence > summary, .ev-why > summary, .fc-more > summary, .pt-checks > summary, details:not([class]) > summary { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-size: 12.5px; font-weight: 600; padding: 2px 0; }
+details.evidence > summary:hover, .ev-why > summary:hover, .fc-more > summary:hover, .pt-checks > summary:hover, details:not([class]) > summary:hover { text-decoration: underline; text-underline-offset: 3px; }
+details.evidence > summary::after, .ev-why > summary::after, .fc-more > summary::after, .pt-checks > summary::after, details:not([class]) > summary::after { width: 6px; height: 6px; margin-left: 4px; }
+
+/* ---------- Mission control: client workspace panel (Saved forecasts, Client reports, Data in this browser) ---------- */
+.ws-panel { margin-top: 20px; padding: 0 !important; overflow: hidden; }
+.ws-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--border); }
+.ws-tabs [role=tab] { display: flex; align-items: center; gap: 12px; padding: 16px 20px; background: transparent; border: 0; border-right: 1px solid var(--border); color: var(--muted); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; position: relative; transition: background .15s, color .15s; }
+.ws-tabs [role=tab]:last-child { border-right: 0; }
+.ws-tabs [role=tab]:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); color: var(--text); }
+.ws-tabs [role=tab][aria-selected="true"] { color: var(--text); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.ws-tabs [role=tab][aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); }
+.ws-l { flex: 1; }
+.ws-count { min-width: 28px; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); font-size: 12px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+.ws-count.zero { background: var(--surface-2); color: var(--muted); }
+.ws-ic { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.ws-ic svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ws-ic.lg { width: 48px; height: 48px; border-radius: 14px; } .ws-ic.lg svg { width: 24px; height: 24px; }
+.ws-pane { padding: 18px 20px 20px; } .ws-sub { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.ws-empty { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 28px 16px 22px; color: var(--muted); font-size: 13px; }
+.ws-empty b { color: var(--text); font-size: 15px; margin-top: 6px; }
+@media (max-width: 720px) { .ws-tabs { grid-template-columns: 1fr; } .ws-tabs [role=tab] { border-right: 0; border-bottom: 1px solid var(--border); } }
+:root[data-skin="glass"] .ws-panel { background: var(--glass); }
+:root[data-skin="glass"] .g-det, :root[data-skin="glass"] .pt-how, :root[data-skin="glass"] details.card, :root[data-skin="glass"] .tn-find { background: rgba(255, 255, 255, .025); border-color: rgba(255, 255, 255, .09); }

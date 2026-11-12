@@ -44,6 +44,13 @@
     setTimeout(() => { clearInterval(t); App.loader.progress(1); location.href = card.href; }, 900);
   }
 
+  const PANES = [['fc', 'Saved forecasts'], ['rep', 'Client reports'], ['data', 'Data in this browser']];
+  const PANE_ICON = { fc: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M7 15l4-4 3 3 5-6"/>', rep: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h6"/>',
+    data: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>' };
+  let pane = App.store.get('home-pane', 'fc');
+  if (!PANES.some((x) => x[0] === pane)) pane = 'fc';
+  const count = (k, n) => { const el = document.getElementById('wc-' + k); if (el) { el.textContent = String(n); el.classList.toggle('zero', !n); } };
+  const empty = (title, text, icon) => `<div class="ws-empty"><span class="ws-ic lg" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><b>${esc(title)}</b><span>${esc(text)}</span></div>`;
   async function render() {
     await App.shell.init('home');
     const root = $('#home');
@@ -53,16 +60,23 @@
     root.innerHTML = `<section class="hero"><h1>Which prediction do you need <span class="grad-text">today</span>?</h1></section>
       <div class="home-cards ${CARDS.length > 2 ? 'three' : 'two'}" id="cards">${CARDS.map((k, i) => `<a class="home-card ${k.cls}" href="${k.href}" data-i="${i}"><span class="tag">${k.tag}</span><div class="ic"><svg viewBox="0 0 24 24">${k.icon}</svg></div>
         <h2>${k.title}</h2><p>${k.text}</p>${wave(i + 1)}<div class="small" data-st="${k.kind}">${status(k.kind, null)}</div><span class="go">Open prediction <span aria-hidden="true">&rarr;</span></span></a>`).join('')}</div>
-      <details class="g-det home-det"><summary>Saved forecasts <span class="muted small">forecasts, scenario plans and pacing checks saved for ${esc(c.name)}</span></summary><div id="h-fc" style="margin-top:10px">${App.skeleton(1)}</div></details>
-      <details class="g-det home-det"><summary>Client reports <span class="muted small">every PDF, PowerPoint and Excel report generated for ${esc(c.name)}</span></summary><div id="h-rep" style="margin-top:10px">${App.skeleton(1)}</div></details>
-      <details class="g-det home-det"><summary>Data in this browser <span class="muted small">what is stored for ${esc(c.name)}</span></summary><div id="h-data" style="margin-top:10px"></div></details>`;
+      <section class="card ws-panel" id="h-ws" aria-label="Client workspace">
+        <div class="ws-tabs" role="tablist" aria-label="Client workspace">${PANES.map(([k, l]) => `<button type="button" role="tab" id="wt-${k}" data-p="${k}" aria-controls="wp-${k}" aria-selected="${pane === k}">
+          <span class="ws-ic" aria-hidden="true"><svg viewBox="0 0 24 24">${PANE_ICON[k]}</svg></span><span class="ws-l">${l}</span><span class="ws-count" id="wc-${k}">&nbsp;</span></button>`).join('')}</div>
+        <div class="ws-pane" role="tabpanel" id="wp-fc" aria-labelledby="wt-fc" ${pane === 'fc' ? '' : 'hidden'}><p class="ws-sub">Forecasts, scenario plans and pacing checks saved for ${esc(c.name)}</p><div id="h-fc">${App.skeleton(1)}</div></div>
+        <div class="ws-pane" role="tabpanel" id="wp-rep" aria-labelledby="wt-rep" ${pane === 'rep' ? '' : 'hidden'}><p class="ws-sub">Every PDF, PowerPoint and Excel report generated for ${esc(c.name)}</p><div id="h-rep">${App.skeleton(1)}</div></div>
+        <div class="ws-pane" role="tabpanel" id="wp-data" aria-labelledby="wt-data" ${pane === 'data' ? '' : 'hidden'}><p class="ws-sub">What is stored for ${esc(c.name)}</p><div id="h-data"></div></div>
+      </section>`;
     // right after sign-in: play the intro film unless the planner chose not to see it again
     try { if (sessionStorage.getItem('intro:pending') === '1') { sessionStorage.removeItem('intro:pending'); App.loadIntro().then(() => App.intro.open(false)); } } catch (e) { /* ignore */ }
+    root.querySelectorAll('.ws-tabs [role=tab]').forEach((t) => { t.onclick = () => { pane = t.dataset.p; App.store.set('home-pane', pane);
+      root.querySelectorAll('.ws-tabs [role=tab]').forEach((x) => x.setAttribute('aria-selected', String(x === t))); root.querySelectorAll('.ws-pane').forEach((x) => { x.hidden = x.id !== 'wp-' + pane; }); }; });
     root.querySelectorAll('.home-card').forEach((a) => { a.onclick = (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); launch(CARDS[+a.dataset.i]); }; });
     App.data.status().then((st) => {
       CARDS.forEach((k) => { const el = root.querySelector(`[data-st="${k.kind}"]`); if (el) el.innerHTML = status(k.kind, st); });
       const s = st.storage || {}, pct = s.quota ? (s.usage / s.quota) * 100 : 0;
       const rows = [['TVR sheet', st.tv], ['LMRB sheet', st.lmrb]].concat(st.kpi.map((x) => [`KPI: ${x.name}`, x]));
+      count('data', rows.filter((r) => r[1]).length);
       $('#h-data').innerHTML = `<div class="card-head"><div><h3>Data in this browser ${App.help('Uploaded sheets are parsed and kept in this browser\'s local database (IndexedDB), separately for each signed-in user and client. The server only receives compact series and summaries.', 'Upload once and reuse on this computer. Another planner or another computer keeps its own copy, so share files as usual.', { howLabel: 'How it works' })}</h3>
         <div class="sub">${s.quota ? `${mb(s.usage)} used of about ${mb(s.quota)} available to this site` : 'Storage estimate not available'}</div></div>
         <button class="btn sm ghost danger" id="clear-all" type="button">Clear this client's data from this browser</button></div>
@@ -72,11 +86,14 @@
     }).catch((e) => { $('#h-data').innerHTML = App.emptyState('This browser cannot store data locally', e.message); });
     let s;
     try { s = await App.api.get('/api/workspace/summary'); } catch (e) { $('#h-fc').innerHTML = App.emptyState('Could not load the client', e.message); $('#h-rep').innerHTML = ''; return; }
-    App.tables.create($('#h-fc'), { csv: 'saved_forecasts', pageSize: 8, empty: 'Nothing saved yet. Use "Save to client" in any Forecast studio.', rows: s.forecasts, columns: [
+    count('fc', s.forecasts.length); count('rep', s.reports.length);
+    if (!s.forecasts.length) $('#h-fc').innerHTML = empty('Nothing saved yet.', 'Use "Save to client" in any Forecast studio.', PANE_ICON.fc);
+    else App.tables.create($('#h-fc'), { csv: 'saved_forecasts', pageSize: 8, empty: 'Nothing saved yet. Use "Save to client" in any Forecast studio.', rows: s.forecasts, columns: [
       { key: 'title', label: 'Title', html: (v, r) => `<a href="${page[r.kind] || '/'}?tab=forecast&saved=${r.id}${r.dataset ? '&dataset=' + encodeURIComponent(r.dataset) : ''}">${esc(v)}</a>` },
       { key: 'ftype', label: 'Type', fmt: fmt.title }, { key: 'kind', label: 'Card', fmt: (v) => ({ tv: 'TVR', lmrb: 'Market', kpi: 'KPI' }[v] || v) }, { key: 'backend', label: 'Model', fmt: (v) => (v === 'timesfm' ? 'Forecast engine' : v === 'timesfm_xreg' ? 'Driver model' : v) },
       { key: 'created_at', label: 'Saved', fmt: when }, { key: 'id', label: '', sortable: false, html: (v) => `<button class="btn sm" data-delfc="${v}" type="button">Delete</button>` }] });
-    App.tables.create($('#h-rep'), { csv: 'reports', pageSize: 8, empty: 'No reports yet. Use "Client report" in any card.', rows: s.reports, columns: [
+    if (!s.reports.length) $('#h-rep').innerHTML = empty('No reports yet.', 'Use "Client report" in any card.', PANE_ICON.rep);
+    else App.tables.create($('#h-rep'), { csv: 'reports', pageSize: 8, empty: 'No reports yet. Use "Client report" in any card.', rows: s.reports, columns: [
       { key: 'filename', label: 'File', html: (v, r) => `<a href="#" data-dl="${r.id}">${esc(v)}</a>` }, { key: 'format', label: 'Format', fmt: (v) => v.toUpperCase() },
       { key: 'size', label: 'Size', num: true, fmt: (v) => fmt.num(v / 1024, 0) + ' KB' }, { key: 'by', label: 'By' }, { key: 'created_at', label: 'Created', fmt: when },
       { key: 'id', label: '', sortable: false, html: (v) => `<button class="btn sm" data-delrep="${v}" type="button">Delete</button>` }] });
