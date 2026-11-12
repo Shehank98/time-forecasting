@@ -46,11 +46,23 @@ def build_html(r: AdTestResult) -> str:
     if v.static:
         extra = f"<p><b>One second eye-catch:</b> {v.static.one_second_eye_catch:.1f} / 10. <b>Headline as read:</b> {e(v.static.headline_read)}</p>"
     fixes = _fixes(rev.fixes if rev else [])
+    pn = r.panel
+    segs = ""
+    if pn:
+        for kind, title in (("age", "Age group"), ("region", "Where they live"), ("gender", "Gender"), ("mindset", "Mindset"), ("background", "Background")):
+            rows = "".join(f"<tr><td>{e(g.label)}</td><td>{g.n}</td><td>{g.purchase:.1f}</td><td>{g.share:.1f}</td><td>{g.positive:.0f}%</td><td>{g.negative:.0f}%</td></tr>"
+                           for g in pn.segments if g.kind == kind)
+            segs += f"<h3>{e(title)}</h3><table><tr><th>Segment</th><th>People</th><th>Would buy /10</th><th>Would share /10</th><th>Positive</th><th>Mocking or angry</th></tr>{rows}</table>"
+        segs = (f"<p>{pn.size} personas reacted (of {pn.requested} planned). Average would buy {pn.purchase:.1f}/10, would share {pn.share:.1f}/10. "
+                f"Mood: positive {pn.positive:.0f}%, neutral {pn.neutral:.0f}%, mocking {pn.troll:.0f}%, angry {pn.angry:.0f}%.</p>"
+                + ("<h3>Most common worries</h3><ul>" + "".join(f"<li>{e(c.text)} ({c.count})</li>" for c in pn.concerns) + "</ul>" if pn.concerns else "") + segs)
     personas = "".join(
-        f'<div class="cmt"><b>{e(p.name)}</b> <small>{e(p.profile)}</small><br><i>{e(p.reaction.gut_reaction)}</i>'
-        f'<div style="margin-top:4px">&ldquo;{e(p.reaction.comment)}&rdquo; <small>({e(p.reaction.comment_language)})</small></div>'
-        f'<small>Purchase intent {p.reaction.purchase_intent}/10, share intent {p.reaction.share_intent}/10. Likes: {e(p.reaction.likes)} Concerns: {e(p.reaction.concerns)}</small></div>'
+        f'<tr><td>{e(p.name)}, {p.age}</td><td>{e(p.place)} &middot; {e(p.background)} &middot; {e(p.mindset)}</td><td>{e(p.reaction.mood)}</td>'
+        f'<td>{p.reaction.purchase_intent}/{p.reaction.share_intent}</td><td>&ldquo;{e(p.reaction.comment)}&rdquo; <small>({e(p.reaction.comment_language)})</small><br><small><i>{e(p.reaction.gut_reaction)}</i></small></td></tr>'
         for p in r.personas)
+    personas = f"<table><tr><th>Who</th><th>Profile</th><th>Mood</th><th>Buy/Share</th><th>Comment</th></tr>{personas}</table>"
+    u = r.usage
+    tokens = f"<p class='small muted'>Tokens used: {u.input_tokens:,} in, {u.output_tokens:,} out, {u.calls} calls{' (saved result, no new tokens)' if u.cached else ''}.</p>"
     s = c.reaction_split
     flags = "".join(f"<tr><td>{e(f.category)}</td><td>{e(f.where)}</td><td>{e(f.issue)}</td><td>{e(f.suggestion)}</td><td>{e(f.severity)}</td></tr>" for f in c.flags)
     wall = "".join(f'<div class="cmt">{e(x.text)} <small>({e(x.language)}, {e(x.reaction)})</small></div>' for x in c.crowd_comments)
@@ -66,10 +78,10 @@ def build_html(r: AdTestResult) -> str:
 <p><b>Audience:</b> {e(b.audience) or 'n/a'}<br><b>Objective:</b> {e(b.objective) or 'n/a'}</p><p class="muted small">{e(rev.summary) if rev else ''}</p></div></div>
 <h2>Visual and attention analysis</h2>{extra}<table><tr><th>Measure</th><th>Score</th><th>Why</th></tr>{scores}</table>
 <h2>Layout and creative fixes</h2><table><tr><th>Priority</th><th>Problem</th><th>Fix</th></tr>{fixes}</table>
-<h2>Synthetic Sri Lankan focus group</h2>{personas}
+<h2>Synthetic Sri Lankan focus group</h2>{segs}{personas}
 <h2>Language, culture and backlash</h2><p><b>Risk level: {e(c.risk_level)}.</b> {e(c.risk_summary)}</p>
 <p>Predicted reaction: positive {s.positive:.0f}%, neutral {s.neutral:.0f}%, trolling {s.troll:.0f}%, angry {s.angry:.0f}%. Meme potential {c.meme_potential:.1f}/10. {e(c.meme_note)}</p>
 <table><tr><th>Type</th><th>Where</th><th>Issue</th><th>Suggestion</th><th>Severity</th></tr>{flags}</table>
 <h3>Fixes</h3><ul>{''.join(f'<li>{e(x)}</li>' for x in c.fixes)}</ul>
 <h2>Simulated comment wall</h2>{wall}
-<h2>Read this first</h2><ul class="small muted">{''.join(f'<li>{e(x)}</li>' for x in r.caveats)}</ul></body></html>"""
+<h2>Read this first</h2>{tokens}<ul class="small muted">{''.join(f'<li>{e(x)}</li>' for x in r.caveats)}</ul></body></html>"""

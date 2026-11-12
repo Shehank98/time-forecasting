@@ -58,20 +58,80 @@ class VisionResult(BaseModel):
 
 
 class PersonaReaction(BaseModel):
-    gut_reaction: str = Field(description="One or two honest sentences of what this person thinks in the first moments")
-    comment: str = Field(description="The exact comment they would post on Facebook or TikTok")
+    gut_reaction: str = Field(description="What this person thinks in the first moments, under 20 words")
+    comment: str = Field(description="The exact comment they would post on Facebook or TikTok, under 25 words")
     comment_language: Literal["Sinhala", "Singlish", "English", "Tamil"] = "English"
     purchase_intent: int = Field(ge=1, le=10)
     share_intent: int = Field(ge=1, le=10)
-    likes: str = ""
-    concerns: str = ""
+    mood: Reaction = Field(default="Neutral", description="Positive, Neutral, Troll (mocking) or Angry (backlash)")
+    concern: str = Field(default="", description="Their main worry or dislike in under 8 words, empty if none")
+
+
+class PanelReaction(PersonaReaction):
+    id: str
+
+
+class PanelBatch(BaseModel):
+    reactions: list[PanelReaction]
 
 
 class PersonaResult(BaseModel):
     persona_id: str
     name: str
     profile: str
+    age: int = 0
+    gender: str = ""
+    place: str = ""
+    background: str = ""
+    age_group: str = ""
+    region: str = ""
+    mindset: str = ""
     reaction: PersonaReaction
+
+
+class Segment(BaseModel):
+    kind: str
+    label: str
+    n: int
+    purchase: float
+    share: float
+    positive: float = Field(description="Percent of the segment whose mood is Positive")
+    negative: float = Field(description="Percent whose mood is Troll or Angry")
+
+
+class Concern(BaseModel):
+    text: str
+    count: int
+
+
+class PanelSummary(BaseModel):
+    size: int
+    requested: int
+    purchase: float
+    share: float
+    positive: float
+    neutral: float
+    troll: float
+    angry: float
+    segments: list[Segment] = Field(default_factory=list)
+    concerns: list[Concern] = Field(default_factory=list)
+    most_positive: list[str] = Field(default_factory=list)
+    most_negative: list[str] = Field(default_factory=list)
+
+
+class Usage(BaseModel):
+    input_tokens: int = 0
+    output_tokens: int = 0
+    calls: int = 0
+    cached: bool = False
+
+
+class PanelConfig(BaseModel):
+    size: Literal["quick", "standard", "full"] = "quick"
+    age_min: int = Field(default=0, ge=0, le=120)
+    age_max: int = Field(default=120, ge=0, le=120)
+    gender: Literal["", "F", "M"] = ""
+    region: str = ""
 
 
 class Flag(BaseModel):
@@ -156,5 +216,7 @@ class AdTestResult(BaseModel):
     risk: CulturalRisk
     scorecard: Scorecard
     model: str = ""
+    panel: PanelSummary | None = None
+    usage: Usage = Field(default_factory=Usage)
     thumbnail: str = Field(default="", description="Small JPEG of the ad as a data URI, for the report")
     caveats: list[str] = Field(default_factory=list)

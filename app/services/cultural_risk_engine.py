@@ -28,7 +28,7 @@ CHAIN = (
     "angry (backlash). Give four numbers that add up to about 100.\n"
     "5. risk_level: Low, Medium, High or Critical. Critical only if there is a real chance of a boycott, a formal complaint or a news story.\n"
     "6. fixes: specific changes to the headline, wording or visual, each in one or two sentences. Quote the original words and give the replacement.\n"
-    "7. crowd_comments: 14 realistic comments from different people, mixed across Sinhala in Sinhala script, Singlish and English, with a fair mix of "
+    "7. crowd_comments: 12 realistic comments from different people, mixed across Sinhala in Sinhala script, Singlish and English, with a fair mix of "
     "reactions matching your split. Short, like real comments. Set each comment's reaction to Positive, Neutral, Troll or Angry.")
 
 
@@ -39,15 +39,27 @@ def _parts(brief: AdBrief, vision: VisionResult, personas: list[PersonaResult], 
     for label, jpg in media:
         parts.append(f"{label}:")
         parts.append(types.Part.from_bytes(data=jpg, mime_type="image/jpeg"))
-    heard = "\n".join(f"- {p.name} ({p.reaction.comment_language}): {p.reaction.comment}" for p in personas)
+    heard = "\n".join(f"- {p.name}, {p.age}, {p.background} ({p.reaction.mood}, {p.reaction.comment_language}): {p.reaction.comment}" for p in sample_comments(personas))
     rev = vision.static or vision.video
     parts.append(f"Audit this {'video commercial (sample frames)' if brief.ad_type == 'video' else 'static ad'}.\n<data>\n{brief.text_block()}\n</data>\n"
-                 f"What the creative reviewer saw: {rev.summary if rev else 'n/a'}\nComments the focus group members said they would post:\n<data>\n{heard}\n</data>\n{CHAIN}")
+                 f"What the creative reviewer saw: {rev.summary if rev else 'n/a'}\nA sample of comments from a larger simulated focus group:\n<data>\n{heard}\n</data>\n{CHAIN}")
     return parts
 
 
+def sample_comments(personas: list[PersonaResult], n: int = 12) -> list[PersonaResult]:
+    """Not every comment goes to the audit (that would cost tokens for no gain): the angriest and most mocking, then the most positive, then neutral ones."""
+    order = {"Angry": 0, "Troll": 1, "Positive": 2, "Neutral": 3}
+    by = sorted(personas, key=lambda p: (order[p.reaction.mood], p.reaction.purchase_intent, p.persona_id))
+    picked, per = [], {"Angry": 4, "Troll": 3, "Positive": 3, "Neutral": 2}
+    for mood, k in per.items():
+        picked += [p for p in by if p.reaction.mood == mood][:k]
+    rest = [p for p in by if p not in picked]
+    return (picked + rest)[:n]
+
+
 async def audit(brief: AdBrief, vision: VisionResult, personas: list[PersonaResult], media: list[tuple[str, bytes]] | None = None) -> CulturalRisk:
-    return await llm.generate_json(_parts(brief, vision, personas, media or []), CulturalRisk, SYSTEM, temperature=0.6, max_tokens=8192)
+    return await llm.generate_json(_parts(brief, vision, personas, media or []), CulturalRisk, SYSTEM, temperature=0.6, max_tokens=8192,
+                                   model=llm.panel_model(), thinking=1024)
 
 
 LEVEL_BASE = {"Low": 10, "Medium": 35, "High": 65, "Critical": 90}

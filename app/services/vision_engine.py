@@ -23,9 +23,9 @@ VIDEO_EXT = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/web
 MAX_IMAGE_BYTES = int(os.environ.get("ADTEST_MAX_IMAGE_MB", "15")) * 1024 * 1024
 MAX_VIDEO_BYTES = int(os.environ.get("ADTEST_MAX_VIDEO_MB", "80")) * 1024 * 1024
 MAX_VIDEO_SECONDS = 180
-MAX_FRAMES = 48
+MAX_FRAMES = 30            # a 30 second ad is one frame a second; longer ads are thinned (every frame costs input tokens)
 FRAME_SIDE = 768
-IMAGE_SIDE = 2048
+IMAGE_SIDE = 1536          # about four image tiles; more pixels cost more tokens without a better read of a layout
 
 
 class AdFileError(ValueError):
@@ -48,7 +48,7 @@ def check_upload(ad_type: str, filename: str, data: bytes) -> str:
 
 # ---------------------------------------------------------------- images
 def prepare_image(data: bytes) -> tuple[bytes, str, tuple[int, int]]:
-    """Fix rotation, drop transparency, cap the long side at 2048 px. Returns (jpeg or png bytes, mime, size)."""
+    """Fix rotation, drop transparency, cap the long side at 1536 px. Returns (jpeg or png bytes, mime, size)."""
     from PIL import Image, ImageOps, UnidentifiedImageError
 
     try:
@@ -186,3 +186,20 @@ async def analyse(brief: AdBrief, data: bytes, filename: str) -> tuple[VisionRes
     res = VisionResult(ad_type="video", visual_impact=impact, hook_score=round(rev.hook_strength_3s * 10, 1), video=rev, frames_used=len(frames), notes=notes)
     pick = sorted({round(i * (len(frames) - 1) / 5) for i in range(6)}) if len(frames) > 6 else list(range(len(frames)))
     return res, thumbnail_uri(frames[min(len(frames) - 1, 1)][1]), [(f"Frame at second {frames[i][0]}", frames[i][1]) for i in pick]
+
+
+def light_media(media: list[tuple[str, bytes]], side: int = 768, max_items: int = 4) -> list[tuple[str, bytes]]:
+    """A smaller copy of the pictures for the persona panel and the culture audit: one image tile each (258 tokens) and at most four frames."""
+    from PIL import Image
+
+    if len(media) > max_items:
+        pick = sorted({round(i * (len(media) - 1) / (max_items - 1)) for i in range(max_items)})
+        media = [media[i] for i in pick]
+    out = []
+    for label, jpg in media:
+        im = Image.open(io.BytesIO(jpg)).convert("RGB")
+        im.thumbnail((side, side))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=80)
+        out.append((label, buf.getvalue()))
+    return out

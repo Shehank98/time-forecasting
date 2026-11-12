@@ -17,8 +17,8 @@ from pydantic import ValidationError
 
 from ..core import rate_limit, workspace
 from ..services import adtest_llm as llm
-from ..services import adtest_pipeline, adtest_report, vision_engine
-from ..services.adtest_models import AdBrief, AdTestResult
+from ..services import adtest_pipeline, adtest_report, persona_bank, vision_engine
+from ..services.adtest_models import AdBrief, AdTestResult, PanelConfig
 from ..services.gemini_client import GeminiError
 from ..services.store import Workspace
 
@@ -46,14 +46,15 @@ def _set(jid: str, **kw: Any) -> None:
             JOBS[jid].update(kw)
 
 
-def _work(jid: str, brief: AdBrief, data: bytes, filename: str) -> None:
+def _work(jid: str, brief: AdBrief, data: bytes, filename: str, cfg: PanelConfig, key: str) -> None:
     def progress(p: float, msg: str) -> None:
         _set(jid, progress=p, message=msg)
 
     try:
-        result = asyncio.run(adtest_pipeline.run(brief, data, filename, progress))
-        _set(jid, status="done", progress=1.0, message="Done", result=result.model_dump(mode="json"))
-    except vision_engine.AdFileError as exc:
+        result = asyncio.run(adtest_pipeline.run(brief, data, filename, cfg, progress)).model_dump(mode="json")
+        adtest_pipeline.cache_put(key, result)
+        _set(jid, status="done", progress=1.0, message="Done", result=result)
+    except (vision_engine.AdFileError, adtest_pipeline.PanelError) as exc:
         _set(jid, status="error", error=str(exc), code=422)
     except GeminiError as exc:
         _set(jid, status="error", error=str(exc), code=exc.status)
@@ -62,16 +63,38 @@ def _work(jid: str, brief: AdBrief, data: bytes, filename: str) -> None:
         _set(jid, status="error", error="The ad test hit a problem. Please try again.", code=500)
 
 
+def _panel_cfg(panel_size: str, age_min: int, age_max: int, gender: str, region: str) -> PanelConfig:
+    try:
+        return PanelConfig(size=panel_size, age_min=age_min, age_max=age_max, gender=gender, region=region)
+    except ValidationError as exc:
+        raise HTTPException(422, "The audience settings are not valid.") from exc
+
+
 @router.get("/api/adtest/status")
 def status(ws: Workspace = Depends(workspace)) -> dict:
-    return {"configured": llm.configured(), "model": llm.model_name(), "limits": {"image_mb": vision_engine.MAX_IMAGE_BYTES // 1048576,
-            "video_mb": vision_engine.MAX_VIDEO_BYTES // 1048576, "video_seconds": vision_engine.MAX_VIDEO_SECONDS}}
+    est = {k: {t: adtest_pipeline.estimate_tokens(t, n) for t in ("static", "video")} for k, n in persona_bank.PANEL_SIZES.items()}
+    return {"configured": llm.configured(), "model": llm.model_name(), "panel_model": llm.panel_model(), "sizes": persona_bank.PANEL_SIZES, "estimates": est,
+            "regions": persona_bank.REGIONS, "age_groups": persona_bank.AGE_GROUPS, "bank": len(persona_bank.BANK),
+            "limits": {"image_mb": vision_engine.MAX_IMAGE_BYTES // 1048576, "video_mb": vision_engine.MAX_VIDEO_BYTES // 1048576,
+                       "video_seconds": vision_engine.MAX_VIDEO_SECONDS}}
+
+
+@router.get("/api/adtest/panel")
+def panel(panel_size: str = "quick", age_min: int = 0, age_max: int = 120, gender: str = "", region: str = "", ws: Workspace = Depends(workspace)) -> dict:
+    """Who would be in the panel with these settings, for the preview before the run."""
+    cfg = _panel_cfg(panel_size, age_min, age_max, gender, region)
+    try:
+        people = adtest_pipeline.choose_panel(cfg)
+    except adtest_pipeline.PanelError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"count": len(people), "people": [{"id": p.id, "name": p.name, "age": p.age, "gender": p.gender, "place": p.place, "background": p.background,
+                                              "job": p.job, "mindset": p.mindset, "age_group": p.age_group, "region": p.region} for p in people]}
 
 
 @router.post("/api/adtest/run")
 async def run(ad_type: Literal["video", "static"] = Form(...), brand: str = Form(""), product: str = Form(""), headline: str = Form(""),
-              ad_copy: str = Form("", alias="copy"), audience: str = Form(""), objective: str = Form(""), market_notes: str = Form(""),
-              file: UploadFile = File(...), ws: Workspace = Depends(workspace)) -> dict:
+              ad_copy: str = Form("", alias="copy"), audience: str = Form(""), objective: str = Form(""), market_notes: str = Form(""), panel_size: str = Form("quick"), age_min: int = Form(0), age_max: int = Form(120),
+              gender: str = Form(""), region: str = Form(""), file: UploadFile = File(...), ws: Workspace = Depends(workspace)) -> dict:
     rate_limit(ws.sid + ":adtest", 6)
     if not llm.configured():
         raise HTTPException(503, "Gemini is not configured on the server. Set GEMINI_API_KEY and restart.")
@@ -87,11 +110,24 @@ async def run(ad_type: Literal["video", "static"] = Form(...), brand: str = Form
         vision_engine.check_upload(ad_type, file.filename or "", bytes(data))
     except vision_engine.AdFileError as exc:
         raise HTTPException(422, str(exc)) from exc
+    cfg = _panel_cfg(panel_size, age_min, age_max, gender, region)
+    try:
+        adtest_pipeline.choose_panel(cfg)
+    except adtest_pipeline.PanelError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    key = adtest_pipeline.cache_key(brief, cfg, bytes(data))
+    hit = adtest_pipeline.cache_get(key)
     jid = uuid.uuid4().hex
+    if hit is not None:
+        with LOCK:
+            _trim()
+            JOBS[jid] = {"owner": ws.user_id, "created": time.time(), "status": "done", "progress": 1.0, "message": "Done (saved result, no tokens used)", "result": hit, "error": None}
+        log.info("[adtest] job %s served from the result cache", jid[:8])
+        return {"job": jid}
     with LOCK:
         _trim()
         JOBS[jid] = {"owner": ws.user_id, "created": time.time(), "status": "running", "progress": 0.02, "message": "Starting", "result": None, "error": None}
-    threading.Thread(target=_work, args=(jid, brief, bytes(data), file.filename or "ad"), daemon=True, name=f"adtest-{jid[:6]}").start()
+    threading.Thread(target=_work, args=(jid, brief, bytes(data), file.filename or "ad", cfg, key), daemon=True, name=f"adtest-{jid[:6]}").start()
     log.info("[adtest] job %s started: user=%s type=%s file=%s size=%.1fMB", jid[:8], ws.user_id, ad_type, file.filename, len(data) / 1048576)
     return {"job": jid}
 
