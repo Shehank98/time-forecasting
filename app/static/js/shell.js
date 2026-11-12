@@ -29,7 +29,7 @@
       const s = await App.api.get('/api/model-status');
       const ok = s.backend === 'timesfm' && s.loaded;
       pill.innerHTML = `<span class="dot ${ok ? 'ok' : 'warn'}"></span><span class="txt">${ok ? 'Forecast engine ready' : s.backend === 'fallback' ? 'Fallback model in use' : 'Forecast engine starts on first run'}</span>`;
-      pill.title = s.backend === 'fallback' ? 'The main forecast model could not start; a simpler statistical model is in use.' : '';
+      pill.title = s.backend === 'fallback' ? 'The main forecast model could not start; a simpler statistical model is in use.' : (ok ? 'Forecast engine ready' : 'Forecast engine starts on first run');
     } catch (e) { pill.innerHTML = '<span class="dot"></span><span class="txt">Model status unavailable</span>'; }
   }
   function setClient(id) {
@@ -112,7 +112,7 @@
       side.setAttribute('aria-label', 'Main navigation');
       const b = me.branding; if (b && b.loader) loader.setStyle(b.loader);
       const mark = '<img src="/img/logo.png" alt="Ogilvy Orbit Forecasting" class="brand-wordmark"><img src="/img/mark.png" alt="" class="brand-mini">';
-      const link = (href, key, icon, label) => `<a href="${href}" title="${label}" ${active === key ? 'aria-current="page"' : ''}>${svg(icon)}<span class="txt">${label}</span></a>`;
+      const link = (href, key, icon, label, short) => `<a href="${href}" title="${label}" ${active === key ? 'aria-current="page"' : ''}>${svg(icon)}<span class="txt"><span class="long">${label}</span><span class="short">${short || label}</span></span></a>`;
       side.innerHTML = `
         <div class="brand">${mark}</div>
         <div class="client-pick">
@@ -123,12 +123,12 @@
         </div>
         <nav class="nav" aria-label="Workspaces">
           <div class="nav-label">Workspaces</div>
-          ${link('/', 'home', 'home', 'Mission control')}
-          ${link('/tv.html', 'tv', 'tv', 'TVR Audience Prediction')}
-          ${link('/lmrb.html', 'lmrb', 'chart', 'Market Prediction')}
-          ${link('/pitch.html', 'pitch', 'film', 'Client Pitch Evaluator')}
-          ${link('/adtest.html', 'adtest', 'spark', 'Pre-Launch Ad Test')}
-          ${me.user.is_admin ? `<div class="nav-label">Agency</div>${link('/admin.html', 'admin', 'admin', 'Admin')}` : ''}
+          ${link('/', 'home', 'home', 'Mission control', 'Home')}
+          ${link('/tv.html', 'tv', 'tv', 'TVR Audience Prediction', 'TVR')}
+          ${link('/lmrb.html', 'lmrb', 'chart', 'Market Prediction', 'Market')}
+          ${link('/pitch.html', 'pitch', 'film', 'Client Pitch Evaluator', 'Pitch')}
+          ${link('/adtest.html', 'adtest', 'spark', 'Pre-Launch Ad Test', 'Ad Test')}
+          ${me.user.is_admin ? `<div class="nav-label">Agency</div>${link('/admin.html', 'admin', 'admin', 'Admin', 'Admin')}` : ''}
         </nav>
         <div class="side-foot nav">
           <div class="model-pill" id="model-pill"><span class="dot"></span><span class="txt">Checking model</span></div>
