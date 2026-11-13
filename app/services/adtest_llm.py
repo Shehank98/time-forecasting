@@ -44,6 +44,7 @@ def _tally(resp: Any) -> None:
 
 
 PRO = "gemini-2.5-pro"
+FALLBACK = "gemini-2.5-flash"
 QUALITY: contextvars.ContextVar[str] = contextvars.ContextVar("adtest_quality", default="standard")
 
 
@@ -89,21 +90,47 @@ def explain_refusal(code: int | None, msg: str, model: str) -> str:
     return "Gemini refused the request: " + (msg[:240] if msg else "no reason given") + "."
 
 
+async def _probe(client: Any, name: str) -> tuple[bool, str]:
+    """A real but tiny generate call (a few tokens): the only reliable proof that this key can use this model."""
+    from google.genai import types
+
+    cfg = types.GenerateContentConfig(max_output_tokens=16, temperature=0)
+    if "pro" not in name:
+        cfg.thinking_config = types.ThinkingConfig(thinking_budget=0)
+    else:
+        cfg.thinking_config = types.ThinkingConfig(thinking_budget=128)
+        cfg.max_output_tokens = 200
+    try:
+        await client.aio.models.generate_content(model=name, contents="Reply with the word ok.", config=cfg)
+        return True, ""
+    except Exception as exc:  # noqa: BLE001
+        code, msg = gem.GeminiService._classify(exc)
+        return False, f"{explain_refusal(code, msg, name)} (Google said: {msg[:160]})"
+
+
 async def check_connection() -> dict:
-    """Asks Google for each model this card uses. Uses no tokens. Returns {ok, key_problem, models: [{model, ok, error}]}."""
-    problem = key_problem()
-    out = {"ok": False, "key_problem": problem, "models": []}
+    """Tries each model this card uses with a tiny request (a few tokens each), on the current Google endpoint and, in auto mode, on the other one.
+    Returns {ok, key_problem, backend, models: [{model, ok, error}], hint}."""
+    out = {"ok": False, "key_problem": key_problem(), "backend": gem.service.backend_name(), "models": [], "hint": ""}
     if not configured():
         return out
-    client = gem.service._get_client()
-    for name in dict.fromkeys([model_name(), panel_model(), PRO]):
-        try:
-            await client.aio.models.get(model=name)
-            out["models"].append({"model": name, "ok": True, "error": ""})
-        except Exception as exc:  # noqa: BLE001
-            code, msg = gem.GeminiService._classify(exc)
-            out["models"].append({"model": name, "ok": False, "error": explain_refusal(code, msg, name)})
-    out["ok"] = bool(out["models"]) and all(x["ok"] for x in out["models"])
+    names = list(dict.fromkeys([model_name(), panel_model(), PRO]))
+    for name in names:
+        ok, err = await _probe(gem.service._get_client(), name)
+        out["models"].append({"model": name, "ok": ok, "error": err})
+    out["ok"] = all(x["ok"] for x in out["models"])
+    if not out["ok"] and gem.service.can_switch():
+        other = gem.service.make_client(not gem.service._want_vertex())
+        alt = [(n, *(await _probe(other, n))) for n in names]
+        if sum(a[1] for a in alt) > sum(m["ok"] for m in out["models"]):
+            gem.service.switch_backend()
+            out["backend"] = gem.service.backend_name()
+            out["models"] = [{"model": n, "ok": ok, "error": err} for n, ok, err in alt]
+            out["ok"] = all(x["ok"] for x in out["models"])
+            out["hint"] = f"This key works on {out['backend']}, so the app switched to it. To make it permanent, set GEMINI_BACKEND={'vertex' if gem.service._want_vertex() else 'studio'} on the server."
+    bad = [m["model"] for m in out["models"] if not m["ok"]]
+    if PRO in bad and len(bad) < len(names):
+        out["hint"] = (out["hint"] + " " if out["hint"] else "") + "Gemini 2.5 Pro is not available to this key; the Ad Test will read the ad with Gemini 2.5 Flash instead. Turn on billing for Pro, or set GEMINI_ADTEST_MODEL=gemini-2.5-flash to stop this note."
     return out
 
 
@@ -138,8 +165,9 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
 
     client = gem.service._get_client()
     name = model or model_name()
-    last = ""
-    for i in range(attempts):
+    last, switched, i = "", False, 0
+    allow_fallback = os.environ.get("GEMINI_ADTEST_FALLBACK", "1") != "0"
+    while i < attempts:
         try:
             cfg = types.GenerateContentConfig(system_instruction=f"{system} {HOUSE_RULES}", response_mime_type="application/json",
                                               response_schema=schema, temperature=temperature, max_output_tokens=max_tokens)
@@ -158,9 +186,26 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
         except Exception as exc:  # noqa: BLE001
             code, msg = gem.GeminiService._classify(exc)
             last = msg[:200]
-            log.warning("[adtest] Gemini call failed (attempt %d, code %s): %s", i + 1, code, msg[:200])
+            log.warning("[adtest] Gemini call failed (attempt %d, code %s, model %s, %s): %s", i + 1, code, name, gem.service.backend_name(), msg[:300])
             if code in (400, 401, 403, 404):
+                # 1) a model this key cannot use: read with Flash instead, and say so in the report
+                if code == 404 and name != FALLBACK and allow_fallback:
+                    u = USAGE.get()
+                    if u is not None:
+                        u["fallback"] = f"{name} is not available to this API key, so {FALLBACK} was used instead."
+                    log.warning("[adtest] %s is not available to this key; using %s", name, FALLBACK)
+                    name = FALLBACK
+                    continue
+                # 2) a key that belongs to the other Google endpoint (AI Studio or Vertex AI express): try it once
+                if code in (401, 403, 404) and not switched and gem.service.can_switch():
+                    switched = True
+                    gem.service.switch_backend()
+                    client = gem.service._get_client()
+                    continue
+                if switched:
+                    gem.service.switch_backend()                       # neither endpoint worked: go back to where we started
                 log.error("[adtest] Gemini refused the request (code %s, model %s): %s", code, name, msg[:500])
-                raise gem.GeminiError(explain_refusal(code, msg, name), 502) from exc
+                raise gem.GeminiError(explain_refusal(code, msg, name) + f" (Google said: {msg[:160]})", 502) from exc
         await asyncio.sleep(min(8.0, 1.5 * (2 ** i)))
+        i += 1
     raise gem.GeminiError(f"Gemini could not complete this step ({last}). Please try again in a moment.", 502)

@@ -79,7 +79,7 @@
       const btn = e.currentTarget, box = $('#at-checkout'); btn.disabled = true; btn.textContent = 'Checking...';
       try {
         const c = await App.api.get('/api/adtest/check');
-        box.innerHTML = `<div class="banner ${c.ok ? 'good' : 'bad'}" style="margin-top:10px"><span>${c.ok ? '<b>Gemini is connected.</b> ' : '<b>Gemini is not reachable with this setup.</b> '}${c.key_problem ? esc(c.key_problem) + ' ' : ''}${(c.models || []).map((m) => `${esc(m.model)}: ${m.ok ? 'ready' : esc(m.error)}`).join(' &middot; ')}</span></div>`;
+        box.innerHTML = `<div class="banner ${c.ok ? 'good' : 'bad'}" style="margin-top:10px"><span>${c.ok ? '<b>Gemini is connected.</b> ' : (c.models || []).some((m) => m.ok) ? '<b>Gemini is connected, with a limit.</b> ' : '<b>Gemini is not reachable with this setup.</b> '}${c.key_problem ? esc(c.key_problem) + ' ' : ''}${(c.models || []).map((m) => `${esc(m.model)}: ${m.ok ? 'ready' : esc(m.error)}`).join(' &middot; ')}${c.backend ? ` <span class="muted small">(endpoint: ${esc(c.backend)})</span>` : ''}${c.hint ? `<br>${esc(c.hint)}` : ''}</span></div>`;
       } catch (x) { box.innerHTML = `<div class="banner bad" style="margin-top:10px"><span>${esc(x.message)}</span></div>`; }
       btn.disabled = false; btn.textContent = 'Check the Gemini connection';
     };

@@ -516,17 +516,63 @@ def test_key_check_only_flags_certain_problems_and_refusals_are_explained(monkey
     assert "permission denied" in adtest_llm.explain_refusal(403, "PERMISSION_DENIED", "gemini-2.5-pro")
 
 
-def test_connection_check_reports_each_model(monkeypatch):
+def test_connection_check_tries_each_model_and_flags_a_missing_pro(monkeypatch):
     from types import SimpleNamespace
 
     class Models:
-        async def get(self, model):
-            if model == "gemini-2.5-flash":
-                raise Exception("404 NOT_FOUND. models/gemini-2.5-flash is not found")
-            return SimpleNamespace(name=model)
+        async def generate_content(self, model, contents, config):
+            if model == "gemini-2.5-pro":
+                raise Exception("404 NOT_FOUND. models/gemini-2.5-pro is not found for API version v1beta")
+            return SimpleNamespace(text="ok")
 
-    monkeypatch.setenv("GEMINI_API_KEY", "AIza" + "x" * 35)
+    monkeypatch.setenv("GEMINI_API_KEY", "some-key")
+    monkeypatch.setenv("GEMINI_BACKEND", "studio")
     monkeypatch.setattr(adtest_llm.gem.service, "_get_client", lambda: SimpleNamespace(aio=SimpleNamespace(models=Models())))
     out = asyncio.run(adtest_llm.check_connection())
     by = {m["model"]: m for m in out["models"]}
-    assert by["gemini-2.5-pro"]["ok"] and not by["gemini-2.5-flash"]["ok"] and out["ok"] is False and out["key_problem"] is None
+    assert not by["gemini-2.5-pro"]["ok"] and by["gemini-2.5-flash"]["ok"] and "Gemini 2.5 Flash instead" in out["hint"]
+
+
+def test_a_missing_pro_model_falls_back_to_flash_and_says_so(monkeypatch):
+    from types import SimpleNamespace
+    seen = []
+
+    class Models:
+        async def generate_content(self, model, contents, config):
+            seen.append(model)
+            if model == "gemini-2.5-pro":
+                raise Exception("404 NOT_FOUND. models/gemini-2.5-pro is not found")
+            return SimpleNamespace(text='{"reactions": []}', usage_metadata=None)
+
+    monkeypatch.setenv("GEMINI_API_KEY", "some-key")
+    monkeypatch.setenv("GEMINI_BACKEND", "studio")
+    monkeypatch.setattr(adtest_llm.gem.service, "_get_client", lambda: SimpleNamespace(aio=SimpleNamespace(models=Models())))
+    u = adtest_llm.new_usage()
+    out = asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys"))
+    assert out.reactions == [] and seen == ["gemini-2.5-pro", "gemini-2.5-flash"] and "was used instead" in u["fallback"]
+
+
+def test_a_refused_key_tries_the_other_google_endpoint_once(monkeypatch):
+    from types import SimpleNamespace
+    svc = adtest_llm.gem.service
+    calls = []
+
+    def client_for(vertex):
+        class Models:
+            async def generate_content(self, model, contents, config):
+                calls.append(vertex)
+                if not vertex:
+                    raise Exception("401 UNAUTHENTICATED. API key not valid. Please pass a valid API key.")
+                return SimpleNamespace(text='{"reactions": []}', usage_metadata=None)
+        return SimpleNamespace(aio=SimpleNamespace(models=Models()))
+
+    monkeypatch.setenv("GEMINI_API_KEY", "AQ.example")
+    monkeypatch.setenv("GEMINI_BACKEND", "auto")
+    monkeypatch.setattr(svc, "make_client", client_for)
+    monkeypatch.setattr(svc, "vertex", None)
+    monkeypatch.setattr(svc, "_client", None)
+    out = asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys", model="gemini-2.5-flash"))
+    assert out.reactions == [] and calls == [False, True] and svc.backend_name().startswith("Vertex")
+    monkeypatch.setattr(svc, "_client", None)
+
+

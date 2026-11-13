@@ -119,13 +119,15 @@ async def run(brief: AdBrief, data: bytes, filename: str, cfg: PanelConfig | Non
         log.exception("[adtest] heatmap could not be drawn")
         heat = ""
     caveats = CAVEATS + vision.notes
+    if usage.get("fallback"):
+        caveats.append(usage["fallback"])
     if len(personas) < len(panel):
         caveats.append(f"Gemini skipped {len(panel) - len(personas)} of {len(panel)} personas in at least one run, so those results use fewer people.")
     if fg.runs and len(fg.runs) >= 2:
         caveats.append(f"The margin of error comes from {len(fg.runs)} repeated runs of the simulated panel. It does not include any error in the image analysis.")
     log.info("[adtest] finished in %.1fs: risk=%s impact=%.0f hook=%.0f viability=%.1f tokens in=%d out=%d calls=%d", time.perf_counter() - t0, risk.risk_level,
              vision.visual_impact, vision.hook_score, via.score, usage["input_tokens"], usage["output_tokens"], usage["calls"])
-    res = AdTestResult(brief=brief, vision=vision, personas=personas, risk=risk, scorecard=card, panel=summary, viability=via, usage=Usage(**usage), thumbnail=an.thumb, heatmap=heat,
+    res = AdTestResult(brief=brief, vision=vision, personas=personas, risk=risk, scorecard=card, panel=summary, viability=via, usage=Usage(**{k: v for k, v in usage.items() if k in ('input_tokens', 'output_tokens', 'calls')}), thumbnail=an.thumb, heatmap=heat,
                        model=f"{llm.model_name()} (ad), {llm.panel_model()} (panel)", caveats=caveats)
     adtest_benchmarks.attach(res)
     return res

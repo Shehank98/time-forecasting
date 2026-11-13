@@ -227,15 +227,40 @@ class GeminiService:
     def configured(self) -> bool:
         return bool(os.environ.get("GEMINI_API_KEY"))
 
+    # GEMINI_BACKEND: "studio" (Google AI Studio keys), "vertex" (Vertex AI express mode keys) or "auto" (default). In auto mode the app starts with
+    # AI Studio and, if Google refuses a key or a model there, tries Vertex AI once and keeps whichever works (see switch_backend).
+    vertex: bool | None = None
+
+    def _want_vertex(self) -> bool:
+        if self.vertex is not None:
+            return self.vertex
+        return os.environ.get("GEMINI_BACKEND", "auto").strip().lower() == "vertex"
+
+    def make_client(self, vertex: bool) -> Any:
+        key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+        if not key:
+            raise GeminiError("Gemini is not configured on the server. Set GEMINI_API_KEY and restart.", 503)
+        from google import genai
+        from google.genai import types
+
+        opts = types.HttpOptions(timeout=int(os.environ.get("GEMINI_TIMEOUT_MS", "60000")))
+        return genai.Client(vertexai=True, api_key=key, http_options=opts) if vertex else genai.Client(api_key=key, http_options=opts)
+
+    def backend_name(self) -> str:
+        return "Vertex AI (express mode)" if self._want_vertex() else "Google AI Studio"
+
+    def can_switch(self) -> bool:
+        return os.environ.get("GEMINI_BACKEND", "auto").strip().lower() == "auto"
+
+    def switch_backend(self) -> None:
+        """Use the other Google endpoint from now on (auto mode only)."""
+        self.vertex = not self._want_vertex()
+        self._client = None
+        log.warning("Gemini: switched to %s", self.backend_name())
+
     def _get_client(self) -> Any:
         if self._client is None:
-            key = os.environ.get("GEMINI_API_KEY")
-            if not key:
-                raise GeminiError("Gemini is not configured on the server. Set GEMINI_API_KEY and restart.", 503)
-            from google import genai
-            from google.genai import types
-
-            self._client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=int(os.environ.get("GEMINI_TIMEOUT_MS", "60000"))))
+            self._client = self.make_client(self._want_vertex())
         return self._client
 
     def _call(self, prompt: str, schema: type[BaseModel]) -> str:
@@ -251,6 +276,9 @@ class GeminiService:
     @staticmethod
     def _classify(exc: Exception) -> tuple[int | None, str]:
         code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+        if code is None:                          # some errors only carry the status in their text, e.g. "404 NOT_FOUND. ..."
+            m = re.match(r"\s*(\d{3})\b", str(exc))
+            code = int(m.group(1)) if m else None
         name = type(exc).__name__.lower()
         if code is None and ("timeout" in name or "timed out" in str(exc).lower() or "deadline" in str(exc).lower()):
             code = 504
