@@ -485,7 +485,8 @@ def test_report_shows_viability_margin_heatmap_benchmarks_and_actions(fake):
     from app.services import adtest_report
     res = asyncio.run(adtest_pipeline.run(AdBrief(ad_type="static", brand="R Co", goal="awareness"), png_bytes(), "ad.png", PanelConfig(runs=3)))
     html = adtest_report.build_html(res)
-    assert "Pre-launch viability" in html and "&plusmn;" in html and "attention zones" in html and res.heatmap[:40] in html
+    assert "Pre-launch viability" in html and "&plusmn;" in html and "Where the eye goes" in html and res.heatmap[:40] in html
+    assert 'id="data"' in html and 'data-go="audience"' in html and "localStorage" in html and "Print or save PDF" in html
     assert "Benchmarks" in html and "Recommended actions" in html and "Indicative rules of thumb" in html and "How the viability score is built" in html and "Executive summary" in html and "Every persona" in html
 
 
