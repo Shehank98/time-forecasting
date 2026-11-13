@@ -68,6 +68,10 @@ def client() -> Any:
 _SUGGEST = re.compile(r"use\s+(?:the\s+)?(?:model\s+)?models/([A-Za-z0-9._-]+)")
 
 
+# retired model -> the replacement Google suggested and that worked, remembered so later calls go straight to it
+RETIRED: dict[str, str] = {}
+
+
 def suggested_model(msg: str) -> str | None:
     """Google sometimes retires a model for new users and names the one to use instead ("Please update your code to use models/...")."""
     m = _SUGGEST.search(msg or "")
@@ -140,7 +144,7 @@ async def check_connection() -> dict:
     out = {"ok": False, "key_problem": key_problem(), "backend": gem.service.backend_name(), "models": [], "hint": ""}
     if not configured():
         return out
-    names = list(dict.fromkeys([model_name(), panel_model(), PRO]))
+    names = list(dict.fromkeys(RETIRED.get(n, n) for n in [model_name(), panel_model(), PRO]))
     for name in names:
         ok, err = await _probe(client(), name)
         alt = suggested_model(err) if not ok else None
@@ -197,6 +201,8 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
 
     cl = client()
     name = model or model_name()
+    name = RETIRED.get(name, name)
+    first_name = name
     last, switched, tried_alt, i = "", False, False, 0
     allow_fallback = os.environ.get("GEMINI_ADTEST_FALLBACK", "1") != "0"
     while i < attempts:
@@ -209,6 +215,8 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
                 cfg.thinking_config = types.ThinkingConfig(thinking_budget=max(128, thinking) if "pro" in name else thinking)
             resp = await cl.aio.models.generate_content(model=name, contents=parts, config=cfg)
             _tally(resp)
+            if first_name != name and tried_alt:
+                RETIRED[first_name] = name
             return schema.model_validate(no_emoji(json.loads(_strip(_text_of(resp)))))
         except gem.GeminiError:
             raise

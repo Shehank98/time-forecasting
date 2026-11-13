@@ -243,8 +243,12 @@ class GeminiService:
         from google import genai
         from google.genai import types
 
-        opts = types.HttpOptions(timeout=int(os.environ.get("GEMINI_TIMEOUT_MS", "60000")))
-        return genai.Client(vertexai=True, api_key=key, http_options=opts) if vertex else genai.Client(api_key=key, http_options=opts)
+        timeout = int(os.environ.get("GEMINI_TIMEOUT_MS", "60000"))
+        if vertex:
+            return genai.Client(vertexai=True, api_key=key, http_options=types.HttpOptions(timeout=timeout))
+        # AI Studio: v1beta, because thinking settings and preview models (for example gemini-3.1-pro-preview) are only served there
+        version = os.environ.get("GEMINI_API_VERSION", "v1beta").strip() or "v1beta"
+        return genai.Client(api_key=key, http_options=types.HttpOptions(timeout=timeout, api_version=version))
 
     def backend_name(self) -> str:
         return "Vertex AI (express mode)" if self._want_vertex() else "Google AI Studio"

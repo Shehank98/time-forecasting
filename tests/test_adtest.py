@@ -609,3 +609,30 @@ def test_a_retired_model_switches_to_the_one_google_suggests(monkeypatch):
     asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys"))
     assert seen == ["gemini-2.5-pro", "gemini-3-pro-preview"] and "Google suggests" in u["fallback"]
     assert adtest_llm.suggested_model("Please update your code to use models/gemini-3-pro-preview.") == "gemini-3-pro-preview"
+
+
+def test_ai_studio_client_uses_v1beta_for_thinking_and_preview_models(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "some-key")
+    monkeypatch.delenv("GEMINI_API_VERSION", raising=False)
+    c = adtest_llm.gem.service.make_client(False)
+    assert c._api_client._http_options.api_version == "v1beta"
+
+
+def test_the_replacement_for_a_retired_model_is_remembered(monkeypatch):
+    from types import SimpleNamespace
+    seen = []
+
+    class Models:
+        async def generate_content(self, model, contents, config):
+            seen.append(model)
+            if model == "gemini-2.5-pro":
+                raise Exception("404 NOT_FOUND. This model models/gemini-2.5-pro is no longer available to new users. Please update your code to use models/gemini-3.1-pro-preview for the latest features.")
+            return SimpleNamespace(text='{"reactions": []}', usage_metadata=None)
+
+    monkeypatch.setenv("GEMINI_API_KEY", "some-key")
+    monkeypatch.setenv("GEMINI_BACKEND", "studio")
+    monkeypatch.setattr(adtest_llm.gem.service, "make_client", lambda vertex: SimpleNamespace(aio=SimpleNamespace(models=Models())))
+    monkeypatch.setattr(adtest_llm, "RETIRED", {})
+    asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys"))
+    asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys"))
+    assert seen == ["gemini-2.5-pro", "gemini-3.1-pro-preview", "gemini-3.1-pro-preview"]
