@@ -224,6 +224,11 @@ class PanelSummary(BaseModel):
     resonance: float = 0.0
     emotions: list[EmotionShare] = Field(default_factory=list)
     run_means: list[float] = Field(default_factory=list, description="Panel mean purchase intent in each run")
+    weighted: bool = False
+    effective_n: float = 0.0
+    purchase_raw: float = 0.0
+    share_raw: float = 0.0
+    weight_note: str = ""
 
 
 class Usage(BaseModel):
@@ -234,12 +239,13 @@ class Usage(BaseModel):
 
 
 class PanelConfig(BaseModel):
-    size: Literal["quick", "standard", "full"] = "quick"
+    size: Literal["quick", "standard", "full", "complete"] = "quick"
     age_min: int = Field(default=0, ge=0, le=120)
     age_max: int = Field(default=120, ge=0, le=120)
     gender: Literal["", "F", "M"] = ""
     region: str = ""
     runs: int = Field(default=3, ge=1, le=5, description="Monte Carlo runs of the whole panel; 2 or more gives margins of error")
+    weighted: bool = True      # weight the panel to the Sri Lankan population (gender, ethnic group, age, region)
     quality: Literal["standard", "best"] = "standard"      # best: Gemini 2.5 Pro for every step
 
 

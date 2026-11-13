@@ -1,0 +1,7 @@
+{
+  "note": "Approximate shares of Sri Lankans aged 16 and over, used to weight the persona panel so its averages reflect the country rather than the mix of people who happened to be in the panel. Ethnic group and gender shares follow the 2012 Census of Population and Housing (Department of Census and Statistics); age and region shares are rounded estimates. Replace these with the latest official figures when you have them; the next test reads this file.",
+  "gender": {"F": 51.6, "M": 48.4},
+  "ethnic_group": {"Sinhala": 74.9, "Sri Lankan Tamil": 11.2, "Muslim": 9.4, "Up-country Tamil": 4.1, "Other": 0.4},
+  "age_group": {"16 to 24": 15, "25 to 34": 18, "35 to 44": 18, "45 to 54": 16, "55 and over": 33},
+  "region": {"Colombo": 11, "Other towns and villages": 71, "North and East": 13, "Estates": 4, "Working abroad": 1}
+}

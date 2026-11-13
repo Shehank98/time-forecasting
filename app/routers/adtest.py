@@ -32,6 +32,11 @@ MAX_JOBS = 40
 FIELD_MAX = 4000
 
 
+def _slug(t: str) -> str:
+    import re
+    return (re.sub(r"[^A-Za-z0-9]+", "-", t).strip("-").lower() or "ad")[:60]
+
+
 def _trim() -> None:
     now = time.time()
     for k in [k for k, j in JOBS.items() if now - j["created"] > KEEP_SECONDS]:
@@ -63,9 +68,9 @@ def _work(jid: str, brief: AdBrief, data: bytes, filename: str, cfg: PanelConfig
         _set(jid, status="error", error="The ad test hit a problem. Please try again.", code=500)
 
 
-def _panel_cfg(panel_size: str, age_min: int, age_max: int, gender: str, region: str, runs: int = 3, quality: str = "standard") -> PanelConfig:
+def _panel_cfg(panel_size: str, age_min: int, age_max: int, gender: str, region: str, runs: int = 3, quality: str = "standard", weighted: bool = True) -> PanelConfig:
     try:
-        return PanelConfig(size=panel_size, age_min=age_min, age_max=age_max, gender=gender, region=region, runs=runs, quality=quality)
+        return PanelConfig(size=panel_size, age_min=age_min, age_max=age_max, gender=gender, region=region, runs=runs, quality=quality, weighted=weighted)
     except ValidationError as exc:
         raise HTTPException(422, "The audience settings are not valid.") from exc
 
@@ -101,7 +106,7 @@ def panel(panel_size: str = "quick", age_min: int = 0, age_max: int = 120, gende
 @router.post("/api/adtest/run")
 async def run(ad_type: Literal["video", "static"] = Form(...), brand: str = Form(""), product: str = Form(""), headline: str = Form(""),
               ad_copy: str = Form("", alias="copy"), audience: str = Form(""), objective: str = Form(""), market_notes: str = Form(""), panel_size: str = Form("quick"), age_min: int = Form(0), age_max: int = Form(120),
-              gender: str = Form(""), region: str = Form(""), runs: int = Form(3), quality: str = Form("standard"),
+              gender: str = Form(""), region: str = Form(""), runs: int = Form(3), quality: str = Form("standard"), weighted: bool = Form(True),
               category: str = Form(""), goal: str = Form(""), file: UploadFile = File(...), ws: Workspace = Depends(workspace)) -> dict:
     rate_limit(ws.sid + ":adtest", 6)
     if not llm.configured():
@@ -121,7 +126,7 @@ async def run(ad_type: Literal["video", "static"] = Form(...), brand: str = Form
         vision_engine.check_upload(ad_type, file.filename or "", bytes(data))
     except vision_engine.AdFileError as exc:
         raise HTTPException(422, str(exc)) from exc
-    cfg = _panel_cfg(panel_size, age_min, age_max, gender, region, runs, quality)
+    cfg = _panel_cfg(panel_size, age_min, age_max, gender, region, runs, quality, weighted)
     try:
         adtest_pipeline.choose_panel(cfg)
     except adtest_pipeline.PanelError as exc:
@@ -161,5 +166,7 @@ def report(result: dict, ws: Workspace = Depends(workspace)) -> HTMLResponse:
         r = AdTestResult.model_validate(result)
     except ValidationError as exc:
         raise HTTPException(422, "The result is incomplete. Run the test again.") from exc
-    html = adtest_report.build_html(r)
-    return HTMLResponse(html, headers={"Content-Disposition": 'attachment; filename="ad-audit-report.html"'})
+    from ..services import repo
+    client = (repo.get_client(ws.client_id) or {}).get("name", "")
+    html = adtest_report.build_html(r, repo.get_branding(), client)
+    return HTMLResponse(html, headers={"Content-Disposition": f'attachment; filename="{_slug(r.brief.brand or client or "ad")}-pre-launch-audit.html"'})

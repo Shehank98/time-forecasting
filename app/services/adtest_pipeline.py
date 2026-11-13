@@ -15,7 +15,7 @@ from typing import Callable
 
 from . import adtest_llm as llm
 from . import cultural_risk_engine as risk_engine
-from . import adtest_benchmarks, adtest_overlay, adtest_viability, panel_stats, persona_bank, persona_engine, vision_engine
+from . import adtest_benchmarks, adtest_overlay, adtest_viability, adtest_weights, panel_stats, persona_bank, persona_engine, vision_engine
 from .adtest_models import AdBrief, AdTestResult, PanelConfig, Usage
 
 log = logging.getLogger(__name__)
@@ -109,9 +109,15 @@ async def run(brief: AdBrief, data: bytes, filename: str, cfg: PanelConfig | Non
     risk = await risk_engine.audit(brief, vision, personas, light)
     say(0.95, "Building the scorecard")
     card = risk_engine.make_scorecard(vision, personas, risk)
-    summary = panel_stats.summarise(personas, len(panel), fg.runs)
+    present = [persona_bank.BY_ID[r.persona_id] for r in personas if r.persona_id in persona_bank.BY_ID]
+    weights = adtest_weights.rake(present) if cfg.weighted else {}
+    runs = persona_engine.weighted_runs(fg.per_run, weights) if fg.per_run else fg.runs
+    note = ("Averages are weighted so the panel matches Sri Lanka's adults by gender, ethnic group, age and region (population shares in "
+            "app/config/population_lk.json).") if weights else "Averages are not weighted: every persona counts the same."
+    summary = panel_stats.summarise(personas, len(panel), runs, weights, note)
+    card.avg_purchase_intent, card.avg_share_intent = summary.purchase, summary.share
     via = adtest_viability.compute(vision, summary.purchase, summary.share, card.backlash_risk, card.risk_level, brief.goal,
-                                   [r.purchase for r in fg.runs], [r.share for r in fg.runs])
+                                   [r.purchase for r in runs], [r.share for r in runs])
     zones = vision.zones
     try:
         heat = adtest_overlay.heatmap_uri(an.ref, zones) if zones else ""
@@ -123,8 +129,9 @@ async def run(brief: AdBrief, data: bytes, filename: str, cfg: PanelConfig | Non
         caveats.append(usage["fallback"])
     if len(personas) < len(panel):
         caveats.append(f"Gemini skipped {len(panel) - len(personas)} of {len(panel)} personas in at least one run, so those results use fewer people.")
-    if fg.runs and len(fg.runs) >= 2:
-        caveats.append(f"The margin of error comes from {len(fg.runs)} repeated runs of the simulated panel. It does not include any error in the image analysis.")
+    caveats.append(note + (f" The weighted panel is worth about {summary.effective_n:.0f} unweighted people." if weights else ""))
+    if runs and len(runs) >= 2:
+        caveats.append(f"The margin of error comes from {len(runs)} repeated runs of the simulated panel. It does not include any error in the image analysis.")
     log.info("[adtest] finished in %.1fs: risk=%s impact=%.0f hook=%.0f viability=%.1f tokens in=%d out=%d calls=%d", time.perf_counter() - t0, risk.risk_level,
              vision.visual_impact, vision.hook_score, via.score, usage["input_tokens"], usage["output_tokens"], usage["calls"])
     res = AdTestResult(brief=brief, vision=vision, personas=personas, risk=risk, scorecard=card, panel=summary, viability=via, usage=Usage(**{k: v for k, v in usage.items() if k in ('input_tokens', 'output_tokens', 'calls')}), thumbnail=an.thumb, heatmap=heat,

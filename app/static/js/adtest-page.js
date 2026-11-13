@@ -17,7 +17,7 @@
     'Asking a Kandy grandmother if it is respectful', 'Checking colours and logo size at one glance', 'Counting how many people would share it', 'Listening to the Jaffna and Batticaloa view'];
   let root, tipTimer = null, litTimer = null;
   let st = { type: 'static', file: null, url: '', status: null, result: null, tab: 'crowd', running: false, filter: 'All', form: {}, panel: { size: 'quick', age_min: '', age_max: '', gender: '', region: '' },
-    cfg: { category: '', goal: 'consideration', runs: 3, quality: 'standard' }, map: 'ad', preview: [], seg: { kind: 'age', label: null }, ppl: { mood: 'All', q: '', page: 1 } };
+    cfg: { category: '', goal: 'consideration', runs: 3, quality: 'standard', weighted: true }, map: 'ad', preview: [], seg: { kind: 'age', label: null }, ppl: { mood: 'All', q: '', page: 1 } };
 
   const kpi = (label, value, sub, cls = '') => `<div class="kpi ${cls}"><div class="k-lbl">${esc(label)}</div><div class="k-val">${value}</div>${sub ? `<div class="k-sub">${sub}</div>` : ''}</div>`;
   const meter = (v, top = 10) => `<span class="at-meter" role="img" aria-label="${n1(v)} out of ${top}"><i style="--w:${Math.max(0, Math.min(100, (v / top) * 100))}%"></i></span>`;
@@ -30,8 +30,8 @@
   const stop = () => { clearInterval(tipTimer); clearInterval(litTimer); tipTimer = litTimer = null; };
 
   // ------------------------------------------------------------------ the form
-  const SIZES = [['quick', 'Quick', 'Balanced mix, the core four plus others. Best for a first look.'], ['standard', 'Standard', 'Every age, region and mindset covered properly.'],
-    ['full', 'Full 100', 'The whole bank. Use it for a final check before launch.']];
+  const SIZES = [['quick', 'Quick', 'A small panel that already mirrors the country. Best for a first look.'], ['standard', 'Standard', 'Every age, region and mindset covered properly.'],
+    ['full', 'Full 100', 'A hundred people chosen to match Sri Lanka by gender, ethnic group, age and region.'], ['complete', 'Complete 200', 'The whole bank of 200. The most stable reading, for a final check before launch.']];
   function form() {
     const f = st.form, video = st.type === 'video', lim = (st.status || {}).limits || {}, p = st.panel, S = st.status || {};
     const accept = video ? '.mp4,.mov,.webm,.m4v' : '.jpg,.jpeg,.png,.webp';
@@ -53,7 +53,8 @@
       <div class="at-panelbox"><div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap"><b>Who should react?</b><span class="muted small">${S.bank || 100} Sri Lankan personas: ages 16 to 75, towns, villages, estates, the North and East, many mindsets</span></div>
         <div class="at-sizes">${SIZES.map(([k, l, t]) => sizeBtn(k, l, t)).join('')}</div>
         <div class="at-opts"><div><span class="muted small">Reliability</span><div class="seg" id="at-runs" role="group" aria-label="Runs"><button type="button" data-r="1" aria-pressed="${st.cfg.runs < 3}" title="One pass of the panel. Fastest and cheapest, no margin of error.">Fast, 1 run</button><button type="button" data-r="3" aria-pressed="${st.cfg.runs >= 3}" title="The whole panel answers 3 times (Monte Carlo). Gives margins of error. About 2 to 3 times the panel cost.">Reliable, 3 runs</button></div></div>
-          <div><span class="muted small">Model quality</span><div class="seg" id="at-qual" role="group" aria-label="Model quality"><button type="button" data-q="standard" aria-pressed="${st.cfg.quality === 'standard'}" title="Gemini 2.5 Pro reads the ad; a cheaper model runs the panel and the culture check.">Standard</button><button type="button" data-q="best" aria-pressed="${st.cfg.quality === 'best'}" title="Gemini 2.5 Pro for every step. Costs more.">Best, Pro everywhere</button></div></div></div>
+          <div><span class="muted small">Model quality</span><div class="seg" id="at-qual" role="group" aria-label="Model quality"><button type="button" data-q="standard" aria-pressed="${st.cfg.quality === 'standard'}" title="Gemini 2.5 Pro reads the ad; a cheaper model runs the panel and the culture check.">Standard</button><button type="button" data-q="best" aria-pressed="${st.cfg.quality === 'best'}" title="Gemini 2.5 Pro for every step. Costs more.">Best, Pro everywhere</button></div></div>
+          <label class="row small at-wt" title="Weights each persona so the panel matches Sri Lankan adults by gender, ethnic group, age and region (census shares). Switch off to count every persona the same."><input type="checkbox" id="at-weighted" ${st.cfg.weighted ? 'checked' : ''}> Weight to the Sri Lankan population</label></div>
         <details class="g-det" ${p.gender || p.region || p.age_min || p.age_max ? 'open' : ''}><summary>Choose a specific audience (optional)</summary><div class="at-four" style="margin-top:8px">${sel('age_min', 'Age from', ages, p.age_min)}${sel('age_max', 'Age to', [['', 'Any']].concat([24, 34, 44, 54, 64, 75].map((a) => [a, String(a)])), p.age_max)}
           ${sel('gender', 'Gender', [['', 'Everyone'], ['F', 'Women'], ['M', 'Men']], p.gender)}${sel('region', 'Where', [['', 'Anywhere']].concat((S.regions || []).map((r) => [r, r])), p.region)}</div></details>
         <div class="at-crowd" id="at-crowd" aria-label="The people who will react"></div><div class="muted small" id="at-crowdnote"></div></div>
@@ -67,6 +68,7 @@
     ['category', 'goal'].forEach((k) => { const el = $('#at-' + k); if (el) el.onchange = () => { st.cfg[k] = el.value; }; });
     $$('#at-runs button').forEach((b) => { b.onclick = () => { readForm(); st.cfg.runs = +b.dataset.r; form(); }; });
     $$('#at-qual button').forEach((b) => { b.onclick = () => { readForm(); st.cfg.quality = b.dataset.q; form(); }; });
+    { const wt = $('#at-weighted'); if (wt) wt.onchange = () => { st.cfg.weighted = wt.checked; }; }
     const input = $('#at-file'), drop = $('#at-drop');
     input.onchange = () => pick(input.files[0]);
     drop.onclick = (e) => { if (!e.target.closest('video')) input.click(); };
@@ -110,7 +112,7 @@
   // ------------------------------------------------------------------ running: the simulation stage
   async function run() {
     readForm();
-    const fd = new FormData(); fd.append('ad_type', st.type); fd.append('file', st.file); fd.append('panel_size', st.panel.size); fd.append('runs', st.cfg.runs); fd.append('quality', st.cfg.quality); fd.append('category', st.cfg.category || ''); fd.append('goal', st.cfg.goal || '');
+    const fd = new FormData(); fd.append('ad_type', st.type); fd.append('file', st.file); fd.append('panel_size', st.panel.size); fd.append('runs', st.cfg.runs); fd.append('weighted', st.cfg.weighted ? 'true' : 'false'); fd.append('quality', st.cfg.quality); fd.append('category', st.cfg.category || ''); fd.append('goal', st.cfg.goal || '');
     ['age_min', 'age_max', 'gender', 'region'].forEach((k) => { if (st.panel[k] !== '' && st.panel[k] != null) fd.append(k, st.panel[k]); });
     Object.entries(st.form).forEach(([k, v]) => fd.append(k, v || ''));
     st.running = true; st.result = null; paint(); stage(0.01, 'Uploading the ad');
@@ -216,6 +218,7 @@
       <div class="at-segs">${segs.map((s, i) => `<button type="button" class="at-seg ${sg.label === s.label ? 'on' : ''}" data-l="${esc(s.label)}" style="--d:${i * 60}ms"><span class="n">${esc(s.label)} <small class="muted">${s.n}</small></span>
           <span class="b">${meter(s.purchase)}<b>${n1(s.purchase)}</b></span><span class="m"><i class="s-good" style="--w:${s.positive}%"></i><i class="s-bad" style="--w:${s.negative}%"></i></span></button>`).join('')}</div>
       <div class="muted small" style="margin-top:4px">Bars: would buy out of 10. Small bar: share who liked it (green) and who mocked or got angry (red).</div>
+      ${pn ? `<p class="small muted" style="margin:10px 0 0">${pn.weighted ? `Weighted to Sri Lankan adults by gender, ethnic group, age and region. The weighted panel is worth about ${n0(pn.effective_n)} people (unweighted would buy ${n1(pn.purchase_raw)} / 10).` : 'Not weighted: every persona counts the same.'}</p>` : ''}
       ${pn && pn.purchase_ci && pn.purchase_ci.margin != null ? `<p class="small" style="margin:10px 0 0"><b>Would buy ${pm(pn.purchase, pn.purchase_ci.margin)} / 10</b> and <b>would share ${pm(pn.share, pn.share_ci ? pn.share_ci.margin : null)} / 10</b>, with a 95% margin of error from ${pn.runs} repeated runs (the runs averaged ${pn.run_means.map((x) => x.toFixed(1)).join(', ')}).</p>` : ''}
       ${pn && pn.emotions && pn.emotions.length ? `<h4>Emotional resonance <small class="muted">pull ${n1(pn.resonance)} / 10</small></h4><div class="at-emos">${pn.emotions.map((e, i) => `<div class="at-emo" style="--d:${i * 60}ms"><span>${esc(e.emotion)}</span>${meter(e.percent, 100)}<b>${n0(e.percent)}%</b></div>`).join('')}</div>` : ''}
       ${pn && pn.concerns.length ? `<h4>Most common worries</h4><div class="at-worries">${pn.concerns.map((c) => `<span class="badge warn">${esc(c.text)} <b>${c.count}</b></span>`).join('')}</div>` : ''}

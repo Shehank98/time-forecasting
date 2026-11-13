@@ -79,6 +79,22 @@ class RunPanel:
 class FocusGroup:
     results: list[PersonaResult]
     runs: list[RunPanel] = field(default_factory=list)
+    per_run: list[dict] = field(default_factory=list)      # each run: {persona id: its reaction}
+
+
+def weighted_runs(per_run: list[dict], weights: dict[str, float]) -> list[RunPanel]:
+    """The same per-run panel averages, with each persona counted by its population weight (1 for everyone when there are no weights)."""
+    out = []
+    for d in per_run:
+        items = list(d.items())
+        if not items:
+            continue
+        w = [weights.get(k, 1.0) for k, _ in items]
+        t = sum(w) or 1.0
+        avg = lambda f: sum(wi * f(v) for wi, (_, v) in zip(w, items)) / t  # noqa: E731
+        out.append(RunPanel(n=len(items), purchase=avg(lambda v: v.purchase_intent), share=avg(lambda v: v.share_intent), resonance=avg(lambda v: v.resonance),
+                            positive=100 * avg(lambda v: v.mood == "Positive"), negative=100 * avg(lambda v: v.mood in ("Troll", "Angry"))))
+    return out
 
 
 MOOD_ORDER = {"Angry": 0, "Troll": 1, "Neutral": 2, "Positive": 3}
@@ -137,4 +153,4 @@ async def run_focus_group(brief: AdBrief, vision: VisionResult | None, media: li
         v = list(d.values())
         rp.append(RunPanel(n=len(v), purchase=stats.mean([x.purchase_intent for x in v]), share=stats.mean([x.share_intent for x in v]), resonance=stats.mean([x.resonance for x in v]),
                            positive=100 * sum(x.mood == "Positive" for x in v) / len(v), negative=100 * sum(x.mood in ("Troll", "Angry") for x in v) / len(v)))
-    return FocusGroup(out, rp)
+    return FocusGroup(out, rp, [d for d in by_run if d])

@@ -17,6 +17,7 @@ from app.services.adtest_models import (AdBrief, AdTestResult, CulturalRisk, Pan
                                          VideoReview, Zone, ZoneIn, to_zones)
 
 cv2 = pytest.importorskip("cv2")
+QUICK_IDS = [p.id for p in persona_bank.select_panel(12)]
 PIL = pytest.importorskip("PIL")
 
 
@@ -157,13 +158,13 @@ def test_static_pipeline_runs_all_engines_and_personas_in_parallel(fake):
 # ------------------------------------------------------------------ the 100 personas
 def test_bank_has_100_distinct_personas_across_ages_regions_and_mindsets():
     B = persona_bank.BANK
-    assert len(B) == 100 and len({p.id for p in B}) == 100 and len({p.name for p in B}) >= 98
+    assert len(B) == 200 and len({p.id for p in B}) == 200 and len({p.name for p in B}) >= 198
     assert min(p.age for p in B) <= 17 and max(p.age for p in B) >= 70
     assert {p.age_group for p in B} == set(persona_bank.AGE_GROUPS)
     assert {p.region for p in B} == set(persona_bank.REGIONS)
     assert len({p.mindset for p in B}) >= 11 and {p.gender for p in B} == {"F", "M"}
     assert {"Sinhala", "Tamil", "English", "Singlish"} <= {p.language for p in B}
-    assert sum(1 for p in B if "Sinhala" in p.background) >= 55 and sum(1 for p in B if p.background in ("Muslim",)) >= 8
+    assert sum(1 for p in B if p.ethnic_group == "Sinhala") >= 120 and sum(1 for p in B if p.ethnic_group == "Muslim") >= 15 and sum(1 for p in B if p.ethnic_group == "Up-country Tamil") >= 8
     assert [p.id for p in B if p.core] == ["P001", "P002", "P003", "P004"]
     assert all(len(p.line()) < 330 for p in B)             # one short line each keeps a 100 person panel small
 
@@ -171,8 +172,9 @@ def test_bank_has_100_distinct_personas_across_ages_regions_and_mindsets():
 def test_panels_are_balanced_deterministic_and_filterable():
     q = persona_bank.select_panel(12)
     assert [p.id for p in q][:4] == ["P001", "P002", "P003", "P004"] and q == persona_bank.select_panel(12)
-    assert {p.age_group for p in q} == set(persona_bank.AGE_GROUPS) and len({p.region for p in q}) >= 4
-    assert len(persona_bank.select_panel(30)) == 30 and len(persona_bank.select_panel(100)) == 100
+    assert {p.age_group for p in q} == set(persona_bank.AGE_GROUPS) and len({p.region for p in q}) >= 3
+    assert sum(p.ethnic_group == "Sinhala" for p in q) >= 7 and len({p.ethnic_group for p in q}) >= 3          # looks like the country, not an even split
+    assert len(persona_bank.select_panel(30)) == 30 and len(persona_bank.select_panel(100)) == 100 and len(persona_bank.select_panel(200)) == 200
     women = persona_bank.filter_bank(25, 44, "F")
     assert women and all(p.gender == "F" and 25 <= p.age <= 44 for p in women)
     with pytest.raises(adtest_pipeline.PanelError):
@@ -192,11 +194,11 @@ def test_full_panel_is_four_batched_calls_on_the_cheap_model(fake):
 
 
 def test_people_the_model_skips_are_asked_for_again_then_left_out_honestly(monkeypatch):
-    f = Fake(drop={"P010", "P012"})
+    f = Fake(drop=set(QUICK_IDS[4:6]))
     monkeypatch.setattr(adtest_llm, "generate_json", f)
     res = asyncio.run(adtest_pipeline.run(AdBrief(ad_type="static"), png_bytes(), "ad.png", PanelConfig(runs=1)))
-    assert len(res.personas) == 12 and f.batches[1] == ["P010", "P012"]
-    g = Fake(drop={"P010"}, always=True)
+    assert len(res.personas) == 12 and f.batches[1] == QUICK_IDS[4:6]
+    g = Fake(drop={QUICK_IDS[4]}, always=True)
     monkeypatch.setattr(adtest_llm, "generate_json", g)
     res = asyncio.run(adtest_pipeline.run(AdBrief(ad_type="static"), png_bytes(3000 and (1200, 800)), "ad.png", PanelConfig(runs=1)))
     assert len(res.personas) == 11 and any("skipped 1 of 12" in c for c in res.caveats)
@@ -315,14 +317,14 @@ def test_api_job_flow_and_report(fake):
     j = wait_adtest(c, r.json()["job"])
     assert j["status"] == "done" and j["result"]["scorecard"]["risk_level"] == "Low" and len(j["result"]["personas"]) == 12 and j["result"]["panel"]["size"] == 12
     rep = c.post("/api/adtest/report", json=j["result"])
-    assert rep.status_code == 200 and "attachment" in rep.headers["content-disposition"]
+    assert rep.status_code == 200 and "attachment" in rep.headers["content-disposition"] and "pre-launch-audit.html" in rep.headers["content-disposition"]
     assert "නියමයි" in rep.text and "<script>alert(1)</script>" not in rep.text and "&lt;script&gt;" in rep.text
 
 
 def test_api_panel_preview_sizes_filters_and_cache(fake):
     c = api()
     st = c.get("/api/adtest/status").json()
-    assert st["sizes"] == {"quick": 12, "standard": 30, "full": 100} and st["bank"] == 100 and st["estimates"]["full"]["static"]["3"]["total"] > st["estimates"]["quick"]["static"]["3"]["total"] > st["estimates"]["quick"]["static"]["1"]["total"]
+    assert st["sizes"] == {"quick": 12, "standard": 30, "full": 100, "complete": 200} and st["bank"] == 200 and st["estimates"]["full"]["static"]["3"]["total"] > st["estimates"]["quick"]["static"]["3"]["total"] > st["estimates"]["quick"]["static"]["1"]["total"]
     pv = c.get("/api/adtest/panel", params={"panel_size": "standard", "gender": "F", "age_min": 25, "age_max": 44}).json()
     assert pv["count"] == 30 and all(p["gender"] == "F" and 25 <= p["age"] <= 44 for p in pv["people"]) or pv["count"] < 30
     assert c.get("/api/adtest/panel", params={"panel_size": "huge"}).status_code == 422
@@ -483,8 +485,8 @@ def test_report_shows_viability_margin_heatmap_benchmarks_and_actions(fake):
     from app.services import adtest_report
     res = asyncio.run(adtest_pipeline.run(AdBrief(ad_type="static", brand="R Co", goal="awareness"), png_bytes(), "ad.png", PanelConfig(runs=3)))
     html = adtest_report.build_html(res)
-    assert "Pre-launch viability" in html and "&plusmn;" in html and "Attention zones" in html and res.heatmap[:40] in html
-    assert "Benchmarks" in html and "Recommended actions" in html and "Indicative rules of thumb" in html and "How the score is built" in html
+    assert "Pre-launch viability" in html and "&plusmn;" in html and "attention zones" in html and res.heatmap[:40] in html
+    assert "Benchmarks" in html and "Recommended actions" in html and "Indicative rules of thumb" in html and "How the viability score is built" in html and "Executive summary" in html and "Every persona" in html
 
 
 def test_api_accepts_category_goal_runs_and_quality(fake):
@@ -636,3 +638,24 @@ def test_the_replacement_for_a_retired_model_is_remembered(monkeypatch):
     asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys"))
     asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys"))
     assert seen == ["gemini-2.5-pro", "gemini-3.1-pro-preview", "gemini-3.1-pro-preview"]
+
+
+def test_population_weighting_brings_a_panel_to_the_census_mix(fake):
+    from app.services import adtest_weights
+    pan = persona_bank.select_panel(100)
+    w = adtest_weights.rake(pan)
+    tot = sum(w.values())
+    share = lambda dim, k: 100 * sum(w[p.id] for p in pan if getattr(p, dim) == k) / tot  # noqa: E731
+    t = adtest_weights.targets()
+    assert abs(share("ethnic_group", "Sinhala") - t["ethnic_group"]["Sinhala"]) < 1.5 and abs(share("region", "Colombo") - t["region"]["Colombo"]) < 1.5
+    assert abs(share("age_group", "55 and over") - t["age_group"]["55 and over"]) < 1.5
+    assert min(w.values()) >= 0.25 and max(w.values()) <= 4.0 and adtest_weights.effective_n(list(w.values())) > 80
+    res = asyncio.run(adtest_pipeline.run(AdBrief(ad_type="static"), png_bytes(), "ad.png", PanelConfig(size="standard", runs=1)))
+    raw = asyncio.run(adtest_pipeline.run(AdBrief(ad_type="static", brand="x"), png_bytes(), "ad.png", PanelConfig(size="standard", runs=1, weighted=False)))
+    assert res.panel.weighted and res.panel.effective_n > 0 and not raw.panel.weighted and raw.panel.purchase == raw.panel.purchase_raw
+    assert res.scorecard.avg_purchase_intent == res.panel.purchase and any("weighted" in c for c in res.caveats)
+
+
+def test_complete_panel_uses_all_200(fake):
+    res = asyncio.run(adtest_pipeline.run(AdBrief(ad_type="static"), png_bytes(), "ad.png", PanelConfig(size="complete", runs=1)))
+    assert len(res.personas) == 200 and len([c for c in fake.calls if c["schema"] == "PanelBatch"]) == 8

@@ -19,9 +19,14 @@ def _key(text: str) -> str:
     return " ".join(re.sub(r"[^a-z ]", " ", text.lower()).split()[:3])
 
 
-def summarise(results: list[PersonaResult], requested: int, run_panels: list | None = None) -> PanelSummary:
+def summarise(results: list[PersonaResult], requested: int, run_panels: list | None = None, weights: dict[str, float] | None = None, weight_note: str = "") -> PanelSummary:
     n = max(1, len(results))
-    moods = Counter(r.reaction.mood for r in results)
+    wt = {r.persona_id: (weights or {}).get(r.persona_id, 1.0) for r in results}
+    tw = sum(wt.values()) or 1.0
+    wavg = lambda f: round(sum(wt[r.persona_id] * f(r) for r in results) / tw, 2)  # noqa: E731
+    moods = Counter()
+    for r in results:
+        moods[r.reaction.mood] += wt[r.persona_id] * n / tw
     segs: list[Segment] = []
     for kind, attr in KINDS:
         groups: dict[str, list[PersonaResult]] = defaultdict(list)
@@ -43,11 +48,16 @@ def summarise(results: list[PersonaResult], requested: int, run_panels: list | N
     score = lambda r: r.purchase_mean + r.share_mean + (3 if r.reaction.mood == "Positive" else -3 if r.reaction.mood in ("Troll", "Angry") else 0)  # noqa: E731
     ranked = sorted(results, key=score)
     rp = run_panels or []
-    emo = Counter(r.emotion for r in results if r.emotion)
+    emo = Counter()
+    for r in results:
+        if r.emotion:
+            emo[r.emotion] += wt[r.persona_id]
     pci = stats.interval([x.purchase for x in rp], 1, 10) if len(rp) >= 2 else None
     sci = stats.interval([x.share for x in rp], 1, 10) if len(rp) >= 2 else None
-    return PanelSummary(size=len(results), requested=requested, purchase=_avg([r.purchase_mean for r in results]),
-                        share=_avg([r.share_mean for r in results]), runs=max(1, len(rp)), purchase_ci=pci, share_ci=sci,
+    from .adtest_weights import effective_n
+    return PanelSummary(size=len(results), requested=requested, purchase=round(wavg(lambda r: r.purchase_mean), 1),
+                        share=round(wavg(lambda r: r.share_mean), 1), weighted=bool(weights), effective_n=effective_n(list(wt.values())),
+                        purchase_raw=_avg([r.purchase_mean for r in results]), share_raw=_avg([r.share_mean for r in results]), weight_note=weight_note, runs=max(1, len(rp)), purchase_ci=pci, share_ci=sci,
                         resonance=round(stats.mean([x.resonance for x in rp]), 1) if rp else 0.0, run_means=[round(x.purchase, 2) for x in rp],
                         emotions=[EmotionShare(emotion=k, percent=round(v * 100 / max(1, sum(emo.values())), 1)) for k, v in emo.most_common()], positive=round(moods["Positive"] * 100 / n, 1), neutral=round(moods["Neutral"] * 100 / n, 1),
                         troll=round(moods["Troll"] * 100 / n, 1), angry=round(moods["Angry"] * 100 / n, 1), segments=segs, concerns=concerns,
