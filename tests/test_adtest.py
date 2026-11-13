@@ -257,7 +257,7 @@ def test_usage_is_tallied_and_thinking_is_switched_off_for_the_panel(monkeypatch
             return SimpleNamespace(text='{"reactions": []}', usage_metadata=um)
 
     client = SimpleNamespace(aio=SimpleNamespace(models=Models()))
-    monkeypatch.setattr(adtest_llm.gem.service, "_get_client", lambda: client)
+    monkeypatch.setattr(adtest_llm.gem.service, "make_client", lambda vertex: client)
     u = adtest_llm.new_usage()
     out = asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys", model="gemini-2.5-flash", thinking=0))
     assert out.reactions == [] and seen == {"model": "gemini-2.5-flash", "thinking": 0} and u == {"input_tokens": 1000, "output_tokens": 200, "calls": 1}
@@ -527,7 +527,7 @@ def test_connection_check_tries_each_model_and_flags_a_missing_pro(monkeypatch):
 
     monkeypatch.setenv("GEMINI_API_KEY", "some-key")
     monkeypatch.setenv("GEMINI_BACKEND", "studio")
-    monkeypatch.setattr(adtest_llm.gem.service, "_get_client", lambda: SimpleNamespace(aio=SimpleNamespace(models=Models())))
+    monkeypatch.setattr(adtest_llm.gem.service, "make_client", lambda vertex: SimpleNamespace(aio=SimpleNamespace(models=Models())))
     out = asyncio.run(adtest_llm.check_connection())
     by = {m["model"]: m for m in out["models"]}
     assert not by["gemini-2.5-pro"]["ok"] and by["gemini-2.5-flash"]["ok"] and "Gemini 2.5 Flash instead" in out["hint"]
@@ -546,7 +546,7 @@ def test_a_missing_pro_model_falls_back_to_flash_and_says_so(monkeypatch):
 
     monkeypatch.setenv("GEMINI_API_KEY", "some-key")
     monkeypatch.setenv("GEMINI_BACKEND", "studio")
-    monkeypatch.setattr(adtest_llm.gem.service, "_get_client", lambda: SimpleNamespace(aio=SimpleNamespace(models=Models())))
+    monkeypatch.setattr(adtest_llm.gem.service, "make_client", lambda vertex: SimpleNamespace(aio=SimpleNamespace(models=Models())))
     u = adtest_llm.new_usage()
     out = asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys"))
     assert out.reactions == [] and seen == ["gemini-2.5-pro", "gemini-2.5-flash"] and "was used instead" in u["fallback"]
@@ -576,3 +576,36 @@ def test_a_refused_key_tries_the_other_google_endpoint_once(monkeypatch):
     monkeypatch.setattr(svc, "_client", None)
 
 
+
+
+def test_each_event_loop_gets_its_own_client_so_jobs_never_see_a_closed_loop(monkeypatch):
+    made = []
+    monkeypatch.setattr(adtest_llm.gem.service, "make_client", lambda vertex: made.append(vertex) or object())
+
+    async def grab():
+        return adtest_llm.client(), adtest_llm.client()
+
+    a1, a2 = asyncio.run(grab())
+    b1, _ = asyncio.run(grab())                              # a second job, a new loop: a new client, not the one from the closed loop
+    assert a1 is a2 and b1 is not a1 and len(made) == 2
+
+
+def test_a_retired_model_switches_to_the_one_google_suggests(monkeypatch):
+    from types import SimpleNamespace
+    seen = []
+
+    class Models:
+        async def generate_content(self, model, contents, config):
+            seen.append(model)
+            if model == "gemini-2.5-pro":
+                raise Exception("404 NOT_FOUND. {'error': {'code': 404, 'message': 'This model models/gemini-2.5-pro is no longer available to new users. "
+                                "Please update your code to use models/gemini-3-pro-preview instead.'}}")
+            return SimpleNamespace(text='{"reactions": []}', usage_metadata=None)
+
+    monkeypatch.setenv("GEMINI_API_KEY", "some-key")
+    monkeypatch.setenv("GEMINI_BACKEND", "studio")
+    monkeypatch.setattr(adtest_llm.gem.service, "make_client", lambda vertex: SimpleNamespace(aio=SimpleNamespace(models=Models())))
+    u = adtest_llm.new_usage()
+    asyncio.run(adtest_llm.generate_json(["hi"], PanelBatch, "sys"))
+    assert seen == ["gemini-2.5-pro", "gemini-3-pro-preview"] and "Google suggests" in u["fallback"]
+    assert adtest_llm.suggested_model("Please update your code to use models/gemini-3-pro-preview.") == "gemini-3-pro-preview"

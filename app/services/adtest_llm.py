@@ -48,6 +48,32 @@ FALLBACK = "gemini-2.5-flash"
 QUALITY: contextvars.ContextVar[str] = contextvars.ContextVar("adtest_quality", default="standard")
 
 
+_LOOP_CLIENTS: dict[int, tuple[Any, Any, bool]] = {}
+
+
+def client() -> Any:
+    """The Gemini client for the running event loop (made on first use, dropped when its loop closes or the endpoint changes)."""
+    loop = asyncio.get_running_loop()
+    for k, (lp, _, _) in list(_LOOP_CLIENTS.items()):
+        if lp.is_closed():
+            _LOOP_CLIENTS.pop(k, None)
+    vertex = gem.service._want_vertex()
+    hit = _LOOP_CLIENTS.get(id(loop))
+    if hit is None or hit[0] is not loop or hit[2] != vertex:
+        hit = (loop, gem.service.make_client(vertex), vertex)
+        _LOOP_CLIENTS[id(loop)] = hit
+    return hit[1]
+
+
+_SUGGEST = re.compile(r"use\s+(?:the\s+)?(?:model\s+)?models/([A-Za-z0-9._-]+)")
+
+
+def suggested_model(msg: str) -> str | None:
+    """Google sometimes retires a model for new users and names the one to use instead ("Please update your code to use models/...")."""
+    m = _SUGGEST.search(msg or "")
+    return m.group(1).rstrip(".") if m else None
+
+
 def model_name() -> str:
     """The model for the careful step (reading the ad): Gemini 2.5 Pro unless GEMINI_ADTEST_MODEL says otherwise."""
     return os.environ.get("GEMINI_ADTEST_MODEL") or PRO
@@ -105,7 +131,7 @@ async def _probe(client: Any, name: str) -> tuple[bool, str]:
         return True, ""
     except Exception as exc:  # noqa: BLE001
         code, msg = gem.GeminiService._classify(exc)
-        return False, f"{explain_refusal(code, msg, name)} (Google said: {msg[:160]})"
+        return False, f"{explain_refusal(code, msg, name)} (Google said: {msg[:300]})"
 
 
 async def check_connection() -> dict:
@@ -116,7 +142,13 @@ async def check_connection() -> dict:
         return out
     names = list(dict.fromkeys([model_name(), panel_model(), PRO]))
     for name in names:
-        ok, err = await _probe(gem.service._get_client(), name)
+        ok, err = await _probe(client(), name)
+        alt = suggested_model(err) if not ok else None
+        if alt and alt not in names:
+            ok2, err2 = await _probe(client(), alt)
+            out["models"].append({"model": alt, "ok": ok2, "error": err2})
+            if ok2:
+                out["hint"] = (out["hint"] + " " if out["hint"] else "") + f"Google has retired {name} for new users and suggests {alt}; the Ad Test will use {alt} for that step."
         out["models"].append({"model": name, "ok": ok, "error": err})
     out["ok"] = all(x["ok"] for x in out["models"])
     if not out["ok"] and gem.service.can_switch():
@@ -163,9 +195,9 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
     """parts: strings and google.genai types.Part objects (images). Returns the parsed schema or raises gem.GeminiError."""
     from google.genai import types
 
-    client = gem.service._get_client()
+    cl = client()
     name = model or model_name()
-    last, switched, i = "", False, 0
+    last, switched, tried_alt, i = "", False, False, 0
     allow_fallback = os.environ.get("GEMINI_ADTEST_FALLBACK", "1") != "0"
     while i < attempts:
         try:
@@ -175,7 +207,7 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
                 cfg.seed = seed
             if thinking is not None:      # thinking tokens are billed as output; short structured answers do not need them
                 cfg.thinking_config = types.ThinkingConfig(thinking_budget=max(128, thinking) if "pro" in name else thinking)
-            resp = await client.aio.models.generate_content(model=name, contents=parts, config=cfg)
+            resp = await cl.aio.models.generate_content(model=name, contents=parts, config=cfg)
             _tally(resp)
             return schema.model_validate(no_emoji(json.loads(_strip(_text_of(resp)))))
         except gem.GeminiError:
@@ -188,7 +220,17 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
             last = msg[:200]
             log.warning("[adtest] Gemini call failed (attempt %d, code %s, model %s, %s): %s", i + 1, code, name, gem.service.backend_name(), msg[:300])
             if code in (400, 401, 403, 404):
-                # 1) a model this key cannot use: read with Flash instead, and say so in the report
+                # 1) a retired model: use the one Google names in its answer, once
+                alt = suggested_model(msg) if code == 404 else None
+                if alt and alt != name and not tried_alt:
+                    tried_alt = True
+                    u = USAGE.get()
+                    if u is not None:
+                        u["fallback"] = f"Google has retired {name} for new users, so {alt} (the model Google suggests) was used instead."
+                    log.warning("[adtest] %s is retired for this key; Google suggests %s", name, alt)
+                    name = alt
+                    continue
+                # 2) a model this key cannot use: read with Flash instead, and say so in the report
                 if code == 404 and name != FALLBACK and allow_fallback:
                     u = USAGE.get()
                     if u is not None:
@@ -196,16 +238,16 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
                     log.warning("[adtest] %s is not available to this key; using %s", name, FALLBACK)
                     name = FALLBACK
                     continue
-                # 2) a key that belongs to the other Google endpoint (AI Studio or Vertex AI express): try it once
+                # 3) a key that belongs to the other Google endpoint (AI Studio or Vertex AI express): try it once
                 if code in (401, 403, 404) and not switched and gem.service.can_switch():
                     switched = True
                     gem.service.switch_backend()
-                    client = gem.service._get_client()
+                    cl = client()
                     continue
                 if switched:
                     gem.service.switch_backend()                       # neither endpoint worked: go back to where we started
                 log.error("[adtest] Gemini refused the request (code %s, model %s): %s", code, name, msg[:500])
-                raise gem.GeminiError(explain_refusal(code, msg, name) + f" (Google said: {msg[:160]})", 502) from exc
+                raise gem.GeminiError(explain_refusal(code, msg, name) + f" (Google said: {msg[:300]})", 502) from exc
         await asyncio.sleep(min(8.0, 1.5 * (2 ** i)))
         i += 1
     raise gem.GeminiError(f"Gemini could not complete this step ({last}). Please try again in a moment.", 502)
