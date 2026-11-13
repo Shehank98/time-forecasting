@@ -73,10 +73,17 @@ def _panel_cfg(panel_size: str, age_min: int, age_max: int, gender: str, region:
 @router.get("/api/adtest/status")
 def status(ws: Workspace = Depends(workspace)) -> dict:
     est = {k: {t: {str(r): adtest_pipeline.estimate_tokens(t, n, r) for r in (1, 3)} for t in ("static", "video")} for k, n in persona_bank.PANEL_SIZES.items()}
-    return {"configured": llm.configured(), "model": llm.model_name(), "panel_model": llm.panel_model(), "best_model": llm.model_name(), "sizes": persona_bank.PANEL_SIZES, "estimates": est,
+    return {"configured": llm.configured(), "key_problem": llm.key_problem(), "model": llm.model_name(), "panel_model": llm.panel_model(), "best_model": llm.model_name(), "sizes": persona_bank.PANEL_SIZES, "estimates": est,
             "regions": persona_bank.REGIONS, "age_groups": persona_bank.AGE_GROUPS, "bank": len(persona_bank.BANK),
             "limits": {"image_mb": vision_engine.MAX_IMAGE_BYTES // 1048576, "video_mb": vision_engine.MAX_VIDEO_BYTES // 1048576,
                        "video_seconds": vision_engine.MAX_VIDEO_SECONDS}}
+
+
+@router.get("/api/adtest/check")
+async def check(ws: Workspace = Depends(workspace)) -> dict:
+    """Is the Gemini key valid, and can it reach the models this card uses? No tokens are used."""
+    rate_limit(ws.sid + ":adtest-check", 10)
+    return await llm.check_connection()
 
 
 @router.get("/api/adtest/panel")

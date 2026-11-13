@@ -63,6 +63,52 @@ def configured() -> bool:
     return gem.service.configured()
 
 
+def key_problem() -> str | None:
+    """A quick look at the key's shape, without calling Google. Gemini API keys from Google AI Studio start with AIza and are 39 characters."""
+    k = (os.environ.get("GEMINI_API_KEY") or "").strip().strip('"').strip("'")
+    if not k:
+        return "GEMINI_API_KEY is not set."
+    if not k.startswith("AIza"):
+        return ("GEMINI_API_KEY does not look like a Gemini API key: real keys start with AIza and are 39 characters long. "
+                "Create one in Google AI Studio (aistudio.google.com, Get API key) and set it on the server.")
+    if len(k) != 39:
+        return f"GEMINI_API_KEY is {len(k)} characters; Gemini API keys are 39. It may have been cut off when it was pasted."
+    return None
+
+
+def explain_refusal(code: int | None, msg: str, model: str) -> str:
+    """Turn Google's refusal into one clear next step for the planner."""
+    m = (msg or "").lower()
+    if code == 401 or "api key not valid" in m or "api_key_invalid" in m or "unauthenticated" in m:
+        return "Gemini rejected the API key. " + (key_problem() or "Create a new key in Google AI Studio, set GEMINI_API_KEY on the server and restart.")
+    if code == 403 or "permission" in m:
+        return ("Gemini refused access with this key (permission denied). Check that the Generative Language API is enabled for the key's Google project, "
+                "that the key has no restrictions blocking it, and that billing is on for the Pro model.")
+    if code == 404 or "not found" in m:
+        return f"The model {model} was not found for this key. Check GEMINI_ADTEST_MODEL and GEMINI_ADTEST_PANEL_MODEL (for example gemini-2.5-pro and gemini-2.5-flash)."
+    if "mime" in m or "unsupported" in m or "image" in m or "video" in m:
+        return "Gemini could not read the file. Export the ad again as JPG, PNG or an H.264 MP4 and try again."
+    return "Gemini refused the request: " + (msg[:240] if msg else "no reason given") + "."
+
+
+async def check_connection() -> dict:
+    """Asks Google for each model this card uses. Uses no tokens. Returns {ok, key_problem, models: [{model, ok, error}]}."""
+    problem = key_problem()
+    out = {"ok": False, "key_problem": problem, "models": []}
+    if not configured():
+        return out
+    client = gem.service._get_client()
+    for name in dict.fromkeys([model_name(), panel_model(), PRO]):
+        try:
+            await client.aio.models.get(model=name)
+            out["models"].append({"model": name, "ok": True, "error": ""})
+        except Exception as exc:  # noqa: BLE001
+            code, msg = gem.GeminiService._classify(exc)
+            out["models"].append({"model": name, "ok": False, "error": explain_refusal(code, msg, name)})
+    out["ok"] = bool(out["models"]) and all(x["ok"] for x in out["models"])
+    return out
+
+
 def _text_of(resp: Any) -> str:
     return (getattr(resp, "text", None) or "").strip()
 
@@ -116,6 +162,7 @@ async def generate_json(parts: list[Any], schema: type[T], system: str, temperat
             last = msg[:200]
             log.warning("[adtest] Gemini call failed (attempt %d, code %s): %s", i + 1, code, msg[:200])
             if code in (400, 401, 403, 404):
-                raise gem.GeminiError("Gemini refused the request. Check the API key, the model name and that the file is a supported type.", 502) from exc
+                log.error("[adtest] Gemini refused the request (code %s, model %s): %s", code, name, msg[:500])
+                raise gem.GeminiError(explain_refusal(code, msg, name), 502) from exc
         await asyncio.sleep(min(8.0, 1.5 * (2 ** i)))
     raise gem.GeminiError(f"Gemini could not complete this step ({last}). Please try again in a moment.", 502)

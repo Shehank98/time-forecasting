@@ -58,7 +58,9 @@
           ${sel('gender', 'Gender', [['', 'Everyone'], ['F', 'Women'], ['M', 'Men']], p.gender)}${sel('region', 'Where', [['', 'Anywhere']].concat((S.regions || []).map((r) => [r, r])), p.region)}</div></details>
         <div class="at-crowd" id="at-crowd" aria-label="The people who will react"></div><div class="muted small" id="at-crowdnote"></div></div>
       <div class="row" style="margin-top:12px;gap:12px;flex-wrap:wrap;align-items:center"><button class="btn primary" type="button" id="at-run" ${st.file && !st.running && S.configured ? '' : 'disabled'}>Run pre-launch simulation</button>
-        <span class="muted small">${S.configured === false ? 'The Gemini key is not set on the server, so tests cannot run.' : 'The ad and text are sent to Gemini for the test. They are not stored on our server. The same ad and settings run again for free.'}</span></div></div>`;
+        <span class="muted small">${S.configured === false ? 'The Gemini key is not set on the server, so tests cannot run.' : 'The ad and text are sent to Gemini for the test. They are not stored on our server. The same ad and settings run again for free.'}</span>
+        <button class="btn sm ghost" type="button" id="at-check">Check the Gemini connection</button></div>
+      ${S.key_problem ? `<div class="banner warn" style="margin-top:10px"><span>${esc(S.key_problem)}</span></div>` : ''}<div id="at-checkout"></div></div>`;
     $$('#at-form .seg button').forEach((b) => { b.onclick = () => { readForm(); st.type = b.dataset.t; st.file = null; st.url = ''; st.result = null; paint(); }; });
     $$('#at-form .at-size').forEach((b) => { b.onclick = () => { readForm(); st.panel.size = b.dataset.size; form(); loadPreview(); }; });
     ['age_min', 'age_max', 'gender', 'region'].forEach((k) => { const el = $('#at-' + k); if (el) el.onchange = () => { st.panel[k] = el.value; loadPreview(); }; });
@@ -73,6 +75,14 @@
     drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); pick(e.dataTransfer.files[0]); };
     const clr = $('#at-clear'); if (clr) clr.onclick = () => { readForm(); st.file = null; st.url = ''; form(); drawCrowd(); };
     $('#at-run').onclick = run; drawCrowd();
+    $('#at-check').onclick = async (e) => {
+      const btn = e.currentTarget, box = $('#at-checkout'); btn.disabled = true; btn.textContent = 'Checking...';
+      try {
+        const c = await App.api.get('/api/adtest/check');
+        box.innerHTML = `<div class="banner ${c.ok ? 'good' : 'bad'}" style="margin-top:10px"><span>${c.ok ? '<b>Gemini is connected.</b> ' : '<b>Gemini is not reachable with this setup.</b> '}${c.key_problem ? esc(c.key_problem) + ' ' : ''}${(c.models || []).map((m) => `${esc(m.model)}: ${m.ok ? 'ready' : esc(m.error)}`).join(' &middot; ')}</span></div>`;
+      } catch (x) { box.innerHTML = `<div class="banner bad" style="margin-top:10px"><span>${esc(x.message)}</span></div>`; }
+      btn.disabled = false; btn.textContent = 'Check the Gemini connection';
+    };
   }
   function readForm() { ['brand', 'product', 'headline', 'copy', 'audience', 'objective', 'market_notes'].forEach((k) => { const el = $('#at-' + k); if (el) st.form[k] = el.value; }); }
   async function loadPreview() {

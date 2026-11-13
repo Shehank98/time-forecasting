@@ -501,3 +501,31 @@ def test_api_accepts_category_goal_runs_and_quality(fake):
 def test_emojis_are_removed_from_answers_but_sinhala_and_tamil_stay():
     out = adtest_llm.no_emoji({"a": "නියමයි! \u2764\ufe0f", "b": ["Super \U0001F602\U0001F602 deal", "நல்லது \U0001F44D"], "n": 5})
     assert out == {"a": "නියමයි!", "b": ["Super deal", "நல்லது"], "n": 5}
+
+
+def test_key_shape_and_refusals_are_explained_in_plain_words(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "AQ.not-an-api-key-just-a-test-value")
+    assert "start with AIza" in adtest_llm.key_problem()
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza" + "x" * 30)
+    assert "34 characters" in adtest_llm.key_problem()
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza" + "x" * 35)
+    assert adtest_llm.key_problem() is None
+    assert "rejected the API key" in adtest_llm.explain_refusal(401, "API key not valid. Please pass a valid API key.", "gemini-2.5-pro")
+    assert "was not found" in adtest_llm.explain_refusal(404, "models/gemini-9 is not found", "gemini-9")
+    assert "permission denied" in adtest_llm.explain_refusal(403, "PERMISSION_DENIED", "gemini-2.5-pro")
+
+
+def test_connection_check_reports_each_model(monkeypatch):
+    from types import SimpleNamespace
+
+    class Models:
+        async def get(self, model):
+            if model == "gemini-2.5-flash":
+                raise Exception("404 NOT_FOUND. models/gemini-2.5-flash is not found")
+            return SimpleNamespace(name=model)
+
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza" + "x" * 35)
+    monkeypatch.setattr(adtest_llm.gem.service, "_get_client", lambda: SimpleNamespace(aio=SimpleNamespace(models=Models())))
+    out = asyncio.run(adtest_llm.check_connection())
+    by = {m["model"]: m for m in out["models"]}
+    assert by["gemini-2.5-pro"]["ok"] and not by["gemini-2.5-flash"]["ok"] and out["ok"] is False and out["key_problem"] is None
