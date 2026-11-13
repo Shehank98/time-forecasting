@@ -503,13 +503,14 @@ def test_emojis_are_removed_from_answers_but_sinhala_and_tamil_stay():
     assert out == {"a": "නියමයි!", "b": ["Super deal", "நல்லது"], "n": 5}
 
 
-def test_key_shape_and_refusals_are_explained_in_plain_words(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "AQ.not-an-api-key-just-a-test-value")
-    assert "start with AIza" in adtest_llm.key_problem()
-    monkeypatch.setenv("GEMINI_API_KEY", "AIza" + "x" * 30)
-    assert "34 characters" in adtest_llm.key_problem()
-    monkeypatch.setenv("GEMINI_API_KEY", "AIza" + "x" * 35)
+def test_key_check_only_flags_certain_problems_and_refusals_are_explained(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "AQ.any-format-google-may-issue")       # newer key formats are accepted; Google decides
     assert adtest_llm.key_problem() is None
+    monkeypatch.setenv("GEMINI_API_KEY", '"quoted-key"')
+    assert "quotes or spaces" in adtest_llm.key_problem()
+    monkeypatch.setenv("GEMINI_API_KEY", "  ")
+    assert "not set" in adtest_llm.key_problem()
+    monkeypatch.setenv("GEMINI_API_KEY", "a-key")
     assert "rejected the API key" in adtest_llm.explain_refusal(401, "API key not valid. Please pass a valid API key.", "gemini-2.5-pro")
     assert "was not found" in adtest_llm.explain_refusal(404, "models/gemini-9 is not found", "gemini-9")
     assert "permission denied" in adtest_llm.explain_refusal(403, "PERMISSION_DENIED", "gemini-2.5-pro")

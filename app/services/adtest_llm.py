@@ -64,15 +64,13 @@ def configured() -> bool:
 
 
 def key_problem() -> str | None:
-    """A quick look at the key's shape, without calling Google. Gemini API keys from Google AI Studio start with AIza and are 39 characters."""
-    k = (os.environ.get("GEMINI_API_KEY") or "").strip().strip('"').strip("'")
-    if not k:
+    """Only the problems that are certain without calling Google: no key, or a key pasted with quotes or spaces. Google issues keys in more than one
+    format, so the shape of a key is not judged; the connection check asks Google instead."""
+    raw = os.environ.get("GEMINI_API_KEY") or ""
+    if not raw.strip():
         return "GEMINI_API_KEY is not set."
-    if not k.startswith("AIza"):
-        return ("GEMINI_API_KEY does not look like a Gemini API key: real keys start with AIza and are 39 characters long. "
-                "Create one in Google AI Studio (aistudio.google.com, Get API key) and set it on the server.")
-    if len(k) != 39:
-        return f"GEMINI_API_KEY is {len(k)} characters; Gemini API keys are 39. It may have been cut off when it was pasted."
+    if raw != raw.strip() or raw[:1] in "\"'" or raw[-1:] in "\"'" or " " in raw.strip():
+        return "GEMINI_API_KEY has quotes or spaces around it. Paste the key on its own, with nothing around it."
     return None
 
 
@@ -80,7 +78,7 @@ def explain_refusal(code: int | None, msg: str, model: str) -> str:
     """Turn Google's refusal into one clear next step for the planner."""
     m = (msg or "").lower()
     if code == 401 or "api key not valid" in m or "api_key_invalid" in m or "unauthenticated" in m:
-        return "Gemini rejected the API key. " + (key_problem() or "Create a new key in Google AI Studio, set GEMINI_API_KEY on the server and restart.")
+        return "Gemini rejected the API key. " + (key_problem() or "Create a new key in Google AI Studio (aistudio.google.com, Get API key), set GEMINI_API_KEY on the server and restart.")
     if code == 403 or "permission" in m:
         return ("Gemini refused access with this key (permission denied). Check that the Generative Language API is enabled for the key's Google project, "
                 "that the key has no restrictions blocking it, and that billing is on for the Pro model.")
